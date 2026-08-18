@@ -64,7 +64,7 @@ const COPY = {
       contradiction: {
         title: "엇갈린 시간",
         text: (name) => `${withJosa(name, "은", "는")} 사건 시간을 두 번 다르게 말했어요.`,
-        firstPersonText: "나는 사건 시각을 두 번 다르게 말했어요.",
+        firstPersonText: "사건 시간을 내가 두 번 다르게 말한 게 맞아요. 그건 인정할게요.",
         badge: "시간 모순",
         guidance: "말 바꾸기 주장과 가장 잘 이어져요.",
         baseReason: (name) => `${withJosa(name, "은", "는")} 22:10 전후의 시간을 다르게 말해 알리바이가 흔들렸기 때문`,
@@ -243,7 +243,7 @@ const COPY = {
       contradiction: {
         title: "Conflicting times",
         text: (name) => `${name} gave two different times for the incident.`,
-        firstPersonText: "I gave two different times for the incident.",
+        firstPersonText: "It's true that I gave two different times for the incident. I'll admit that.",
         badge: "Time contradiction",
         guidance: "Best supports a claim that their story changed.",
         baseReason: (name) => `${name} gave conflicting times around 22:10, weakening their alibi`,

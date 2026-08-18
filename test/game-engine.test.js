@@ -176,8 +176,9 @@ test("승무원은 자신의 사실을 1인칭으로 말한다", () => {
   const statements = getMeetingStatements(state);
   assert.match(statements.find((item) => item.id === "mina").text, /^나는/);
   assert.match(statements.find((item) => item.id === "juno").text, /^내 주머니/);
-  assert.match(statements.find((item) => item.id === "noel").text, /내 사물함.*나는/);
+  assert.match(statements.find((item) => item.id === "noel").text, /내 사물함.*사건 시간을 내가/);
   assert.doesNotMatch(statements.map((item) => item.text).join(" "), /미나는|주노의|노엘은/);
+  assert.doesNotMatch(statements.map((item) => item.text).join(" "), /사건 시각/);
 });
 
 test("카메라 기록은 장소 거짓말만 반박하고 말 바꾸기와는 양립한다", () => {
@@ -228,6 +229,12 @@ test("세 표가 모두 갈리면 누구도 탈락하지 않고 무승부가 된
   assert.equal(new Set(result.votes.map((vote) => vote.candidateId)).size, 3);
   assert.equal(result.selectedId, null);
   assert.equal(result.outcome, "draw");
+});
+
+test("일반 플레이 선택에서도 무승부가 실제로 발생한다", () => {
+  const draw = strategyMatrix().find((item) => item.result.outcome === "draw");
+  assert.ok(draw);
+  assert.equal(new Set(draw.result.votes.map((vote) => vote.candidateId)).size, 3);
 });
 
 test("승리 등급은 실제 표 변화와 다른 공격 대상 성공을 보상한다", () => {

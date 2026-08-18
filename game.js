@@ -15,8 +15,8 @@ import {
   plantEvidence,
   resolveVote,
   startGame,
-} from "./game-engine.js?v=0.5.0";
-import { getCopy, normalizeLocale } from "./i18n.js?v=0.5.0";
+} from "./game-engine.js?v=0.5.1";
+import { getCopy, normalizeLocale } from "./i18n.js?v=0.5.1";
 
 const app = document.querySelector("#app");
 const assetVersion = new URL(import.meta.url).searchParams.get("v");
@@ -181,7 +181,7 @@ function renderMeeting() {
     ${incidentBoard(true)}
 
     <div class="fact-list" aria-label="${ui.publicFacts}">
-      ${crew.map(factCard).join("")}
+      ${crew.map((person) => factCard(person)).join("")}
     </div>
 
     <details class="meeting-talk">

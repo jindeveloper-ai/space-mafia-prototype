@@ -25,5 +25,7 @@ test("브라우저 에셋과 내부 모듈은 패키지 버전으로 캐시를 �
   assert.match(gameSource, /new URL\(import\.meta\.url\)\.searchParams\.get\("v"\)/);
   assert.match(indexHtml, /data-lang="ko"[^>]+href="\.\/\?lang=ko"/);
   assert.match(indexHtml, /data-lang="en"[^>]+href="\.\/\?lang=en"/);
+  assert.match(gameSource, /crew\.map\(\(person\) => factCard\(person\)\)/);
+  assert.doesNotMatch(gameSource, /crew\.map\(factCard\)/);
   assert.doesNotMatch(`${indexHtml}\n${gameSource}\n${engineSource}`, /v0\.[34]/);
 });
