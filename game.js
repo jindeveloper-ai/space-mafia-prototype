@@ -11,12 +11,14 @@ import {
   getIncident,
   getMeetingStatements,
   getResponseOptions,
+  getSubquest,
   nextCaseIndex,
+  nextSubquestId,
   plantEvidence,
   resolveVote,
   startGame,
-} from "./game-engine.js?v=0.5.1";
-import { getCopy, normalizeLocale } from "./i18n.js?v=0.5.1";
+} from "./game-engine.js?v=0.7.2";
+import { getCopy, normalizeLocale } from "./i18n.js?v=0.7.2";
 
 const app = document.querySelector("#app");
 const assetVersion = new URL(import.meta.url).searchParams.get("v");
@@ -77,23 +79,74 @@ function incidentBoard(compact = false) {
   `;
 }
 
+function subquestCard(mode = "active") {
+  const quest = getSubquest(state.subquestId, locale);
+  if (!quest) return "";
+  const isResult = mode === "result";
+  const statusClass = !isResult
+    ? ""
+    : state.subquestCompleted
+      ? "is-complete"
+      : "is-missed";
+  const label = !isResult
+    ? ui.subquestLabel
+    : state.subquestCompleted
+      ? ui.subquestSuccess
+      : ui.subquestMissed;
+  const detail = !isResult
+    ? ui.subquestOptional
+    : state.subquestCompleted
+      ? ui.subquestSuccessDetail
+      : ui.subquestMissedDetail;
+  return `
+    <aside class="subquest-card ${statusClass}" aria-label="${label}">
+      <span>${label}</span>
+      <strong>${escapeHtml(quest.title)}</strong>
+      <small>${detail}</small>
+    </aside>
+  `;
+}
+
 function personAvatar(person, size = "normal") {
-  return `<span class="avatar avatar--${size}" aria-hidden="true">${person.icon}</span>`;
+  return `<span class="avatar avatar--${size} avatar--${person.id}" aria-hidden="true">${person.icon}</span>`;
 }
 
 function renderIntro() {
   return `
-    <div class="hero-copy">
-      <span class="eyebrow">${versionLabel} · ${ui.gameLength}</span>
-      <h1 tabindex="-1">${ui.introTitle}</h1>
-      <p class="lead">${ui.introLead}</p>
-    </div>
+    <article class="community-post">
+      <div class="post-author">
+        <span class="anonymous-avatar" aria-hidden="true">A</span>
+        <div><strong>${ui.communityAuthor}</strong><small>${ui.communityBoard}</small></div>
+      </div>
+      <h1 tabindex="-1">${ui.communityPostTitle}</h1>
+      <p>${ui.communityPostBody}</p>
+      <small class="post-meta">${ui.communityPostMeta}</small>
+    </article>
+
+    <section class="room-preview" aria-label="${ui.roomMembers}">
+      <div class="room-preview__header"><strong>${ui.roomMembers}</strong><small>${ui.roomStatus}</small></div>
+      <div class="member-list">
+        ${crew.map((person) => `
+          <div class="member-row">
+            ${personAvatar(person, "small")}
+            <div><strong>${person.name}</strong><small>${person.style}</small></div>
+            <span class="online-dot" aria-label="${ui.online}"></span>
+          </div>
+        `).join("")}
+      </div>
+    </section>
+
+    <section class="role-panel">
+      <span>${ui.roleLabel}</span>
+      <strong>${ui.introTitle}</strong>
+      <p>${ui.introLead}</p>
+    </section>
+
+    <button class="primary-button" data-action="start">${ui.start}</button>
 
     <ol class="rules" aria-label="${ui.rulesAria}">
       ${ui.rules.map((rule, index) => `<li><span>${index + 1}</span><p>${rule}</p></li>`).join("")}
     </ol>
-
-    <button class="primary-button" data-action="start">${ui.start}</button>
   `;
 }
 
@@ -126,6 +179,8 @@ function renderEvidence() {
     </div>
 
     ${incidentBoard()}
+
+    ${subquestCard()}
 
     <div class="evidence-note">
       <span aria-hidden="true">🪪</span>
@@ -207,6 +262,8 @@ function renderLieBuilder() {
 
     ${incidentBoard(true)}
 
+    ${subquestCard()}
+
     <div class="fact-list fact-list--compact" aria-label="${ui.factSummary}">
       ${crew.map((person) => factCard(person, true)).join("")}
     </div>
@@ -262,6 +319,8 @@ function renderChallenge() {
 
     ${incidentBoard(true)}
 
+    ${subquestCard()}
+
     <article class="challenge-card">
       ${personAvatar(challenger)}
       <div>
@@ -299,6 +358,8 @@ function renderResponse() {
     </div>
 
     ${incidentBoard(true)}
+
+    ${subquestCard()}
 
     <div class="lean-list" aria-label="${ui.preVoteAria}">
       ${leans
@@ -396,6 +457,8 @@ function renderResult() {
       <p>${description}</p>
     </div>
 
+    ${subquestCard("result")}
+
     ${renderVoteShifts()}
 
     <div class="vote-grid" aria-label="${ui.resultAria}">
@@ -421,6 +484,8 @@ function renderResult() {
   `;
 }
 
+let renderedPhase = null;
+
 function render() {
   const views = {
     intro: renderIntro,
@@ -431,12 +496,21 @@ function render() {
     response: renderResponse,
     result: renderResult,
   };
+  const phaseChanged = renderedPhase !== state.phase;
   app.innerHTML = views[state.phase]();
-  app.querySelector("h1")?.focus({ preventScroll: true });
+  if (phaseChanged) {
+    window.scrollTo(0, 0);
+    app.querySelector("h1")?.focus({ preventScroll: true });
+  }
+  renderedPhase = state.phase;
 }
 
 function resetGame() {
-  state = startGame(createGame({ caseIndex: nextCaseIndex(state.caseIndex), locale }));
+  state = startGame(createGame({
+    caseIndex: nextCaseIndex(state.caseIndex),
+    subquestId: nextSubquestId(state.subquestId),
+    locale,
+  }));
   selectedTargetId = null;
   selectedAccusedId = null;
   render();

@@ -1,4 +1,4 @@
-import { getCopy, normalizeLocale, withJosa } from "./i18n.js?v=0.5.1";
+import { getCopy, normalizeLocale, withJosa } from "./i18n.js?v=0.7.2";
 
 export { withJosa };
 
@@ -11,6 +11,7 @@ const CREW_BASE = [
 ];
 
 const CLAIM_IDS = ["seen", "machine", "changed"];
+export const SUBQUEST_IDS = ["redirect", "check-time", "weak-link", "safe-win"];
 
 export function getCrew(locale = "ko") {
   const copy = getCopy(locale);
@@ -24,6 +25,10 @@ export function getIncident(locale = "ko") {
 export function getClaims(locale = "ko") {
   const copy = getCopy(locale);
   return CLAIM_IDS.map((id) => ({ id, ...copy.claims[id] }));
+}
+
+export function getSubquest(id, locale = "ko") {
+  return getCopy(locale).subquests[id] ?? null;
 }
 
 export const CREW = getCrew();
@@ -95,7 +100,8 @@ function createFacts(caseIndex, locale) {
           icon: factType.icon,
           title: localized.title,
           text: localized.text(member.name),
-          firstPersonText: localized.firstPersonText,
+          spokenText: localized.spokenText(member.name),
+          firstPersonText: localized.firstPersonText(member.personality),
           badge: localized.badge,
           guidance: localized.guidance,
           impacts: { ...factType.impacts },
@@ -141,11 +147,16 @@ export function createGame(options = {}) {
   const caseIndex = Number.isInteger(requestedIndex)
     ? ((requestedIndex % CASE_ASSIGNMENTS.length) + CASE_ASSIGNMENTS.length) % CASE_ASSIGNMENTS.length
     : Math.floor(Math.random() * CASE_ASSIGNMENTS.length);
+  const subquestId = SUBQUEST_IDS.includes(options.subquestId)
+    ? options.subquestId
+    : SUBQUEST_IDS[Math.floor(Math.random() * SUBQUEST_IDS.length)];
 
   const state = {
     phase: "intro",
     locale,
     caseIndex,
+    subquestId,
+    subquestCompleted: null,
     facts: createFacts(caseIndex, locale),
     targetId: null,
     accusedId: null,
@@ -190,6 +201,13 @@ export function createGame(options = {}) {
 export function nextCaseIndex(currentCaseIndex) {
   const offset = 1 + Math.floor(Math.random() * (CASE_ASSIGNMENTS.length - 1));
   return (currentCaseIndex + offset) % CASE_ASSIGNMENTS.length;
+}
+
+export function nextSubquestId(currentSubquestId) {
+  const currentIndex = SUBQUEST_IDS.indexOf(currentSubquestId);
+  const safeIndex = currentIndex >= 0 ? currentIndex : 0;
+  const offset = 1 + Math.floor(Math.random() * (SUBQUEST_IDS.length - 1));
+  return SUBQUEST_IDS[(safeIndex + offset) % SUBQUEST_IDS.length];
 }
 
 export function startGame(state) {
@@ -272,7 +290,7 @@ export function getMeetingStatements(state) {
     if (member.id === state.targetId) {
       return {
         ...member,
-        text: copy.engine.meetingFramed(fact.firstPersonText),
+        text: copy.engine.meetingFramed(member.personality),
       };
     }
     return { ...member, text: fact.firstPersonText };
@@ -302,14 +320,16 @@ function chooseChallenger(accusedId, impact) {
 function buildChallenge(state, accused, claim, fact, impact, challengerId) {
   const engine = getCopy(state.locale).engine;
   const isSelfDefense = challengerId === accused.id;
-  const statedFact = isSelfDefense ? fact.firstPersonText : fact.text;
+  const challenger = getCrewMember(challengerId, state.locale);
+  const personality = challenger?.personality ?? "behavior";
+  const statedFact = isSelfDefense ? fact.firstPersonText : fact.spokenText;
   if (impact < 0) {
-    return engine.challengeContradiction(statedFact, accused.name, claim.challengeAction, isSelfDefense);
+    return engine.challengeContradiction(statedFact, accused.name, claim.challengeAction, isSelfDefense, personality);
   }
   if (isSelfDefense) {
-    return engine.challengeSelf(statedFact);
+    return engine.challengeSelf(statedFact, personality);
   }
-  return engine.challengeWeak(statedFact, accused.name);
+  return engine.challengeWeak(statedFact, accused.name, personality);
 }
 
 export function applyLie(state, accusedId, claimId) {
@@ -349,7 +369,7 @@ export function applyLie(state, accusedId, claimId) {
         voter.id,
         accusedId,
         scaledImpact,
-        copy.engine.reasons.claimSupports(fact.text),
+      copy.engine.reasons.claimSupports(fact.spokenText),
         `claim:${claimId}`,
       );
     } else {
@@ -358,7 +378,7 @@ export function applyLie(state, accusedId, claimId) {
         voter.id,
         PLAYER_ID,
         Math.abs(scaledImpact),
-        copy.engine.reasons.claimContradicts(fact.text),
+      copy.engine.reasons.claimContradicts(fact.spokenText),
         "claim:contradicted",
       );
       next.beliefs[voter.id][accusedId] += Math.round(scaledImpact / 3);
@@ -547,7 +567,7 @@ export function resolveVote(state) {
         ? "manipulator"
         : "survivor";
 
-  return {
+  const result = {
     ...state,
     phase: "result",
     votes,
@@ -556,4 +576,13 @@ export function resolveVote(state) {
     voteShiftCount,
     resultTier,
   };
+  const subquestCompleted = state.subquestId === "redirect"
+    ? outcome === "win" && selectedId === state.accusedId && state.accusedId !== state.targetId
+    : state.subquestId === "check-time"
+      ? outcome === "win" && state.responseId === "check-time"
+      : state.subquestId === "weak-link"
+        ? outcome === "win" && state.lieImpact >= 0 && state.lieImpact < 12
+        : outcome === "win" && resultTier === "survivor";
+
+  return { ...result, subquestCompleted };
 }
