@@ -17,8 +17,8 @@ import {
   plantEvidence,
   resolveVote,
   startGame,
-} from "./game-engine.js?v=0.7.2";
-import { getCopy, normalizeLocale } from "./i18n.js?v=0.7.2";
+} from "./game-engine.js?v=0.8.2";
+import { getCopy, normalizeLocale } from "./i18n.js?v=0.8.2";
 
 const app = document.querySelector("#app");
 const assetVersion = new URL(import.meta.url).searchParams.get("v");
@@ -39,12 +39,31 @@ document.querySelector(".topbar").setAttribute("aria-label", copy.meta.gameInfo)
 document.querySelector(".brand").setAttribute("aria-label", copy.meta.home);
 document.querySelector(".brand").href = `./?lang=${locale}`;
 document.querySelector(".brand-name").textContent = copy.meta.brand;
-document.querySelector(".mode-badge").textContent = `${versionLabel} · ${ui.mode}`;
 document.querySelector(".language-switch").setAttribute("aria-label", copy.meta.language);
-document.querySelector("footer").textContent = copy.meta.footer;
+document.querySelector(".footer-copy").textContent = copy.meta.footer;
+document.querySelector(".footer-version").textContent = versionLabel;
 document.querySelectorAll("[data-lang]").forEach((link) => {
   link.setAttribute("aria-current", link.dataset.lang === locale ? "page" : "false");
 });
+
+const themeButton = document.querySelector("[data-theme-action]");
+const themeController = window.oxygenRoomTheme;
+
+function renderThemeControl() {
+  const theme = themeController?.read() ?? "system";
+  const labels = copy.meta.themeModes;
+  const icons = { system: "◐", light: "○", dark: "●" };
+  themeButton.dataset.themeMode = theme;
+  themeButton.setAttribute("aria-label", copy.meta.themeControl(labels[theme]));
+  themeButton.querySelector(".theme-icon").textContent = icons[theme];
+  themeButton.querySelector(".theme-text").textContent = labels[theme];
+}
+
+themeButton.addEventListener("click", () => {
+  themeController?.next();
+  renderThemeControl();
+});
+renderThemeControl();
 
 let state = createGame({ locale });
 let selectedTargetId = null;
@@ -72,8 +91,8 @@ function progress(step, label) {
 function incidentBoard(compact = false) {
   return `
     <aside class="incident-board ${compact ? "is-compact" : ""}" aria-label="${ui.incidentAria}">
-      <div><span>${ui.incidentPlace}</span><strong>🚪 ${incident.place}</strong></div>
-      <div><span>${ui.incidentTime}</span><strong>🕙 ${incident.time}</strong></div>
+      <div><span>${ui.incidentPlace}</span><strong>${incident.place}</strong></div>
+      <div><span>${ui.incidentTime}</span><strong>${incident.time}</strong></div>
       <p>${incident.confirmed}</p>
     </aside>
   `;
@@ -113,6 +132,8 @@ function personAvatar(person, size = "normal") {
 
 function renderIntro() {
   return `
+    <p class="scene-setting">${ui.sceneSetting}</p>
+
     <article class="community-post">
       <div class="post-author">
         <span class="anonymous-avatar" aria-hidden="true">A</span>
@@ -124,7 +145,10 @@ function renderIntro() {
     </article>
 
     <section class="room-preview" aria-label="${ui.roomMembers}">
-      <div class="room-preview__header"><strong>${ui.roomMembers}</strong><small>${ui.roomStatus}</small></div>
+      <div class="room-preview__header">
+        <div><span>${ui.roomBadge}</span><strong>${ui.roomMembers}</strong></div>
+        <small>${ui.roomStatus}</small>
+      </div>
       <div class="member-list">
         ${crew.map((person) => `
           <div class="member-row">
@@ -163,7 +187,7 @@ function crewChoiceCard(person, selectedId, action, fact = null) {
       ${personAvatar(person)}
       <span class="crew-name">${person.name}</span>
       <span class="crew-style">${person.style}</span>
-      ${fact ? `<span class="crew-fact-badge ${fact.id === "alibi" ? "is-alibi" : ""}">${fact.icon} ${fact.badge}</span>` : ""}
+      ${fact ? `<span class="crew-fact-badge ${fact.id === "alibi" ? "is-alibi" : ""}">${ui.factMarks[fact.id]} · ${fact.badge}</span>` : ""}
       <span class="selected-label">${isSelected ? ui.selected : ui.select}</span>
     </button>
   `;
@@ -183,7 +207,7 @@ function renderEvidence() {
     ${subquestCard()}
 
     <div class="evidence-note">
-      <span aria-hidden="true">🪪</span>
+      <span aria-hidden="true">${ui.evidenceMark}</span>
       <div><strong>${incident.evidence}</strong><p>${ui.evidencePrompt}</p></div>
     </div>
 
@@ -201,7 +225,7 @@ function factCard(person, compact = false) {
   const fact = state.facts[person.id];
   return `
     <article class="fact-card ${compact ? "is-compact" : ""}">
-      <span class="fact-icon" aria-hidden="true">${fact.icon}</span>
+      <span class="fact-icon" aria-hidden="true">${ui.factMarks[fact.id]}</span>
       <div>
         <div class="fact-name"><strong>${person.name}</strong><span>${fact.badge}</span></div>
         <p>${fact.text}</p>
@@ -276,7 +300,7 @@ function renderLieBuilder() {
       accused
         ? `
           <div class="selected-fact">
-            <span aria-hidden="true">${state.facts[accused.id].icon}</span>
+            <span class="fact-icon" aria-hidden="true">${ui.factMarks[state.facts[accused.id].id]}</span>
             <p><strong>${ui.selectedFact(accused.name)}</strong><br />${state.facts[accused.id].text}</p>
           </div>
           <div class="builder-step">
@@ -478,6 +502,11 @@ function renderResult() {
     <div class="result-explanation">
       <strong>${explanationTitle}</strong>
       <p>${resultExplanation()}</p>
+    </div>
+
+    <div class="next-round-promise">
+      <strong>${ui.nextRoundTitle}</strong>
+      <span>${ui.nextRoundDetail}</span>
     </div>
 
     <button class="primary-button" data-action="restart">${ui.restart}</button>
