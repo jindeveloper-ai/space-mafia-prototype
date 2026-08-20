@@ -307,7 +307,10 @@ def interpret_player_message(payload):
             "additionalProperties": False,
         }
         return call_structured(
-            "Map the player's Mafia-game accusation to one target and one claim. Use only the supplied IDs. Do not judge whether it is true.",
+            "Map the player's Mafia-game accusation to the one person they ultimately blame and the claim attached to that person. "
+            "If multiple people or facts are mentioned, pair each action with its subject and choose the final accusation or conclusion, not the first name. "
+            "claimId meanings: seen=the target was seen leaving the oxygen room; machine=the target touched or tampered with the purifier or had the relevant tool; "
+            "changed=the target changed or confused their time/story. Use only supplied IDs and do not judge truth.",
             payload,
             "mafia_accusation",
             schema,
@@ -320,7 +323,9 @@ def interpret_player_message(payload):
         "additionalProperties": False,
     }
     return call_structured(
-        "Map the player's rebuttal to the closest supplied response strategy. Use only the supplied IDs.",
+        "Map the player's rebuttal by meaning, not exact wording. responseId meanings: check-time=inspect 22:10, original records, logs, timestamps, or timeline; "
+        "return-evidence=return attention to the planted access card, locker, or physical evidence; double-down=insist on the original accusation or eyewitness claim. "
+        "Use only supplied IDs.",
         payload,
         "mafia_response",
         schema,

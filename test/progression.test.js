@@ -2,15 +2,18 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   acceptPersonalQuest,
+  awardCrewLevels,
   createProgression,
   dismissCompletedQuest,
   evaluatePersonalQuest,
+  INITIAL_CREW_LEVELS,
   isAttackAllowed,
   isPrivateDetectiveEquipped,
   localDateKey,
   markDebriefViewed,
   PRIVATE_DETECTIVE_ID,
   setEquippedJob,
+  setDifficultyMode,
   settlePersonalQuest,
 } from "../progression.js";
 import {
@@ -209,4 +212,29 @@ test("잘못되거나 오래된 로컬 저장 데이터는 안전한 초기 상�
     equippedJob: PRIVATE_DETECTIVE_ID,
   });
   assert.deepEqual(recovered, createProgression());
+});
+
+test("기존 저장 데이터는 초기 AI 레벨로 이관되고 레벨은 판마다 한 번만 오른다", () => {
+  const migrated = createProgression({ version: 1, affinity: { mina: 7, juno: 2, noel: 1 } });
+  assert.deepEqual(migrated.crewLevels, INITIAL_CREW_LEVELS);
+  assert.equal(migrated.affinity.mina, 7);
+
+  const gameState = { phase: "result", roundId: "round-level-1" };
+  const first = awardCrewLevels(migrated, gameState);
+  assert.deepEqual(first.progress.crewLevels, { mina: 3, juno: 5, noel: 4 });
+  assert.ok(first.growth);
+  const duplicate = awardCrewLevels(first.progress, gameState);
+  assert.deepEqual(duplicate.progress.crewLevels, first.progress.crewLevels);
+  assert.equal(duplicate.growth, null);
+});
+
+test("AI 레벨은 50에서 멈추고 하드 모드 선택은 저장된다", () => {
+  const capped = createProgression({
+    version: 2,
+    crewLevels: { mina: 50, juno: 50, noel: 50 },
+  });
+  assert.equal(awardCrewLevels(capped, { phase: "result", roundId: "cap" }).growth, null);
+  const hard = setDifficultyMode(capped, "hard");
+  assert.equal(createProgression(JSON.parse(JSON.stringify(hard))).difficultyMode, "hard");
+  assert.equal(setDifficultyMode(hard, "invalid").difficultyMode, "normal");
 });

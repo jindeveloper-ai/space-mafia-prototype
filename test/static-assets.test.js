@@ -197,13 +197,17 @@ test("개인 퀘스트·서로 다른 날 조사일지·탐정 능력은 로컬 
   ]);
 
   assert.match(gameSource, /data-action="accept-personal-quest"/);
-  assert.match(gameSource, /settlePersonalQuest\(progression, state/);
+  assert.match(gameSource, /settlePersonalQuest\(levelAward\.progress, state/);
   assert.match(gameSource, /markDebriefViewed\(progression/);
   assert.match(gameSource, /data-action="inspect-suspicion"/);
   assert.match(progressionSource, /clueDates/);
   assert.match(progressionSource, /!current\.clueDates\.includes\(date\)/);
   assert.match(progressionSource, /current\.clues\.length < 5/);
   assert.match(progressionSource, /PROGRESSION_STORAGE_KEY = "mars-net-progression-v1"/);
+  assert.match(progressionSource, /INITIAL_CREW_LEVELS/);
+  assert.match(progressionSource, /awardCrewLevels/);
+  assert.match(gameSource, /data-action="set-difficulty"/);
+  assert.match(gameSource, /renderLevelGrowth/);
   assert.doesNotMatch(progressionSource, /transcript|message|api/i);
   assert.match(styles, /@keyframes room-message-enter/);
   assert.match(styles, /@keyframes result-land/);

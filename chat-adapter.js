@@ -16,23 +16,53 @@ function bestClaimFor(state, accusedId) {
   CLAIM_IDS[0]);
 }
 
-function namedCrewMember(message, crew) {
+function crewMentions(message, crew) {
   const normalized = message.toLocaleLowerCase();
-  return crew.find((member) =>
-    normalized.includes(member.id) || normalized.includes(member.name.toLocaleLowerCase()),
-  );
+  const mentions = [];
+  for (const member of crew) {
+    const aliases = [...new Set([member.id, member.name.toLocaleLowerCase()])];
+    for (const alias of aliases) {
+      let index = normalized.indexOf(alias);
+      while (index >= 0) {
+        mentions.push({ member, index, length: alias.length });
+        index = normalized.indexOf(alias, index + alias.length);
+      }
+    }
+  }
+  return mentions.sort((a, b) => a.index - b.index || b.length - a.length);
 }
 
 function claimFromMessage(message) {
   const normalized = message.toLocaleLowerCase();
   if (/(말\s*바|바꿔|시간|시각|진술|changed|story|time)/u.test(normalized)) return "changed";
-  if (/(정화기|기계|고장|만졌|조작|machine|purifier|tamper)/u.test(normalized)) return "machine";
+  if (/(정화기|기계|고장|만졌|조작|공구|machine|purifier|tamper|tool)/u.test(normalized)) return "machine";
   if (/(산소실|나왔|봤|목격|oxygen|saw|seen)/u.test(normalized)) return "seen";
   return null;
 }
 
+function accusationFromMessage(message, crew) {
+  const mentions = crewMentions(message, crew);
+  if (!mentions.length) return { member: null, claimId: null };
+  const paired = mentions.flatMap((mention, index) => {
+    const end = mentions[index + 1]?.index ?? message.length;
+    const claimId = claimFromMessage(message.slice(mention.index, end));
+    return claimId ? [{ member: mention.member, claimId, index: mention.index }] : [];
+  });
+  if (paired.length) return paired.at(-1);
+  return { member: mentions.at(-1).member, claimId: null };
+}
+
+function responseFromMessage(message) {
+  const normalized = message.toLocaleLowerCase();
+  if (/(22\s*:\s*10|원본|기록|시간|시각|로그|타임라인|record|time|log|timeline|original)/u.test(normalized)) return "check-time";
+  if (/(카드|사물함|증거|출입|card|locker|evidence|access)/u.test(normalized)) return "return-evidence";
+  if (/(직접\s*(봤|봄)|확실|그대로|밀어|믿어|directly|certain|stick|saw it)/u.test(normalized)) return "double-down";
+  return null;
+}
+
 export function fallbackAccusation(message, state, crew) {
-  const member = namedCrewMember(message, crew)
+  const explicit = accusationFromMessage(message, crew);
+  const member = explicit.member
     ?? crew.reduce((best, candidate) => {
       const candidateImpact = state.facts[candidate.id].impacts[bestClaimFor(state, candidate.id)];
       const bestImpact = state.facts[best.id].impacts[bestClaimFor(state, best.id)];
@@ -40,35 +70,33 @@ export function fallbackAccusation(message, state, crew) {
     }, crew[0]);
   return {
     accusedId: member.id,
-    claimId: claimFromMessage(message) ?? bestClaimFor(state, member.id),
+    claimId: explicit.claimId ?? claimFromMessage(message) ?? bestClaimFor(state, member.id),
   };
 }
 
 export function fallbackResponse(message) {
-  const normalized = message.toLocaleLowerCase();
-  if (/(22:10|기록|시간|시각|로그|record|time|log)/u.test(normalized)) return { responseId: "check-time" };
-  if (/(카드|사물함|증거|card|locker|evidence)/u.test(normalized)) return { responseId: "return-evidence" };
-  return { responseId: "double-down" };
+  return { responseId: responseFromMessage(message) ?? "double-down" };
 }
 
 export function normalizeInterpretation(stage, interpretation, message, state, crew) {
   if (stage === "accusation") {
     const fallback = fallbackAccusation(message, state, crew);
-    const explicitMember = namedCrewMember(message, crew);
-    const explicitClaim = claimFromMessage(message);
+    const explicit = accusationFromMessage(message, crew);
+    const remoteMemberId = crew.some((member) => member.id === interpretation?.accusedId)
+      ? interpretation.accusedId
+      : null;
+    const accusedId = explicit.member?.id ?? remoteMemberId ?? fallback.accusedId;
+    const remoteClaimMatchesTarget = remoteMemberId === accusedId && CLAIM_IDS.includes(interpretation?.claimId);
     return {
-      accusedId: explicitMember?.id ?? (crew.some((member) => member.id === interpretation?.accusedId)
-        ? interpretation.accusedId
-        : fallback.accusedId),
-      claimId: explicitClaim ?? (CLAIM_IDS.includes(interpretation?.claimId)
-        ? interpretation.claimId
-        : fallback.claimId),
+      accusedId,
+      claimId: explicit.claimId ?? (remoteClaimMatchesTarget ? interpretation.claimId : fallback.claimId),
     };
   }
+  const explicitResponseId = responseFromMessage(message);
   return {
-    responseId: RESPONSE_IDS.includes(interpretation?.responseId)
+    responseId: explicitResponseId ?? (RESPONSE_IDS.includes(interpretation?.responseId)
       ? interpretation.responseId
-      : fallbackResponse(message).responseId,
+      : fallbackResponse(message).responseId),
   };
 }
 

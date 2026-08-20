@@ -17,17 +17,18 @@ import {
   plantEvidence,
   resolveVote,
   startGame,
-} from "./game-engine.js?v=0.12.7";
-import { getCopy, normalizeLocale } from "./i18n.js?v=0.12.7";
+} from "./game-engine.js?v=0.13.0";
+import { getCopy, normalizeLocale } from "./i18n.js?v=0.13.0";
 import {
   buildChatPayload,
   fallbackAccusation,
   fallbackResponse,
   MAX_CHAT_LENGTH,
   normalizeInterpretation,
-} from "./chat-adapter.js?v=0.12.7";
+} from "./chat-adapter.js?v=0.13.0";
 import {
   acceptPersonalQuest,
+  awardCrewLevels,
   createProgression,
   dismissCompletedQuest,
   isAttackAllowed,
@@ -37,8 +38,9 @@ import {
   PRIVATE_DETECTIVE_ID,
   PROGRESSION_STORAGE_KEY,
   setEquippedJob,
+  setDifficultyMode,
   settlePersonalQuest,
-} from "./progression.js?v=0.12.7";
+} from "./progression.js?v=0.13.0";
 
 const app = document.querySelector("#app");
 const assetVersion = new URL(import.meta.url).searchParams.get("v");
@@ -50,6 +52,8 @@ const injectedTestDate = ["127.0.0.1", "localhost"].includes(window.location.hos
   ? requestedTestDate
   : null;
 const currentDateKey = () => injectedTestDate ?? localDateKey();
+const newRoundId = () => globalThis.crypto?.randomUUID?.()
+  ?? `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 const copy = getCopy(locale);
 const ui = copy.ui;
 const FRIEND_EMOJI_OPTIONS = ["😂", "🥹", "😅", "🤔", "😳", "🙄", "👍", "👏", "❤️", "🔥", "👀", "🚀"];
@@ -105,7 +109,11 @@ soundController?.setLabels({
   volume: ui.audioVolume,
 });
 
-let state = { ...createGame({ locale }), phase: "welcome" };
+let progression = loadProgression();
+let state = {
+  ...createGame({ locale, crewLevels: progression.crewLevels, difficultyMode: progression.difficultyMode, roundId: newRoundId() }),
+  phase: "welcome",
+};
 let selectedTargetId = null;
 let chatLog = [];
 let chatPending = false;
@@ -115,10 +123,10 @@ let typingSpeakerId = null;
 let selectedFriendId = null;
 let friendConversationIndex = 0;
 let playerProfile = loadPlayerProfile();
-let progression = loadProgression();
 let questOfferCharacterId = null;
 let lastPersonalQuestResult = null;
 let lastClueAward = null;
+let lastLevelGrowth = null;
 let detectiveInspection = null;
 
 const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
@@ -266,6 +274,10 @@ function personAvatar(person, size = "normal") {
   return `<span class="avatar avatar--${size} avatar--${person.id}" aria-hidden="true"><img src="${CREW_AVATARS[person.id]}" alt="" /></span>`;
 }
 
+function crewLevelLabel(personId) {
+  return ui.level.label(progression.crewLevels[personId]);
+}
+
 function roomAvatarStack() {
   return `
     <div class="room-avatar-stack" aria-hidden="true">
@@ -275,9 +287,8 @@ function roomAvatarStack() {
 }
 
 function roomStatusLabel() {
-  if (chatMode === "live") return ui.chatModeLive;
-  if (chatNotice) return ui.chatModeMock;
-  return ui.roomStatus;
+  const status = chatMode === "live" ? ui.chatModeLive : chatNotice ? ui.chatModeMock : ui.roomStatus;
+  return `${status} · ${ui.difficulty.short[state.difficultyMode ?? "normal"]}`;
 }
 
 function friendStatusLabel() {
@@ -397,7 +408,7 @@ function homeHistoryRow(person, index) {
   return `
     <button class="home-history-row ${index === 1 ? "is-featured" : ""}" type="button" data-action="choose-friend" data-id="${person.id}">
       ${personAvatar(person, "small")}
-      <span><strong>${person.name}</strong><small>${ui.homeHistoryPreview[person.personality]}</small></span>
+      <span><strong>${person.name} <small class="level-badge">${crewLevelLabel(person.id)}</small></strong><small>${ui.homeHistoryPreview[person.personality]}</small></span>
       <time>${ui.homeHistoryTime[index]}</time>
       <span aria-hidden="true">›</span>
     </button>
@@ -500,6 +511,23 @@ function renderJobChoice() {
   `;
 }
 
+function renderDifficultyChoice() {
+  const selected = progression.difficultyMode;
+  return `
+    <section class="difficulty-choice" aria-label="${ui.difficulty.title}">
+      <div><span>${ui.difficulty.eyebrow}</span><strong>${ui.difficulty.title}</strong></div>
+      <div class="difficulty-choice__buttons">
+        ${["normal", "hard"].map((mode) => `
+          <button class="${selected === mode ? "is-selected" : ""}" type="button" data-action="set-difficulty" data-id="${mode}" aria-pressed="${selected === mode}">
+            <strong>${ui.difficulty.names[mode]}</strong><small>${ui.difficulty.descriptions[mode]}</small>
+          </button>
+        `).join("")}
+      </div>
+      <small>${ui.difficulty.current(ui.difficulty.names[selected])}</small>
+    </section>
+  `;
+}
+
 function renderHome() {
   const name = escapeHtml(playerProfile.name || ui.profileDefaultName);
   return `
@@ -561,7 +589,7 @@ function renderIntro() {
         ${crew.map((person) => `
           <div class="member-row">
             ${personAvatar(person, "small")}
-            <div><strong>${person.name}</strong><small>${person.style}</small></div>
+            <div><strong>${person.name} <span class="level-badge">${crewLevelLabel(person.id)}</span></strong><small>${person.style}</small></div>
             <span class="online-dot" aria-label="${ui.online}"></span>
           </div>
         `).join("")}
@@ -575,6 +603,8 @@ function renderIntro() {
     </section>
 
     ${renderJobChoice()}
+
+    ${renderDifficultyChoice()}
 
     <div class="intro-actions">
       <button class="primary-button" data-action="start">${ui.start}</button>
@@ -619,7 +649,7 @@ function renderFriendSelect() {
           ${crew.map((person) => `
             <button class="friend-row" type="button" data-action="choose-friend" data-id="${person.id}" aria-label="${ui.friendChatWith(person.name)}">
               ${personAvatar(person)}
-              <span><strong>${person.name}</strong><small>${person.style} · ${ui.affinity(progression.affinity[person.id])}</small></span>
+              <span><strong>${person.name} <small class="level-badge">${crewLevelLabel(person.id)}</small></strong><small>${person.style} · ${ui.affinity(progression.affinity[person.id])}</small></span>
               <span class="online-dot" aria-label="${ui.online}"></span>
               <span class="friend-row__arrow" aria-hidden="true">›</span>
             </button>
@@ -877,7 +907,7 @@ function friendRoomBar(person) {
       ${personAvatar(person, "small")}
       <div class="game-room-bar__copy">
         <strong>${person.name}</strong>
-        <small>${chatPending ? ui.chatTypingPerson(person.name) : friendStatusLabel()} · ${ui.affinity(progression.affinity[person.id])}</small>
+        <small>${chatPending ? ui.chatTypingPerson(person.name) : friendStatusLabel()} · ${crewLevelLabel(person.id)} · ${ui.affinity(progression.affinity[person.id])}</small>
       </div>
       <button class="room-sound" type="button" data-audio-toggle aria-label="${ui.audioMute}"><span aria-hidden="true">♪</span></button>
       <button class="room-theme" type="button" data-action="cycle-theme" aria-label="${copy.meta.themeControl(copy.meta.themeModes[themeController?.read() ?? "system"])}">
@@ -1011,6 +1041,16 @@ function renderVoteShifts() {
   `;
 }
 
+function renderLevelGrowth() {
+  if (!lastLevelGrowth) return "";
+  return `
+    <section class="level-growth" aria-label="${ui.level.growthTitle}">
+      <div><span aria-hidden="true">↑</span><strong>${ui.level.growthTitle}</strong><small>${ui.level.growthDetail}</small></div>
+      <ul>${crew.map((person) => `<li><span>${person.name}</span><strong>${ui.level.label(lastLevelGrowth.current[person.id])}</strong></li>`).join("")}</ul>
+    </section>
+  `;
+}
+
 function renderResult() {
   const result = ui.result;
   const isWin = state.outcome === "win";
@@ -1047,6 +1087,8 @@ function renderResult() {
     ${subquestCard("result")}
 
     ${renderActivePersonalQuest("result")}
+
+    ${renderLevelGrowth()}
 
     ${renderVoteShifts()}
 
@@ -1441,6 +1483,9 @@ function resetGame() {
     caseIndex: nextCaseIndex(state.caseIndex),
     subquestId: nextSubquestId(state.subquestId),
     locale,
+    crewLevels: progression.crewLevels,
+    difficultyMode: progression.difficultyMode,
+    roundId: newRoundId(),
   }));
   selectedTargetId = null;
   chatLog = [];
@@ -1452,6 +1497,7 @@ function resetGame() {
   questOfferCharacterId = null;
   lastPersonalQuestResult = null;
   lastClueAward = null;
+  lastLevelGrowth = null;
   detectiveInspection = null;
   render();
 }
@@ -1486,7 +1532,17 @@ app.addEventListener("click", (event) => {
     detectiveInspection = null;
     lastPersonalQuestResult = null;
     lastClueAward = null;
-    state = startGame(state);
+    const nextState = state.targetId || state.outcome
+      ? createGame({
+        caseIndex: nextCaseIndex(state.caseIndex),
+        subquestId: nextSubquestId(state.subquestId),
+        locale,
+        crewLevels: progression.crewLevels,
+        difficultyMode: progression.difficultyMode,
+        roundId: newRoundId(),
+      })
+      : state;
+    state = startGame(nextState);
   }
   if (action === "open-friends") state = { ...state, phase: "friend-select" };
   if (action === "back-home") state = { ...state, phase: "home" };
@@ -1505,6 +1561,14 @@ app.addEventListener("click", (event) => {
   if (action === "later-personal-quest") questOfferCharacterId = null;
   if (action === "equip-job") {
     saveProgression(setEquippedJob(progression, button.dataset.id === PRIVATE_DETECTIVE_ID ? PRIVATE_DETECTIVE_ID : null));
+  }
+  if (action === "set-difficulty") {
+    saveProgression(setDifficultyMode(progression, button.dataset.id));
+    state = {
+      ...state,
+      crewLevels: { ...progression.crewLevels },
+      difficultyMode: progression.difficultyMode,
+    };
   }
   if (action === "inspect-suspicion" && isPrivateDetectiveEquipped(progression) && !detectiveInspection && state.phase === "meeting") {
     const voterId = button.dataset.id;
@@ -1528,8 +1592,10 @@ app.addEventListener("click", (event) => {
   }
   if (action === "vote") {
     state = resolveVote(state);
-    const settlement = settlePersonalQuest(progression, state, { date: currentDateKey() });
+    const levelAward = awardCrewLevels(progression, state);
+    const settlement = settlePersonalQuest(levelAward.progress, state, { date: currentDateKey() });
     saveProgression(settlement.progress);
+    lastLevelGrowth = levelAward.growth;
     lastPersonalQuestResult = settlement.result;
   }
   if (action === "debrief") return openDebrief();

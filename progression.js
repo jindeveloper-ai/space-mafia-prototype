@@ -1,6 +1,7 @@
 export const PROGRESSION_STORAGE_KEY = "mars-net-progression-v1";
-export const PROGRESSION_VERSION = 1;
+export const PROGRESSION_VERSION = 2;
 export const PRIVATE_DETECTIVE_ID = "private-detective";
+export const INITIAL_CREW_LEVELS = Object.freeze({ mina: 2, juno: 4, noel: 3 });
 
 const CREW_IDS = ["mina", "juno", "noel"];
 const QUEST_BY_CHARACTER = {
@@ -10,6 +11,7 @@ const QUEST_BY_CHARACTER = {
 };
 const QUEST_IDS = Object.values(QUEST_BY_CHARACTER);
 const OUTCOMES = ["win", "lose", "draw"];
+const DIFFICULTY_MODES = ["normal", "hard"];
 
 function uniqueStrings(values, predicate = () => true, limit = 200) {
   if (!Array.isArray(values)) return [];
@@ -24,6 +26,13 @@ function safeAffinity(raw) {
   return Object.fromEntries(CREW_IDS.map((id) => [
     id,
     Number.isFinite(raw?.[id]) ? Math.min(999, Math.max(0, Math.floor(raw[id]))) : 0,
+  ]));
+}
+
+function safeCrewLevels(raw) {
+  return Object.fromEntries(CREW_IDS.map((id) => [
+    id,
+    Number.isFinite(raw?.[id]) ? Math.min(50, Math.max(1, Math.floor(raw[id]))) : INITIAL_CREW_LEVELS[id],
   ]));
 }
 
@@ -70,13 +79,16 @@ function safeClues(raw) {
 }
 
 export function createProgression(raw = null) {
-  const source = raw && typeof raw === "object" && raw.version === PROGRESSION_VERSION ? raw : {};
+  const source = raw && typeof raw === "object" && [1, PROGRESSION_VERSION].includes(raw.version) ? raw : {};
   const clues = safeClues(source.clues);
   const unlockedJobs = uniqueStrings(source.unlockedJobs, (id) => id === PRIVATE_DETECTIVE_ID, 1);
   if (clues.length >= 5 && !unlockedJobs.includes(PRIVATE_DETECTIVE_ID)) unlockedJobs.push(PRIVATE_DETECTIVE_ID);
   return {
     version: PROGRESSION_VERSION,
     affinity: safeAffinity(source.affinity),
+    crewLevels: safeCrewLevels(source.crewLevels),
+    difficultyMode: DIFFICULTY_MODES.includes(source.difficultyMode) ? source.difficultyMode : "normal",
+    leveledRoundIds: uniqueStrings(source.leveledRoundIds, (id) => id.length <= 100, 100),
     activeQuest: safeActiveQuest(source.activeQuest),
     rewardedQuestIds: uniqueStrings(source.rewardedQuestIds, (id) => id.length <= 100),
     clueDates: uniqueStrings(source.clueDates, isDateKey, 5),
@@ -86,6 +98,30 @@ export function createProgression(raw = null) {
       ? PRIVATE_DETECTIVE_ID
       : null,
   };
+}
+
+export function awardCrewLevels(progress, gameState) {
+  const current = createProgression(progress);
+  const roundId = typeof gameState?.roundId === "string" ? gameState.roundId.slice(0, 100) : "";
+  if (gameState?.phase !== "result" || !roundId || current.leveledRoundIds.includes(roundId)) {
+    return { progress: current, growth: null };
+  }
+  const previous = { ...current.crewLevels };
+  const crewLevels = Object.fromEntries(CREW_IDS.map((id) => [id, Math.min(50, current.crewLevels[id] + 1)]));
+  const changed = CREW_IDS.some((id) => crewLevels[id] !== previous[id]);
+  return {
+    progress: {
+      ...current,
+      crewLevels,
+      leveledRoundIds: [...current.leveledRoundIds, roundId].slice(-100),
+    },
+    growth: changed ? { previous, current: crewLevels } : null,
+  };
+}
+
+export function setDifficultyMode(progress, difficultyMode) {
+  const current = createProgression(progress);
+  return { ...current, difficultyMode: DIFFICULTY_MODES.includes(difficultyMode) ? difficultyMode : "normal" };
 }
 
 export function localDateKey(date = new Date()) {

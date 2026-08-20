@@ -3287,6 +3287,109 @@ body[data-phase="home"] .game-card {
   padding: 14px;
 }
 
+.difficulty-choice {
+  display: grid;
+  gap: 10px;
+  margin: 10px 16px;
+  padding: 14px;
+  border: 1px solid var(--outline-variant);
+  border-radius: 16px;
+  background: var(--surface-container-low);
+  color: var(--on-surface);
+}
+
+.difficulty-choice > div:first-child {
+  display: grid;
+  gap: 2px;
+}
+
+.difficulty-choice > div:first-child span,
+.difficulty-choice > small,
+.difficulty-choice button small {
+  color: var(--on-surface-variant);
+  font-size: 0.68rem;
+}
+
+.difficulty-choice__buttons {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.difficulty-choice button {
+  display: grid;
+  min-height: 64px;
+  align-content: center;
+  gap: 3px;
+  padding: 9px 10px;
+  border: 1px solid var(--outline-variant);
+  border-radius: 12px;
+  background: transparent;
+  color: var(--on-surface);
+  cursor: pointer;
+  text-align: left;
+}
+
+.difficulty-choice button.is-selected {
+  border-color: var(--primary);
+  background: var(--primary-container);
+  color: var(--on-primary-container);
+}
+
+.level-badge {
+  color: var(--primary);
+  font-size: 0.66rem;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.level-growth {
+  display: grid;
+  gap: 10px;
+  margin: 10px 16px;
+  padding: 12px 14px;
+  border: 1px solid var(--primary);
+  border-radius: 16px;
+  background: var(--primary-container);
+  color: var(--on-primary-container);
+}
+
+.level-growth > div {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr);
+  gap: 1px 8px;
+}
+
+.level-growth > div > span {
+  display: grid;
+  grid-row: 1 / 3;
+  place-items: center;
+  font-weight: 900;
+}
+
+.level-growth small {
+  font-size: 0.7rem;
+  opacity: 0.75;
+}
+
+.level-growth ul {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.level-growth li {
+  display: grid;
+  gap: 2px;
+  padding: 7px 8px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--on-primary-container) 7%, transparent);
+  font-size: 0.7rem;
+}
+
 .job-choice button,
 .detective-panel button {
   min-height: 44px;

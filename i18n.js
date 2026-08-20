@@ -236,6 +236,22 @@ const COPY = {
       friendEmojiInsert: (emoji) => `${emoji} 이모티콘 넣기`,
       friendChatPrivacy: "이 대화는 현재 세션에만 표시됨",
       affinity: (score) => `친밀도 ${score}`,
+      level: {
+        label: (level) => `Lv.${level}`,
+        growthTitle: "친구들이 레벨업했습니다",
+        growthDetail: "다음 판부터 추리와 반박이 조금 더 날카로워집니다.",
+      },
+      difficulty: {
+        eyebrow: "선택 설정",
+        title: "게임 난이도",
+        names: { normal: "일반", hard: "하드" },
+        short: { normal: "일반", hard: "HARD" },
+        descriptions: {
+          normal: "현재 레벨 그대로 플레이",
+          hard: "AI 추리를 20레벨 높여 적용",
+        },
+        current: (name) => `현재 ${name} 모드 · 언제든 변경 가능`,
+      },
       personalQuest: {
         title: "다음 판 서브퀘스트",
         inGameLabel: "개인 서브퀘스트",
@@ -654,6 +670,22 @@ const COPY = {
       friendEmojiInsert: (emoji) => `Insert ${emoji} emoji`,
       friendChatPrivacy: "Shown only in this session",
       affinity: (score) => `Closeness ${score}`,
+      level: {
+        label: (level) => `Lv.${level}`,
+        growthTitle: "Your friends leveled up",
+        growthDetail: "Their reads and rebuttals sharpen slightly next game.",
+      },
+      difficulty: {
+        eyebrow: "Optional setting",
+        title: "Game difficulty",
+        names: { normal: "Normal", hard: "Hard" },
+        short: { normal: "Normal", hard: "HARD" },
+        descriptions: {
+          normal: "Play at their current levels",
+          hard: "Treat their reads as 20 levels higher",
+        },
+        current: (name) => `${name} mode selected · change anytime`,
+      },
       personalQuest: {
         title: "Next-game side quest",
         inGameLabel: "Personal side quest",
