@@ -69,6 +69,11 @@ test("Pixabay 배경음은 로컬 에셋으로 대기실·게임 장면, 음소�
   assert.match(soundSource, /new Audio\("\.\/assets\/audio\/game-sneaky-film-noir\.mp3"\)/);
   assert.match(soundSource, /nextScene === "game"/);
   assert.match(soundSource, /hasStarted/);
+  assert.match(soundSource, /SOUND_STATE_VERSION = 2/);
+  assert.match(soundSource, /storedVolume[^\n]+0\.24[\s\S]+\? 0\.3/);
+  assert.match(indexHtml, /data-audio-volume[^>]+value="30"/);
+  assert.match(soundSource, /hasStarted \|\| muted[\s\S]+void playCurrent\(\)/);
+  assert.match(soundSource, /if \(!muted\) void playCurrent\(\)/);
   assert.match(soundSource, /muted = true;[\s\S]*pauseAll\(\)/);
   assert.match(soundSource, /track\.muted = muted/);
   assert.match(soundSource, /dataset\.audioState/);
@@ -110,6 +115,10 @@ test("첫 화면·프로필·홈과 캐릭터 프로필 이미지는 브라우�
   assert.match(gameSource, /class="home-screen"/);
   assert.match(gameSource, /homePlayTitle/);
   assert.match(gameSource, /homeChatTitle/);
+  assert.match(gameSource, /data-action="get-started"[\s\S]+phase: playerProfile\.name \? "intro" : "profile"/);
+  assert.match(gameSource, /class="home-action is-primary"[^>]+data-action="open-tutorial"/);
+  assert.match(gameSource, /class="intro-actions"[\s\S]+data-action="start"/);
+  assert.match(gameSource, /savePlayerProfile[\s\S]+phase: "intro"/);
   assert.match(styles, /\.welcome-screen/);
   assert.match(styles, /\.home-actions/);
   assert.ok(images.every((image) => image.byteLength > 20_000));

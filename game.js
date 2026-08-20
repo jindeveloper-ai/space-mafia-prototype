@@ -17,15 +17,15 @@ import {
   plantEvidence,
   resolveVote,
   startGame,
-} from "./game-engine.js?v=0.12.1";
-import { getCopy, normalizeLocale } from "./i18n.js?v=0.12.1";
+} from "./game-engine.js?v=0.12.2";
+import { getCopy, normalizeLocale } from "./i18n.js?v=0.12.2";
 import {
   buildChatPayload,
   fallbackAccusation,
   fallbackResponse,
   MAX_CHAT_LENGTH,
   normalizeInterpretation,
-} from "./chat-adapter.js?v=0.12.1";
+} from "./chat-adapter.js?v=0.12.2";
 
 const app = document.querySelector("#app");
 const assetVersion = new URL(import.meta.url).searchParams.get("v");
@@ -266,7 +266,7 @@ function screenAudioControl(includeVolume = false) {
   return `
     <div class="screen-audio ${includeVolume ? "has-volume" : ""}">
       <button type="button" data-audio-toggle aria-label="${ui.audioMute}"><span aria-hidden="true">♪</span></button>
-      ${includeVolume ? `<input data-audio-volume type="range" min="0" max="60" step="1" value="24" aria-label="${ui.audioVolume}" />` : ""}
+      ${includeVolume ? `<input data-audio-volume type="range" min="0" max="60" step="1" value="30" aria-label="${ui.audioVolume}" />` : ""}
     </div>
   `;
 }
@@ -378,7 +378,7 @@ function renderHome() {
       </div>
 
       <div class="home-actions">
-        <button class="home-action is-primary" type="button" data-action="start">
+        <button class="home-action is-primary" type="button" data-action="open-tutorial">
           <span>${ui.homePlayEyebrow}</span><strong>${ui.homePlayTitle}</strong><small>${ui.homePlayLead}</small><b aria-hidden="true">↗</b>
         </button>
         <button class="home-action" type="button" data-action="open-friends">
@@ -1264,7 +1264,7 @@ app.addEventListener("click", (event) => {
     input.focus();
     return;
   }
-  if (action === "get-started") state = { ...state, phase: playerProfile.name ? "home" : "profile" };
+  if (action === "get-started") state = { ...state, phase: playerProfile.name ? "intro" : "profile" };
   if (action === "back-welcome") state = { ...state, phase: "welcome" };
   if (action === "edit-profile") state = { ...state, phase: "profile" };
   if (action === "go-home") state = { ...state, phase: "home" };
@@ -1309,7 +1309,7 @@ app.addEventListener("submit", (event) => {
     const name = String(new FormData(profileForm).get("name") ?? "").trim().slice(0, 12);
     if (!name) return profileForm.querySelector("#profile-name-input")?.focus();
     savePlayerProfile({ name, avatar: playerProfile.avatar });
-    state = { ...state, phase: "home" };
+    state = { ...state, phase: "intro" };
     render();
     return;
   }

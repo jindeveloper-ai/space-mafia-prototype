@@ -1,5 +1,6 @@
 (() => {
   const STORAGE_KEY = "oxygen-room-sound";
+  const SOUND_STATE_VERSION = 2;
   const tracks = {
     lobby: new Audio("./assets/audio/lobby-detectives-among-us.mp3"),
     game: new Audio("./assets/audio/game-sneaky-film-noir.mp3"),
@@ -13,7 +14,10 @@
   }
 
   let muted = Boolean(stored.muted);
-  let volume = Number.isFinite(stored.volume) ? Math.min(0.6, Math.max(0, stored.volume)) : 0.24;
+  const storedVolume = Number.isFinite(stored.volume) ? Math.min(0.6, Math.max(0, stored.volume)) : 0.3;
+  let volume = stored.version !== SOUND_STATE_VERSION && Math.abs(storedVolume - 0.24) < 0.001
+    ? 0.3
+    : storedVolume;
   let scene = "lobby";
   let hasStarted = false;
   let labels = {
@@ -31,7 +35,7 @@
 
   function persist() {
     try {
-      window.localStorage.setItem(STORAGE_KEY, JSON.stringify({ muted, volume }));
+      window.localStorage.setItem(STORAGE_KEY, JSON.stringify({ version: SOUND_STATE_VERSION, muted, volume }));
     } catch {
       // Controls remain available when browser storage is blocked.
     }
@@ -106,6 +110,11 @@
     renderControls();
   });
 
+  document.addEventListener("click", (event) => {
+    if (event.target.closest("[data-audio-toggle]") || hasStarted || muted) return;
+    void playCurrent();
+  }, { capture: true });
+
   document.addEventListener("input", async (event) => {
     const input = event.target.closest("[data-audio-volume]");
     if (!input) return;
@@ -137,4 +146,5 @@
 
   applyVolume();
   renderControls();
+  if (!muted) void playCurrent();
 })();
