@@ -25,15 +25,15 @@
       "trigger": "dependency manifest or lockfile changes; full/release"
     },
     "semgrep": {
-      "enabled": false,
-      "required": false,
+      "enabled": true,
+      "required": true,
       "command": "semgrep --config=auto --error",
       "trigger": "security-sensitive source changes; full/release"
     }
   },
   "notes": [
     "OSV-Scanner is disabled because this static prototype declares no dependencies and has no supported lockfile.",
-    "Semgrep is disabled until authentication, external APIs, storage, uploads, payments, or another security-sensitive surface is added.",
+    "Semgrep is enabled because the local server now accepts input and proxies an external API.",
     "Interactive browser and 390px responsive smoke checks are performed manually because the project intentionally has no browser-test dependency."
   ]
 }

@@ -1,0 +1,17 @@
+#!/usr/bin/env sh
+set -eu
+
+keychain_service="space-mafia-openai-api-key"
+keychain_account="${USER:-$(id -un)}"
+
+if ! api_key_value=$(security find-generic-password -a "$keychain_account" -s "$keychain_service" -w 2>/dev/null); then
+  printf '%s\n' "OpenAI API key not found in macOS Keychain: $keychain_service" >&2
+  exit 1
+fi
+
+OPENAI_API_KEY="$api_key_value"
+export OPENAI_API_KEY
+unset api_key_value
+
+script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+exec python3 "$script_dir/serve.py" "$@"

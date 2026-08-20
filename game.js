@@ -17,8 +17,15 @@ import {
   plantEvidence,
   resolveVote,
   startGame,
-} from "./game-engine.js?v=0.8.2";
-import { getCopy, normalizeLocale } from "./i18n.js?v=0.8.2";
+} from "./game-engine.js?v=0.9.3";
+import { getCopy, normalizeLocale } from "./i18n.js?v=0.9.3";
+import {
+  buildChatPayload,
+  fallbackAccusation,
+  fallbackResponse,
+  MAX_CHAT_LENGTH,
+  normalizeInterpretation,
+} from "./chat-adapter.js?v=0.9.3";
 
 const app = document.querySelector("#app");
 const assetVersion = new URL(import.meta.url).searchParams.get("v");
@@ -67,15 +74,16 @@ renderThemeControl();
 
 let state = createGame({ locale });
 let selectedTargetId = null;
-let selectedAccusedId = null;
+let chatLog = [];
+let chatPending = false;
+let chatMode = "ready";
+let chatNotice = null;
 
-const escapeHtml = (value) =>
-  String(value)
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#039;");
+const escapeHtml = (value) => {
+  const element = document.createElement("span");
+  element.textContent = String(value);
+  return element.innerHTML;
+};
 
 function progress(step, label) {
   return `
@@ -130,6 +138,48 @@ function personAvatar(person, size = "normal") {
   return `<span class="avatar avatar--${size} avatar--${person.id}" aria-hidden="true">${person.icon}</span>`;
 }
 
+function roomAvatarStack() {
+  return `
+    <div class="room-avatar-stack" aria-hidden="true">
+      ${crew.map((person) => personAvatar(person, "small")).join("")}
+    </div>
+  `;
+}
+
+function roomStatusLabel() {
+  if (chatMode === "live") return ui.chatModeLive;
+  if (chatNotice) return ui.chatModeMock;
+  return ui.roomStatus;
+}
+
+function gameRoomBar(step, label) {
+  return `
+    <header class="game-room-bar">
+      ${roomAvatarStack()}
+      <div class="game-room-bar__copy">
+        <strong>${ui.chatRoomTitle}</strong>
+        <small>${roomStatusLabel()}</small>
+      </div>
+      <span class="room-phase"><strong>${step}/5</strong><span>${label}</span></span>
+    </header>
+  `;
+}
+
+function chatContext() {
+  return `
+    <details class="chat-context">
+      <summary>
+        <span>${ui.incidentAria}</span>
+        <strong>${incident.place} · ${incident.time}</strong>
+      </summary>
+      <div class="chat-context__body">
+        ${incidentBoard(true)}
+        ${subquestCard()}
+      </div>
+    </details>
+  `;
+}
+
 function renderIntro() {
   return `
     <p class="scene-setting">${ui.sceneSetting}</p>
@@ -174,7 +224,7 @@ function renderIntro() {
   `;
 }
 
-function crewChoiceCard(person, selectedId, action, fact = null) {
+function crewChoiceCard(person, selectedId, action) {
   const isSelected = selectedId === person.id;
   return `
     <button
@@ -187,7 +237,6 @@ function crewChoiceCard(person, selectedId, action, fact = null) {
       ${personAvatar(person)}
       <span class="crew-name">${person.name}</span>
       <span class="crew-style">${person.style}</span>
-      ${fact ? `<span class="crew-fact-badge ${fact.id === "alibi" ? "is-alibi" : ""}">${ui.factMarks[fact.id]} · ${fact.badge}</span>` : ""}
       <span class="selected-label">${isSelected ? ui.selected : ui.select}</span>
     </button>
   `;
@@ -195,53 +244,45 @@ function crewChoiceCard(person, selectedId, action, fact = null) {
 
 function renderEvidence() {
   return `
-    ${progress(1, ui.stages.evidence)}
-    <div class="section-heading">
-      <span class="eyebrow">${ui.incidentHappened}</span>
-      <h1 tabindex="-1">${incident.title}</h1>
-      <p>${incident.description}</p>
+    <div class="game-room-view is-setup">
+      ${gameRoomBar(1, ui.stages.evidence)}
+      <div class="game-room-scroll">
+        <p class="room-divider">${incident.place} · ${incident.time}</p>
+        <article class="room-system-card is-alert">
+          <span class="eyebrow">${ui.incidentHappened}</span>
+          <h1 tabindex="-1">${incident.title}</h1>
+          <p>${incident.description}</p>
+        </article>
+
+        ${subquestCard()}
+
+        <div class="evidence-note">
+          <span aria-hidden="true">${ui.evidenceMark}</span>
+          <div><strong>${incident.evidence}</strong><p>${ui.evidencePrompt}</p></div>
+        </div>
+
+        <div class="crew-grid" role="radiogroup" aria-label="${ui.evidenceGroup}">
+          ${crew.map((person) => crewChoiceCard(person, selectedTargetId, "select-target")).join("")}
+        </div>
+      </div>
+      <div class="room-action-dock">
+        <button class="primary-button" data-action="plant" ${selectedTargetId ? "" : "disabled"}>
+          ${selectedTargetId ? ui.plant(crewMember(selectedTargetId).name) : ui.chooseOne}
+        </button>
+      </div>
     </div>
-
-    ${incidentBoard()}
-
-    ${subquestCard()}
-
-    <div class="evidence-note">
-      <span aria-hidden="true">${ui.evidenceMark}</span>
-      <div><strong>${incident.evidence}</strong><p>${ui.evidencePrompt}</p></div>
-    </div>
-
-    <div class="crew-grid" role="radiogroup" aria-label="${ui.evidenceGroup}">
-      ${crew.map((person) => crewChoiceCard(person, selectedTargetId, "select-target")).join("")}
-    </div>
-
-    <button class="primary-button" data-action="plant" ${selectedTargetId ? "" : "disabled"}>
-      ${selectedTargetId ? ui.plant(crewMember(selectedTargetId).name) : ui.chooseOne}
-    </button>
   `;
 }
 
-function factCard(person, compact = false) {
+function factCard(person) {
   const fact = state.facts[person.id];
   return `
-    <article class="fact-card ${compact ? "is-compact" : ""}">
+    <article class="fact-card">
       <span class="fact-icon" aria-hidden="true">${ui.factMarks[fact.id]}</span>
       <div>
         <div class="fact-name"><strong>${person.name}</strong><span>${fact.badge}</span></div>
         <p>${fact.text}</p>
-        ${compact ? "" : `<small class="fact-guidance ${fact.id === "alibi" ? "is-warning" : ""}">${fact.guidance}</small>`}
-      </div>
-    </article>
-  `;
-}
-
-function speechCard(person) {
-  return `
-    <article class="speech-card">
-      ${personAvatar(person, "small")}
-      <div>
-        <div class="speech-name"><strong>${person.name}</strong><span>${person.style}</span></div>
-        <p>“${escapeHtml(person.text)}”</p>
+        <small class="fact-guidance ${fact.id === "alibi" ? "is-warning" : ""}">${fact.guidance}</small>
       </div>
     </article>
   `;
@@ -250,122 +291,107 @@ function speechCard(person) {
 function renderMeeting() {
   const target = crewMember(state.targetId);
   return `
-    ${progress(2, ui.stages.facts)}
-    <div class="section-heading">
-      <span class="eyebrow">${ui.evidenceFound}</span>
-      <h1 tabindex="-1">${ui.meetingTitle(target.name)}</h1>
-      <p>${ui.roundFacts}</p>
-    </div>
+    <div class="game-room-view is-setup">
+      ${gameRoomBar(2, ui.stages.facts)}
+      <div class="game-room-scroll">
+        <p class="room-divider">${ui.evidenceFound}</p>
+        <article class="room-system-card">
+          <h1 tabindex="-1">${ui.meetingTitle(target.name)}</h1>
+          <p>${ui.roundFacts}</p>
+        </article>
 
-    ${incidentBoard(true)}
+        <section class="room-facts" aria-label="${ui.publicFacts}">
+          <strong class="room-section-title">${ui.publicFacts}</strong>
+          <div class="fact-list">
+            ${crew.map((person) => factCard(person)).join("")}
+          </div>
+        </section>
 
-    <div class="fact-list" aria-label="${ui.publicFacts}">
-      ${crew.map((person) => factCard(person)).join("")}
-    </div>
-
-    <details class="meeting-talk">
-      <summary>${ui.openingStatements}</summary>
-      <div class="speech-list compact">
-        ${getMeetingStatements(state).map(speechCard).join("")}
+        <section class="meeting-chat-preview" aria-label="${ui.openingStatements}">
+          <p class="room-divider">${ui.openingStatements}</p>
+          ${getMeetingStatements(state)
+            .map((statement) => chatMessage({ speakerId: statement.id, text: statement.text }))
+            .join("")}
+        </section>
       </div>
-    </details>
-
-    <button class="primary-button" data-action="open-lie-builder">${ui.makeLie}</button>
+      <div class="room-action-dock">
+        <button class="primary-button" data-action="open-chat">${ui.makeLie}</button>
+      </div>
+    </div>
   `;
 }
 
-function renderLieBuilder() {
-  const accused = crewMember(selectedAccusedId);
+function strongestClaim(personId) {
+  return getClaimOptions(personId, locale).reduce((best, claim) =>
+    state.facts[personId].impacts[claim.id] > state.facts[personId].impacts[best.id]
+      ? claim
+      : best,
+  getClaimOptions(personId, locale)[0]);
+}
+
+function chatSuggestions(stage) {
+  const suggestions = stage === "accusation"
+    ? crew.map((person) => strongestClaim(person.id).label)
+    : getResponseOptions(state).map((option) => option.label.replaceAll("“", "").replaceAll("”", ""));
   return `
-    ${progress(3, ui.stages.lie)}
-    <div class="section-heading">
-      <span class="eyebrow">${ui.yourTurn}</span>
-      <h1 tabindex="-1">${ui.accuseTitle}</h1>
-      <p>${ui.accuseLead}</p>
+    <div class="chat-suggestions" aria-label="${ui.chatSuggestions}">
+      <span>${ui.chatSuggestions}</span>
+      ${suggestions.map((text) => `
+        <button type="button" class="chat-suggestion" data-action="draft-message" data-message="${encodeURIComponent(text)}">${escapeHtml(text)}</button>
+      `).join("")}
     </div>
-
-    ${incidentBoard(true)}
-
-    ${subquestCard()}
-
-    <div class="fact-list fact-list--compact" aria-label="${ui.factSummary}">
-      ${crew.map((person) => factCard(person, true)).join("")}
-    </div>
-
-    <div class="crew-grid compact-grid" role="radiogroup" aria-label="${ui.accusedGroup}">
-      ${crew.map((person) => crewChoiceCard(person, selectedAccusedId, "select-accused", state.facts[person.id])).join("")}
-    </div>
-
-    ${
-      accused
-        ? `
-          <div class="selected-fact">
-            <span class="fact-icon" aria-hidden="true">${ui.factMarks[state.facts[accused.id].id]}</span>
-            <p><strong>${ui.selectedFact(accused.name)}</strong><br />${state.facts[accused.id].text}</p>
-          </div>
-          <div class="builder-step">
-            <span class="eyebrow">${ui.chooseLie}</span>
-            <div class="lie-list">
-              ${getClaimOptions(accused.id, locale)
-                .map(
-                  (claim) => {
-                    const impact = state.facts[accused.id].impacts[claim.id];
-                    const relation = impact < 0
-                      ? { label: ui.relationConflict, className: "is-danger" }
-                      : impact >= 12
-                        ? { label: ui.relationMatch, className: "is-match" }
-                        : { label: ui.relationWeak, className: "is-weak" };
-                    return `
-                    <button class="lie-option" data-action="make-claim" data-id="${claim.id}">
-                      <span>“${claim.label}”</span>
-                      <small>${claim.short} · <strong class="claim-relation ${relation.className}">${relation.label}</strong></small>
-                    </button>
-                  `;
-                  },
-                )
-                .join("")}
-            </div>
-          </div>
-        `
-        : `<div class="choice-prompt">${ui.chooseAccused}</div>`
-    }
   `;
 }
 
-function renderChallenge() {
-  const challenger = crewMember(state.challengerId);
+function chatMessage(item) {
+  if (item.speakerId === "system") {
+    return `<p class="chat-event">${escapeHtml(item.text)}</p>`;
+  }
+  const person = item.speakerId === "player" ? null : crewMember(item.speakerId);
   return `
-    ${progress(4, ui.stages.challenge)}
-    <div class="section-heading">
-      <span class="eyebrow">${ui.yourLie}</span>
-      <h1 tabindex="-1">“${escapeHtml(state.lie)}”</h1>
-    </div>
-
-    ${incidentBoard(true)}
-
-    ${subquestCard()}
-
-    <article class="challenge-card">
-      ${personAvatar(challenger)}
+    <article class="chat-message ${item.speakerId === "player" ? "is-player" : ""}">
+      ${person ? personAvatar(person, "small") : `<span class="avatar avatar--small avatar--player" aria-hidden="true">${ui.chatYouMark}</span>`}
       <div>
-        <span>${ui.challengeBy(challenger.name)}</span>
-        <p>“${escapeHtml(state.challengeText)}”</p>
+        <strong>${item.speakerId === "player" ? ui.chatYou : escapeHtml(person?.name ?? item.speakerId)}</strong>
+        <p>${escapeHtml(item.text)}</p>
       </div>
     </article>
+  `;
+}
 
-    <div class="builder-step">
-      <span class="eyebrow">${ui.finalResponsePrompt}</span>
-      <div class="lie-list">
-        ${getResponseOptions(state)
-          .map(
-            (option) => `
-              <button class="lie-option" data-action="respond" data-id="${option.id}">
-                <span>${option.label}</span>
-                <small>${option.hint}</small>
-              </button>
-            `,
-          )
-          .join("")}
+function renderChat() {
+  const isAccusation = state.phase === "lie";
+  const stage = isAccusation ? "accusation" : "response";
+  const step = isAccusation ? 3 : 4;
+  const stageLabel = isAccusation ? ui.stages.lie : ui.stages.challenge;
+  return `
+    <div class="game-room-view is-chat">
+      ${gameRoomBar(step, stageLabel)}
+      <div class="chat-turn-banner">
+        <span>${ui.yourTurn}</span>
+        <h1 tabindex="-1">${isAccusation ? ui.chatAccuseTitle : ui.chatReplyTitle}</h1>
+      </div>
+      ${chatContext()}
+
+      <section class="chat-room is-focus" aria-label="${ui.chatTranscriptAria}">
+        <div class="chat-transcript" aria-live="polite">
+          ${chatLog.map(chatMessage).join("")}
+          ${chatPending ? `<p class="chat-pending">${ui.chatTyping}</p>` : ""}
+        </div>
+      </section>
+
+      <div class="chat-dock">
+        ${chatNotice ? `<p class="chat-notice" role="status">${escapeHtml(chatNotice)}</p>` : ""}
+        ${chatSuggestions(stage)}
+
+        <form class="chat-composer" data-chat-stage="${stage}">
+          <label class="visually-hidden" for="player-message">${ui.chatInputLabel}</label>
+          <div class="chat-composer__row">
+            <textarea id="player-message" name="message" maxlength="${MAX_CHAT_LENGTH}" rows="1" placeholder="${isAccusation ? ui.chatPlaceholderAccuse : ui.chatPlaceholderReply}" ${chatPending ? "disabled" : ""} required></textarea>
+            <button class="primary-button" type="submit" ${chatPending ? "disabled" : ""}>${ui.chatSend}</button>
+          </div>
+          <small class="chat-limit">${ui.chatLength(MAX_CHAT_LENGTH)}</small>
+        </form>
       </div>
     </div>
   `;
@@ -374,32 +400,37 @@ function renderChallenge() {
 function renderResponse() {
   const leans = getCurrentLeans(state);
   return `
-    ${progress(4, ui.stages.meetingEnd)}
-    <div class="section-heading">
-      <span class="eyebrow">${ui.yourResponse}</span>
-      <h1 tabindex="-1">“${escapeHtml(state.responseText)}”</h1>
-      <p>${ui.crewDecided}</p>
+    <div class="game-room-view is-chat is-summary">
+      ${gameRoomBar(4, ui.stages.meetingEnd)}
+      <div class="chat-turn-banner">
+        <span>${ui.yourResponse}</span>
+        <h1 tabindex="-1">${ui.chatDecisionTitle}</h1>
+      </div>
+      <section class="chat-room is-focus" aria-label="${ui.chatTranscriptAria}">
+        <div class="chat-transcript">${chatLog.map(chatMessage).join("")}</div>
+      </section>
+
+      <section class="pre-vote-sheet" aria-label="${ui.preVoteAria}">
+        <strong>${ui.chatDecisionLead}</strong>
+        <div class="lean-list">
+          ${leans
+            .map(
+              (lean) => `
+                <div class="lean-card">
+                  <span>${displayName(lean.voterId)}</span>
+                  <small>${clueCountLabel(lean.clueCount)}</small>
+                  <strong>${displayName(lean.candidateId)}</strong>
+                </div>
+              `,
+            )
+            .join("")}
+        </div>
+      </section>
+
+      <div class="room-action-dock">
+        <button class="primary-button" data-action="vote">${ui.showVote}</button>
+      </div>
     </div>
-
-    ${incidentBoard(true)}
-
-    ${subquestCard()}
-
-    <div class="lean-list" aria-label="${ui.preVoteAria}">
-      ${leans
-        .map(
-          (lean) => `
-            <div class="lean-card">
-              <span>${displayName(lean.voterId)}</span>
-              <small>${clueCountLabel(lean.clueCount)}</small>
-              <strong>${displayName(lean.candidateId)}</strong>
-            </div>
-          `,
-        )
-        .join("")}
-    </div>
-
-    <button class="primary-button" data-action="vote">${ui.showVote}</button>
   `;
 }
 
@@ -513,6 +544,119 @@ function renderResult() {
   `;
 }
 
+function startChat() {
+  chatLog = [
+    { speakerId: "system", text: ui.chatAccuseLead },
+    ...getMeetingStatements(state).map((statement) => ({
+      speakerId: statement.id,
+      text: statement.text,
+    })),
+  ];
+  chatPending = false;
+  chatMode = "ready";
+  chatNotice = null;
+  state = { ...state, phase: "lie" };
+}
+
+async function requestCharacterChat(stage, message) {
+  const payload = buildChatPayload({ locale, stage, message, state, crew, incident, transcript: chatLog });
+  const response = await fetch("/api/chat", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok || data.mode !== "live" || !Array.isArray(data.replies)) {
+    throw new Error(data.error ?? "chat_unavailable");
+  }
+  return data;
+}
+
+function safeLiveReplies(replies) {
+  const seen = new Set();
+  return replies.flatMap((reply) => {
+    if (!crew.some((member) => member.id === reply?.speakerId) || seen.has(reply.speakerId)) return [];
+    const text = String(reply.message ?? "").trim().slice(0, 120);
+    if (!text) return [];
+    seen.add(reply.speakerId);
+    return [{ speakerId: reply.speakerId, text }];
+  });
+}
+
+function fallbackAccusationReplies(nextState) {
+  const leans = new Map(getCurrentLeans(nextState).map((lean) => [lean.voterId, lean]));
+  return crew.map((member) => ({
+    speakerId: member.id,
+    text: member.id === nextState.challengerId
+      ? nextState.challengeText
+      : ui.chatPracticeReaction(member.personality, displayName(leans.get(member.id).candidateId)),
+  }));
+}
+
+function fallbackResponseReplies(nextState) {
+  return getCurrentLeans(nextState).map((lean) => ({
+    speakerId: lean.voterId,
+    text: ui.chatPracticeDecision(
+      crewMember(lean.voterId).personality,
+      displayName(lean.candidateId),
+    ),
+  }));
+}
+
+async function handleChatSubmit(stage, rawMessage) {
+  if (chatPending) return;
+  const message = String(rawMessage).trim().slice(0, MAX_CHAT_LENGTH);
+  if (!message) return;
+
+  chatLog.push({ speakerId: "player", text: message });
+  chatPending = true;
+  chatNotice = null;
+  render();
+
+  let remote = null;
+  try {
+    remote = await requestCharacterChat(stage, message);
+    chatMode = "live";
+  } catch {
+    chatMode = "mock";
+    chatNotice = ui.chatFallback;
+  }
+
+  if (stage === "accusation") {
+    const localFallback = fallbackAccusation(message, state, crew);
+    const interpretation = normalizeInterpretation(
+      stage,
+      remote?.interpretation ?? localFallback,
+      message,
+      state,
+      crew,
+    );
+    const nextState = applyLie(state, interpretation.accusedId, interpretation.claimId);
+    chatLog.push({ speakerId: "system", text: ui.chatInterpretedLie(nextState.lie) });
+    const replies = safeLiveReplies(remote?.replies ?? []);
+    chatLog.push(...(replies.length === crew.length ? replies : fallbackAccusationReplies(nextState)));
+    chatLog.push({ speakerId: "system", text: ui.chatReplyLead });
+    state = nextState;
+  } else {
+    const localFallback = fallbackResponse(message);
+    const interpretation = normalizeInterpretation(
+      stage,
+      remote?.interpretation ?? localFallback,
+      message,
+      state,
+      crew,
+    );
+    const nextState = applyResponse(state, interpretation.responseId);
+    chatLog.push({ speakerId: "system", text: ui.chatInterpretedResponse(nextState.responseText) });
+    const replies = safeLiveReplies(remote?.replies ?? []);
+    chatLog.push(...(replies.length === crew.length ? replies : fallbackResponseReplies(nextState)));
+    state = nextState;
+  }
+
+  chatPending = false;
+  render();
+}
+
 let renderedPhase = null;
 
 function render() {
@@ -520,17 +664,20 @@ function render() {
     intro: renderIntro,
     evidence: renderEvidence,
     meeting: renderMeeting,
-    lie: renderLieBuilder,
-    challenge: renderChallenge,
+    lie: renderChat,
+    challenge: renderChat,
     response: renderResponse,
     result: renderResult,
   };
   const phaseChanged = renderedPhase !== state.phase;
+  document.body.dataset.phase = state.phase;
+  app.dataset.phase = state.phase;
   app.innerHTML = views[state.phase]();
   if (phaseChanged) {
     window.scrollTo(0, 0);
     app.querySelector("h1")?.focus({ preventScroll: true });
   }
+  app.querySelector(".chat-transcript")?.scrollTo(0, 10_000);
   renderedPhase = state.phase;
 }
 
@@ -541,7 +688,10 @@ function resetGame() {
     locale,
   }));
   selectedTargetId = null;
-  selectedAccusedId = null;
+  chatLog = [];
+  chatPending = false;
+  chatMode = "ready";
+  chatNotice = null;
   render();
 }
 
@@ -553,16 +703,41 @@ app.addEventListener("click", (event) => {
   if (action === "start") state = startGame(state);
   if (action === "select-target") selectedTargetId = button.dataset.id;
   if (action === "plant" && selectedTargetId) state = plantEvidence(state, selectedTargetId);
-  if (action === "open-lie-builder") state = { ...state, phase: "lie" };
-  if (action === "select-accused") selectedAccusedId = button.dataset.id;
-  if (action === "make-claim" && selectedAccusedId) {
-    state = applyLie(state, selectedAccusedId, button.dataset.id);
+  if (action === "open-chat") startChat();
+  if (action === "draft-message") {
+    const input = app.querySelector("#player-message");
+    if (input) {
+      input.value = decodeURIComponent(button.dataset.message ?? "");
+      input.focus();
+    }
+    return;
   }
-  if (action === "respond") state = applyResponse(state, button.dataset.id);
   if (action === "vote") state = resolveVote(state);
   if (action === "restart") return resetGame();
 
   render();
+});
+
+app.addEventListener("submit", (event) => {
+  const form = event.target.closest(".chat-composer");
+  if (!form) return;
+  event.preventDefault();
+  const message = new FormData(form).get("message");
+  handleChatSubmit(form.dataset.chatStage, message);
+});
+
+app.addEventListener("input", (event) => {
+  const input = event.target.closest("#player-message");
+  if (!input) return;
+  input.style.height = "auto";
+  input.style.height = `${Math.min(input.scrollHeight, 112)}px`;
+});
+
+app.addEventListener("keydown", (event) => {
+  const input = event.target.closest("#player-message");
+  if (!input || event.key !== "Enter" || event.shiftKey || event.isComposing) return;
+  event.preventDefault();
+  input.closest("form")?.requestSubmit();
 });
 
 render();
