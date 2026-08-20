@@ -17,15 +17,15 @@ import {
   plantEvidence,
   resolveVote,
   startGame,
-} from "./game-engine.js?v=0.11.0";
-import { getCopy, normalizeLocale } from "./i18n.js?v=0.11.0";
+} from "./game-engine.js?v=0.12.1";
+import { getCopy, normalizeLocale } from "./i18n.js?v=0.12.1";
 import {
   buildChatPayload,
   fallbackAccusation,
   fallbackResponse,
   MAX_CHAT_LENGTH,
   normalizeInterpretation,
-} from "./chat-adapter.js?v=0.11.0";
+} from "./chat-adapter.js?v=0.12.1";
 
 const app = document.querySelector("#app");
 const assetVersion = new URL(import.meta.url).searchParams.get("v");
@@ -33,6 +33,13 @@ const versionLabel = assetVersion ? `v${assetVersion}` : "dev";
 const locale = normalizeLocale(new URLSearchParams(window.location.search).get("lang"));
 const copy = getCopy(locale);
 const ui = copy.ui;
+const FRIEND_EMOJI_OPTIONS = ["😂", "🥹", "😅", "🤔", "😳", "🙄", "👍", "👏", "❤️", "🔥", "👀", "🚀"];
+const CREW_AVATARS = {
+  mina: "./assets/images/mina.png",
+  juno: "./assets/images/juno.png",
+  noel: "./assets/images/noel.png",
+};
+const PROFILE_STORAGE_KEY = "oxygen-room-profile";
 const crew = getCrew(locale);
 const incident = getIncident(locale);
 const crewMember = (id) => getCrewMember(id, locale);
@@ -73,12 +80,13 @@ themeButton.addEventListener("click", () => {
 });
 renderThemeControl();
 soundController?.setLabels({
+  start: ui.audioStart,
   mute: ui.audioMute,
   unmute: ui.audioUnmute,
   volume: ui.audioVolume,
 });
 
-let state = createGame({ locale });
+let state = { ...createGame({ locale }), phase: "welcome" };
 let selectedTargetId = null;
 let chatLog = [];
 let chatPending = false;
@@ -87,6 +95,7 @@ let chatNotice = null;
 let typingSpeakerId = null;
 let selectedFriendId = null;
 let friendConversationIndex = 0;
+let playerProfile = loadPlayerProfile();
 
 const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
 const wait = (milliseconds) => new Promise((resolve) => {
@@ -98,6 +107,69 @@ const escapeHtml = (value) => {
   element.textContent = String(value);
   return element.innerHTML;
 };
+
+function loadPlayerProfile() {
+  try {
+    const stored = JSON.parse(window.localStorage.getItem(PROFILE_STORAGE_KEY) ?? "null");
+    const name = String(stored?.name ?? "").trim().slice(0, 12);
+    const avatar = typeof stored?.avatar === "string" && stored.avatar.startsWith("data:image/") ? stored.avatar : "";
+    return { name, avatar };
+  } catch {
+    return { name: "", avatar: "" };
+  }
+}
+
+function savePlayerProfile(profile) {
+  playerProfile = profile;
+  try {
+    window.localStorage.setItem(PROFILE_STORAGE_KEY, JSON.stringify(profile));
+  } catch {
+    // The session still works if browser storage is unavailable.
+  }
+}
+
+function profileAvatar(size = "normal", avatar = playerProfile.avatar, name = playerProfile.name) {
+  const mark = escapeHtml((name || ui.profileDefaultName).slice(0, 1).toUpperCase());
+  const image = avatar ? `<img src="${avatar}" alt="" />` : mark;
+  return `<span class="avatar avatar--${size} avatar--player" aria-hidden="true">${image}</span>`;
+}
+
+function resizeProfilePhoto(file) {
+  return new Promise((resolve, reject) => {
+    if (!file?.type?.startsWith("image/") || file.size > 2_000_000) {
+      reject(new Error("invalid_profile_photo"));
+      return;
+    }
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error("profile_photo_read_failed"));
+    reader.onload = () => {
+      const image = new Image();
+      image.onerror = () => reject(new Error("profile_photo_decode_failed"));
+      image.onload = () => {
+        const side = Math.min(image.naturalWidth, image.naturalHeight);
+        const canvas = document.createElement("canvas");
+        canvas.width = 256;
+        canvas.height = 256;
+        const context = canvas.getContext("2d");
+        if (!context) return reject(new Error("profile_photo_canvas_failed"));
+        context.drawImage(
+          image,
+          (image.naturalWidth - side) / 2,
+          (image.naturalHeight - side) / 2,
+          side,
+          side,
+          0,
+          0,
+          256,
+          256,
+        );
+        resolve(canvas.toDataURL("image/jpeg", 0.82));
+      };
+      image.src = String(reader.result);
+    };
+    reader.readAsDataURL(file);
+  });
+}
 
 function progress(step, label) {
   return `
@@ -149,7 +221,7 @@ function subquestCard(mode = "active") {
 }
 
 function personAvatar(person, size = "normal") {
-  return `<span class="avatar avatar--${size} avatar--${person.id}" aria-hidden="true">${person.icon}</span>`;
+  return `<span class="avatar avatar--${size} avatar--${person.id}" aria-hidden="true"><img src="${CREW_AVATARS[person.id]}" alt="" /></span>`;
 }
 
 function roomAvatarStack() {
@@ -190,10 +262,19 @@ function currentThemeIcon() {
   return { system: "◐", light: "○", dark: "●" }[themeController?.read() ?? "system"];
 }
 
+function screenAudioControl(includeVolume = false) {
+  return `
+    <div class="screen-audio ${includeVolume ? "has-volume" : ""}">
+      <button type="button" data-audio-toggle aria-label="${ui.audioMute}"><span aria-hidden="true">♪</span></button>
+      ${includeVolume ? `<input data-audio-volume type="range" min="0" max="60" step="1" value="24" aria-label="${ui.audioVolume}" />` : ""}
+    </div>
+  `;
+}
+
 function gameRoomBar(step, label) {
   return `
     <header class="game-room-bar">
-      <a class="room-back" href="./?lang=${locale}" aria-label="${copy.meta.home}">‹</a>
+      <button class="room-back" type="button" data-action="go-home" aria-label="${copy.meta.home}">‹</button>
       ${roomAvatarStack()}
       <div class="game-room-bar__copy">
         <strong>${ui.chatRoomTitle}</strong>
@@ -223,8 +304,103 @@ function chatContext() {
   `;
 }
 
+function renderWelcome() {
+  return `
+    <section class="welcome-screen">
+      ${screenAudioControl(true)}
+      <span class="welcome-pill">${ui.welcomePill}</span>
+      <div class="welcome-art" aria-hidden="true">
+        <img src="./assets/images/mafia-astronaut-v2.png" alt="" />
+      </div>
+      <div class="welcome-copy">
+        <h1 tabindex="-1">${ui.welcomeTitle}</h1>
+        <p>${ui.welcomeLead}</p>
+      </div>
+      <button class="welcome-start" type="button" data-action="get-started">${ui.welcomeStart}</button>
+    </section>
+  `;
+}
+
+function renderProfileSetup() {
+  return `
+    <section class="profile-screen">
+      ${screenAudioControl()}
+      <button class="plain-back" type="button" data-action="back-welcome" aria-label="${ui.profileBack}">‹</button>
+      <div class="profile-copy">
+        <span>${ui.profileStep}</span>
+        <h1 tabindex="-1">${ui.profileTitle}</h1>
+        <p>${ui.profileLead}</p>
+      </div>
+      <form class="profile-form">
+        <label class="profile-photo" for="profile-photo-input">
+          <span class="profile-preview">${profileAvatar("large")}</span>
+          <strong>${ui.profilePhoto}</strong>
+          <small>${ui.profilePhotoOptional}</small>
+        </label>
+        <input id="profile-photo-input" name="avatar" type="file" accept="image/png,image/jpeg,image/webp" />
+        <label class="profile-name" for="profile-name-input">
+          <span>${ui.profileName}</span>
+          <input id="profile-name-input" name="name" minlength="1" maxlength="12" autocomplete="nickname" value="${escapeHtml(playerProfile.name)}" placeholder="${ui.profileNamePlaceholder}" required />
+        </label>
+        <p class="profile-error" role="alert" hidden></p>
+        <button class="welcome-start" type="submit">${ui.profileContinue}</button>
+        <small class="profile-privacy">${ui.profilePrivacy}</small>
+      </form>
+    </section>
+  `;
+}
+
+function homeHistoryRow(person, index) {
+  return `
+    <button class="home-history-row ${index === 1 ? "is-featured" : ""}" type="button" data-action="choose-friend" data-id="${person.id}">
+      ${personAvatar(person, "small")}
+      <span><strong>${person.name}</strong><small>${ui.homeHistoryPreview[person.personality]}</small></span>
+      <time>${ui.homeHistoryTime[index]}</time>
+      <span aria-hidden="true">›</span>
+    </button>
+  `;
+}
+
+function renderHome() {
+  const name = escapeHtml(playerProfile.name || ui.profileDefaultName);
+  return `
+    <section class="home-screen">
+      <header class="home-header">
+        <button class="home-menu" type="button" data-action="open-tutorial" aria-label="${ui.homeTutorial}"></button>
+        <p><small>${ui.homeGreeting}</small><strong>${ui.homeHello(name)}</strong></p>
+        <button class="home-sound" type="button" data-audio-toggle aria-label="${ui.audioMute}"><span aria-hidden="true">♪</span></button>
+        <button class="home-profile" type="button" data-action="edit-profile" aria-label="${ui.homeEditProfile}">${profileAvatar("small")}</button>
+      </header>
+
+      <div class="home-hero">
+        <h1 tabindex="-1">${ui.homeTitle}</h1>
+        <button class="home-search" type="button" data-action="open-friends"><span aria-hidden="true">⌕</span>${ui.homeSearch}</button>
+      </div>
+
+      <div class="home-actions">
+        <button class="home-action is-primary" type="button" data-action="start">
+          <span>${ui.homePlayEyebrow}</span><strong>${ui.homePlayTitle}</strong><small>${ui.homePlayLead}</small><b aria-hidden="true">↗</b>
+        </button>
+        <button class="home-action" type="button" data-action="open-friends">
+          <span>${ui.homeChatEyebrow}</span><strong>${ui.homeChatTitle}</strong><small>${ui.homeChatLead}</small><b aria-hidden="true">↗</b>
+        </button>
+      </div>
+
+      <section class="home-history" aria-label="${ui.homeHistory}">
+        <div><h2>${ui.homeHistory}</h2><button type="button" data-action="open-friends">${ui.homeSeeAll}</button></div>
+        ${crew.map(homeHistoryRow).join("")}
+      </section>
+    </section>
+  `;
+}
+
 function renderIntro() {
   return `
+    <div class="tutorial-head">
+      <button class="plain-back" type="button" data-action="go-home" aria-label="${ui.homeBack}">‹</button>
+      <span>${ui.tutorialLabel}</span>
+      <strong>${ui.tutorialTitle}</strong>
+    </div>
     <p class="scene-setting">${ui.sceneSetting}</p>
 
     <article class="community-post">
@@ -458,9 +634,9 @@ function chatMessage(item) {
   const person = item.speakerId === "player" ? null : crewMember(item.speakerId);
   return `
     <article class="chat-message ${item.speakerId === "player" ? "is-player" : ""}">
-      ${person ? personAvatar(person, "small") : `<span class="avatar avatar--small avatar--player" aria-hidden="true">${ui.chatYouMark}</span>`}
+      ${person ? personAvatar(person, "small") : profileAvatar("small")}
       <div>
-        <strong>${item.speakerId === "player" ? ui.chatYou : escapeHtml(person?.name ?? item.speakerId)}<small>${ui.chatNow}</small></strong>
+        <strong>${item.speakerId === "player" ? escapeHtml(playerProfile.name || ui.chatYou) : escapeHtml(person?.name ?? item.speakerId)}<small>${ui.chatNow}</small></strong>
         <p>${escapeHtml(item.text)}</p>
       </div>
     </article>
@@ -560,7 +736,17 @@ function renderFriendChat() {
         ${chatNotice ? `<p class="chat-notice" role="status">${escapeHtml(chatNotice)}</p>` : ""}
         <form class="chat-composer" data-chat-stage="friend">
           <label class="visually-hidden" for="player-message">${ui.chatInputLabel}</label>
-          <div class="chat-composer__row">
+          <div class="chat-composer__row has-emoji">
+            <details class="emoji-picker">
+              <summary aria-label="${ui.friendEmojiOpen}" title="${ui.friendEmojiOpen}"><span aria-hidden="true">☺</span></summary>
+              <div class="emoji-picker__panel" role="group" aria-label="${ui.friendEmojiPicker}">
+                ${FRIEND_EMOJI_OPTIONS.map((emoji) => `
+                  <button class="emoji-option" type="button" data-action="insert-friend-emoji" data-emoji="${emoji}" aria-label="${ui.friendEmojiInsert(emoji)}">
+                    <span aria-hidden="true">${emoji}</span>
+                  </button>
+                `).join("")}
+              </div>
+            </details>
             <textarea id="player-message" name="message" maxlength="${MAX_CHAT_LENGTH}" rows="1" placeholder="${ui.friendChatPlaceholder(person.name)}" ${chatPending ? "disabled" : ""} required></textarea>
             <button class="composer-send" type="submit" aria-label="${ui.chatSend}" ${chatPending ? "disabled" : ""}><span aria-hidden="true">↑</span></button>
           </div>
@@ -714,7 +900,80 @@ function renderResult() {
       <span>${ui.nextRoundDetail}</span>
     </div>
 
-    <button class="primary-button" data-action="restart">${ui.restart}</button>
+    <div class="result-actions">
+      <button class="primary-button" data-action="debrief">${ui.debriefOpen}</button>
+      <button class="secondary-button" data-action="restart">${ui.restart}</button>
+    </div>
+  `;
+}
+
+function buildDebriefSummary() {
+  return {
+    outcome: state.outcome,
+    targetId: state.targetId,
+    accusedId: state.accusedId,
+    claimId: state.claimId,
+    responseId: state.responseId,
+    selectedId: state.selectedId,
+    voteShiftCount: state.voteShiftCount,
+    votes: state.votes.map((vote) => ({ voterId: vote.voterId, candidateId: vote.candidateId })),
+  };
+}
+
+function debriefSummaryLine() {
+  const selected = state.selectedId
+    ? displayName(state.selectedId)
+    : ui.debriefNoSelection;
+  return ui.debriefRoundLine(
+    displayName(state.targetId),
+    displayName(state.accusedId),
+    selected,
+  );
+}
+
+function fallbackDebriefReplies() {
+  const outcome = ui.debriefOutcome[state.outcome];
+  return crew.map((person) => ({
+    speakerId: person.id,
+    text: ui.debriefPractice[person.personality](
+      person.personality === "record"
+        ? displayName(state.selectedId)
+        : person.personality === "skeptic"
+          ? displayName(state.accusedId)
+          : outcome,
+    ),
+  }));
+}
+
+function renderDebrief() {
+  return `
+    <div class="game-room-view is-chat debrief-view">
+      <header class="game-room-bar friend-room-bar">
+        <button class="room-back" type="button" data-action="go-home" aria-label="${ui.homeBack}">‹</button>
+        ${roomAvatarStack()}
+        <div class="game-room-bar__copy"><strong>${ui.debriefTitle}</strong><small>${roomStatusLabel()}</small></div>
+        <button class="room-sound" type="button" data-audio-toggle aria-label="${ui.audioMute}"><span aria-hidden="true">♪</span></button>
+      </header>
+      <section class="debrief-summary" aria-label="${ui.debriefSummary}">
+        <span>${ui.debriefSummary}</span>
+        <strong>${ui.debriefOutcome[state.outcome]}</strong>
+        <p>${debriefSummaryLine()}</p>
+      </section>
+      <section class="chat-room is-focus" aria-label="${ui.debriefTitle}">
+        <div class="chat-transcript" aria-live="polite">
+          ${chatLog.map(chatMessage).join("")}
+          ${typingIndicator()}
+        </div>
+      </section>
+      <div class="chat-dock debrief-dock">
+        ${chatNotice ? `<p class="chat-notice" role="status">${escapeHtml(chatNotice)}</p>` : ""}
+        <p>${ui.debriefLead}</p>
+        <div class="debrief-actions">
+          <button class="primary-button" type="button" data-action="restart" ${chatPending ? "disabled" : ""}>${ui.restart}</button>
+          <button class="secondary-button" type="button" data-action="go-home" ${chatPending ? "disabled" : ""}>${ui.debriefHome}</button>
+        </div>
+      </div>
+    </div>
   `;
 }
 
@@ -744,6 +1003,7 @@ async function requestCharacterChat(stage, message, friendId = null) {
     transcript: chatLog,
     friendId,
   });
+  if (stage === "debrief") payload.debrief = buildDebriefSummary();
   const response = await fetch("/api/chat", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -754,6 +1014,31 @@ async function requestCharacterChat(stage, message, friendId = null) {
     throw new Error(data.error ?? "chat_unavailable");
   }
   return data;
+}
+
+async function openDebrief() {
+  if (chatPending) return;
+  chatLog = [{ speakerId: "system", text: debriefSummaryLine() }];
+  chatPending = true;
+  chatNotice = null;
+  typingSpeakerId = null;
+  state = { ...state, phase: "debrief" };
+  render();
+
+  let replies = [];
+  try {
+    const remote = await requestCharacterChat("debrief", ui.debriefRequest);
+    replies = safeLiveReplies(remote?.replies ?? [], 140);
+    chatMode = "live";
+  } catch {
+    chatMode = "mock";
+    chatNotice = ui.debriefFallback;
+  }
+
+  await revealReplies(replies.length === crew.length ? replies : fallbackDebriefReplies(), "debrief");
+  typingSpeakerId = null;
+  chatPending = false;
+  render();
 }
 
 function safeLiveReplies(replies, maxLength = 120) {
@@ -915,6 +1200,9 @@ let renderedPhase = null;
 
 function render() {
   const views = {
+    welcome: renderWelcome,
+    profile: renderProfileSetup,
+    home: renderHome,
     intro: renderIntro,
     "friend-select": renderFriendSelect,
     "friend-chat": renderFriendChat,
@@ -924,6 +1212,7 @@ function render() {
     challenge: renderChat,
     response: renderResponse,
     result: renderResult,
+    debrief: renderDebrief,
   };
   const phaseChanged = renderedPhase !== state.phase;
   document.body.dataset.phase = state.phase;
@@ -933,10 +1222,10 @@ function render() {
     window.scrollTo(0, 0);
     app.querySelector("h1")?.focus({ preventScroll: true });
   }
-  if (["lie", "challenge", "response", "friend-chat"].includes(state.phase)) {
+  if (["lie", "challenge", "response", "friend-chat", "debrief"].includes(state.phase)) {
     app.querySelector(".chat-transcript")?.scrollTo(0, 10_000);
   }
-  soundController?.setScene(["intro", "friend-select", "friend-chat"].includes(state.phase) ? "lobby" : "game");
+  soundController?.setScene(["welcome", "profile", "home", "intro", "friend-select", "friend-chat", "debrief"].includes(state.phase) ? "lobby" : "game");
   soundController?.refresh();
   renderedPhase = state.phase;
 }
@@ -962,9 +1251,27 @@ app.addEventListener("click", (event) => {
   if (!button) return;
 
   const action = button.dataset.action;
+  if (action === "insert-friend-emoji") {
+    const input = app.querySelector("#player-message");
+    const emoji = button.dataset.emoji ?? "";
+    if (!input || input.disabled || !emoji) return;
+    const start = input.selectionStart ?? input.value.length;
+    const end = input.selectionEnd ?? start;
+    if (input.value.length - (end - start) + emoji.length > MAX_CHAT_LENGTH) return;
+    input.setRangeText(emoji, start, end, "end");
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    button.closest("details")?.removeAttribute("open");
+    input.focus();
+    return;
+  }
+  if (action === "get-started") state = { ...state, phase: playerProfile.name ? "home" : "profile" };
+  if (action === "back-welcome") state = { ...state, phase: "welcome" };
+  if (action === "edit-profile") state = { ...state, phase: "profile" };
+  if (action === "go-home") state = { ...state, phase: "home" };
+  if (action === "open-tutorial") state = { ...state, phase: "intro" };
   if (action === "start") state = startGame(state);
   if (action === "open-friends") state = { ...state, phase: "friend-select" };
-  if (action === "back-home") state = { ...state, phase: "intro" };
+  if (action === "back-home") state = { ...state, phase: "home" };
   if (action === "back-friends") {
     selectedFriendId = null;
     chatLog = [];
@@ -989,12 +1296,23 @@ app.addEventListener("click", (event) => {
     return;
   }
   if (action === "vote") state = resolveVote(state);
+  if (action === "debrief") return openDebrief();
   if (action === "restart") return resetGame();
 
   render();
 });
 
 app.addEventListener("submit", (event) => {
+  const profileForm = event.target.closest(".profile-form");
+  if (profileForm) {
+    event.preventDefault();
+    const name = String(new FormData(profileForm).get("name") ?? "").trim().slice(0, 12);
+    if (!name) return profileForm.querySelector("#profile-name-input")?.focus();
+    savePlayerProfile({ name, avatar: playerProfile.avatar });
+    state = { ...state, phase: "home" };
+    render();
+    return;
+  }
   const form = event.target.closest(".chat-composer");
   if (!form) return;
   event.preventDefault();
@@ -1008,6 +1326,25 @@ app.addEventListener("input", (event) => {
   if (!input) return;
   input.style.height = "auto";
   input.style.height = `${Math.min(input.scrollHeight, 112)}px`;
+});
+
+app.addEventListener("change", async (event) => {
+  const input = event.target.closest("#profile-photo-input");
+  if (!input) return;
+  const error = app.querySelector(".profile-error");
+  try {
+    const avatar = await resizeProfilePhoto(input.files?.[0]);
+    playerProfile = { ...playerProfile, avatar };
+    const preview = app.querySelector(".profile-preview");
+    if (preview) preview.innerHTML = profileAvatar("large");
+    if (error) error.hidden = true;
+  } catch {
+    input.value = "";
+    if (error) {
+      error.textContent = ui.profilePhotoError;
+      error.hidden = false;
+    }
+  }
 });
 
 app.addEventListener("keydown", (event) => {

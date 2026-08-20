@@ -44,7 +44,7 @@ async function stopProcess(process) {
 }
 
 function chatPayload(stage = "accusation") {
-  return {
+  const payload = {
     locale: "ko",
     stage,
     message: stage === "accusation" ? "노엘이 정화기를 만지는 걸 봤음" : "22:10 기록부터 다시 보자",
@@ -62,6 +62,23 @@ function chatPayload(stage = "accusation") {
     round: { caseIndex: 2, subquestId: "redirect", turn: 1 },
     transcript: [{ speakerId: "player", text: "노엘이 수상함" }],
   };
+  if (stage === "debrief") {
+    payload.debrief = {
+      outcome: "win",
+      targetId: "mina",
+      accusedId: "noel",
+      claimId: "machine",
+      responseId: "check-time",
+      selectedId: "noel",
+      voteShiftCount: 2,
+      votes: [
+        { voterId: "mina", candidateId: "noel" },
+        { voterId: "juno", candidateId: "noel" },
+        { voterId: "noel", candidateId: "mina" },
+      ],
+    };
+  }
+  return payload;
 }
 
 test("API 키가 없으면 비밀을 요구하지 않고 mock 전환 신호를 보낸다", async () => {
@@ -122,6 +139,68 @@ test("1:1 친구 채팅은 선택한 캐릭터 모델만 한 번 호출한다", 
   }
 });
 
+test("직전 판 회상은 검증된 결과만 전달해 모델을 한 번 호출한다", async () => {
+  const requests = [];
+  const upstream = http.createServer((request, response) => {
+    let body = "";
+    request.setEncoding("utf8");
+    request.on("data", (chunk) => { body += chunk; });
+    request.on("end", () => {
+      const parsed = JSON.parse(body);
+      requests.push(parsed);
+      response.writeHead(200, { "Content-Type": "application/json" });
+      response.end(JSON.stringify({
+        output: [{
+          type: "message",
+          content: [{
+            type: "output_text",
+            text: JSON.stringify({
+              replies: [
+                { speakerId: "mina", message: "노엘로 표 바뀐 거 캡처해둠 ㅋㅋ" },
+                { speakerId: "juno", message: "그래도 반대 가설은 다음 판에 보자." },
+                { speakerId: "noel", message: "둘이 내 반응 보는 순간 이미 끝났더라." },
+              ],
+            }),
+          }],
+        }],
+      }));
+    });
+  });
+  upstream.listen(0, "127.0.0.1");
+  await once(upstream, "listening");
+  const upstreamPort = upstream.address().port;
+  const { server, baseUrl } = await startPrototype({
+    OPENAI_API_KEY: "test-only-key",
+    OPENAI_API_BASE: `http://127.0.0.1:${upstreamPort}/v1`,
+  });
+
+  try {
+    const response = await fetch(`${baseUrl}/api/chat`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(chatPayload("debrief")),
+    });
+    const result = await response.json();
+    assert.equal(response.status, 200);
+    assert.equal(result.mode, "live");
+    assert.deepEqual(result.replies.map((reply) => reply.speakerId), ["mina", "juno", "noel"]);
+    assert.equal(requests.length, 1);
+    assert.equal(requests[0].text.format.name, "post_game_debrief");
+    assert.equal(requests[0].store, false);
+
+    const modelContext = JSON.parse(requests[0].input[1].content);
+    assert.deepEqual(modelContext.result, chatPayload("debrief").debrief);
+    assert.ok(["characters", "incident", "result", "world"].every((key) => key in modelContext || key === "world"));
+    assert.ok(Object.keys(modelContext).every((key) => ["characters", "incident", "result", "world"].includes(key)));
+    assert.ok(!("transcript" in modelContext), "직전 판 회상 요청에는 과거 자유 채팅을 재전송하지 않습니다.");
+    assert.match(`${requests[0].input[0].content}\n${modelContext.world ?? ""}`, /2050.*Mars.*MARS\.NET/is);
+  } finally {
+    await stopProcess(server);
+    upstream.close();
+    await once(upstream, "close");
+  }
+});
+
 test("잘못된 chat payload는 모델 호출 전에 거절한다", async () => {
   const { server, baseUrl } = await startPrototype();
   try {
@@ -141,6 +220,15 @@ test("잘못된 chat payload는 모델 호출 전에 거절한다", async () => 
       body: JSON.stringify(missingFriend),
     });
     assert.equal(friendResponse.status, 400);
+
+    const invalidDebrief = chatPayload("debrief");
+    invalidDebrief.debrief.votes[0].candidateId = "unknown";
+    const debriefResponse = await fetch(`${baseUrl}/api/chat`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(invalidDebrief),
+    });
+    assert.equal(debriefResponse.status, 400);
   } finally {
     await stopProcess(server);
   }

@@ -2,6 +2,11 @@ export const MAX_CHAT_LENGTH = 280;
 
 const CLAIM_IDS = ["seen", "machine", "changed"];
 const RESPONSE_IDS = ["double-down", "return-evidence", "check-time"];
+const CREW_WORLD_BACKGROUNDS = {
+  mina: "MARS.NET idol-fandom board regular; follows Earth-relayed and Mars concerts, remembers screenshots well, but can be biased toward favorites.",
+  juno: "MARS.NET development/technology board regular; maintains habitat living systems, separates facts from guesses, and tests counterexamples without jargon.",
+  noel: "MARS.NET streaming board regular; follows Earth-to-Mars broadcasts and quickly notices changes in tone and reactions.",
+};
 
 function bestClaimFor(state, accusedId) {
   return CLAIM_IDS.reduce((best, claimId) =>
@@ -77,6 +82,7 @@ export function buildChatPayload({ locale, stage, message, state, crew, incident
       name: member.name,
       style: member.style,
       personality: member.personality,
+      background: member.background ?? CREW_WORLD_BACKGROUNDS[member.id],
       fact: {
         id: state.facts[member.id].id,
         text: state.facts[member.id].text,

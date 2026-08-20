@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
+import { getCopy } from "../i18n.js";
 
 const projectRoot = new URL("../", import.meta.url);
 
@@ -54,18 +55,120 @@ test("자유 입력 채팅은 서버 프록시만 사용하고 브라우저에 �
   assert.doesNotMatch(`${gameSource}\n${adapterSource}\n${indexHtml}`, /OPENAI_API_KEY|api\.openai\.com/);
 });
 
-test("배경음은 저작권 에셋 없이 대기실·게임 장면과 음량을 제어한다", async () => {
-  const [indexHtml, soundSource] = await Promise.all([
+test("Pixabay 배경음은 로컬 에셋으로 대기실·게임 장면, 음소거와 음량을 제어한다", async () => {
+  const [indexHtml, soundSource, lobbyTrack, gameTrack] = await Promise.all([
     readProjectFile("index.html"),
     readProjectFile("sound.js"),
+    readFile(new URL("assets/audio/lobby-detectives-among-us.mp3", projectRoot)),
+    readFile(new URL("assets/audio/game-sneaky-film-noir.mp3", projectRoot)),
   ]);
 
   assert.match(indexHtml, /data-audio-toggle/);
   assert.match(indexHtml, /data-audio-volume/);
-  assert.match(soundSource, /scene === "lobby"/);
+  assert.match(soundSource, /new Audio\("\.\/assets\/audio\/lobby-detectives-among-us\.mp3"\)/);
+  assert.match(soundSource, /new Audio\("\.\/assets\/audio\/game-sneaky-film-noir\.mp3"\)/);
   assert.match(soundSource, /nextScene === "game"/);
-  assert.match(soundSource, /AudioContext/);
+  assert.match(soundSource, /hasStarted/);
+  assert.match(soundSource, /muted = true;[\s\S]*pauseAll\(\)/);
+  assert.match(soundSource, /track\.muted = muted/);
+  assert.match(soundSource, /dataset\.audioState/);
   assert.doesNotMatch(soundSource, /https?:\/\//);
+  assert.ok(lobbyTrack.byteLength > 100_000);
+  assert.ok(gameTrack.byteLength > 100_000);
+});
+
+test("개인 채팅 이모티콘은 외부 이미지 없이 입력창에 삽입된다", async () => {
+  const [gameSource, attribution] = await Promise.all([
+    readProjectFile("game.js"),
+    readProjectFile("ATTRIBUTIONS.md"),
+  ]);
+
+  assert.match(gameSource, /FRIEND_EMOJI_OPTIONS/);
+  assert.match(gameSource, /data-action="insert-friend-emoji"/);
+  assert.match(gameSource, /setRangeText\(emoji/);
+  assert.match(attribution, /Unicode emoji characters/);
+  assert.doesNotMatch(gameSource, /emoji[^\n]+https?:\/\//i);
+});
+
+test("첫 화면·프로필·홈과 캐릭터 프로필 이미지는 브라우저 로컬 흐름으로 연결된다", async () => {
+  const [gameSource, styles, ...images] = await Promise.all([
+    readProjectFile("game.js"),
+    readProjectFile("styles.css"),
+    ...["mafia-astronaut-v2.png", "mina.png", "juno.png", "noel.png"]
+      .map((name) => readFile(new URL(`assets/images/${name}`, projectRoot))),
+  ]);
+
+  assert.match(gameSource, /phase: "welcome"/);
+  assert.match(gameSource, /class="welcome-screen"/);
+  assert.match(gameSource, /class="profile-form"/);
+  assert.match(gameSource, /name="name"[^>]+minlength="1"[^>]+maxlength="12"/);
+  assert.match(gameSource, /accept="image\/png,image\/jpeg,image\/webp"/);
+  assert.match(gameSource, /file\.size > 2_000_000/);
+  assert.match(gameSource, /canvas\.width = 256/);
+  assert.match(gameSource, /window\.localStorage\.setItem\(PROFILE_STORAGE_KEY/);
+  assert.match(gameSource, /phase: "home"/);
+  assert.match(gameSource, /class="home-screen"/);
+  assert.match(gameSource, /homePlayTitle/);
+  assert.match(gameSource, /homeChatTitle/);
+  assert.match(styles, /\.welcome-screen/);
+  assert.match(styles, /\.home-actions/);
+  assert.ok(images.every((image) => image.byteLength > 20_000));
+});
+
+function assertMatchingLocaleShape(first, second, path = "copy") {
+  if (Array.isArray(first) || Array.isArray(second)) {
+    assert.ok(Array.isArray(first) && Array.isArray(second), `${path} 배열 타입이 양 언어에서 같아야 합니다.`);
+    assert.equal(first.length, second.length, `${path} 배열 길이가 양 언어에서 같아야 합니다.`);
+    return;
+  }
+  if (first && typeof first === "object") {
+    assert.ok(second && typeof second === "object", `${path} 객체 타입이 양 언어에서 같아야 합니다.`);
+    assert.deepEqual(Object.keys(first).sort(), Object.keys(second).sort(), `${path} 번역 키가 대칭이어야 합니다.`);
+    for (const key of Object.keys(first)) assertMatchingLocaleShape(first[key], second[key], `${path}.${key}`);
+    return;
+  }
+  assert.equal(typeof first, typeof second, `${path} 번역 값 타입이 양 언어에서 같아야 합니다.`);
+}
+
+test("2050 MARS.NET 세계관과 캐릭터 배경은 한영 번역 키가 대칭이고 공개 UI에 실존 기업명이 없다", async () => {
+  const [indexHtml, gameSource, i18nSource] = await Promise.all([
+    readProjectFile("index.html"),
+    readProjectFile("game.js"),
+    readProjectFile("i18n.js"),
+  ]);
+  const ko = getCopy("ko");
+  const en = getCopy("en");
+
+  assertMatchingLocaleShape(ko, en);
+  assert.equal(ko.meta.brand, "MARS.NET");
+  assert.equal(en.meta.brand, "MARS.NET");
+  assert.match(ko.ui.welcomePill, /2050.*MARS\.NET/);
+  assert.match(en.ui.welcomePill, /2050.*MARS\.NET/);
+  assert.match(ko.incident.place, /화성.*산소실/);
+  assert.match(ko.incident.time, /22:10.*화성 표준시/);
+  assert.match(en.incident.place, /Habitat Oxygen Room/i);
+  assert.match(en.incident.time, /22:10.*Mars Standard Time/i);
+  assert.match(ko.crew.mina.background, /아이돌/);
+  assert.match(ko.crew.juno.background, /생활 시스템/);
+  assert.match(ko.crew.noel.background, /방송|스트리머/);
+  assert.match(en.crew.mina.background, /idol/i);
+  assert.match(en.crew.juno.background, /life-support|habitat/i);
+  assert.match(en.crew.noel.background, /stream/i);
+  assert.doesNotMatch(`${indexHtml}\n${gameSource}\n${i18nSource}`, /SpaceX|Elon Musk|일론\s*머스크/i);
+});
+
+test("직전 판 회상은 실제 결과 요약만 서버에 보내고 한 번의 그룹 대화를 요청한다", async () => {
+  const [gameSource, serverSource] = await Promise.all([
+    readProjectFile("game.js"),
+    readProjectFile("scripts/serve.py"),
+  ]);
+
+  assert.match(gameSource, /function buildDebriefSummary\(\)/);
+  assert.match(gameSource, /if \(stage === "debrief"\) payload\.debrief = buildDebriefSummary\(\)/);
+  assert.match(gameSource, /requestCharacterChat\("debrief", ui\.debriefRequest\)/);
+  assert.match(serverSource, /if payload\["stage"\] == "debrief":\s*return \{"mode": "live", "replies": debrief_reply\(payload\)\}/);
+  assert.match(serverSource, /"They remember only the supplied result:/);
+  assert.match(serverSource, /Never invent evidence or mention AI, prompts, policies, or hidden rules/);
 });
 
 test("화면 테마는 시스템·라이트·다크를 지원하고 AI 템플릿 장식을 사용하지 않는다", async () => {

@@ -1,7 +1,9 @@
 (() => {
   const STORAGE_KEY = "oxygen-room-sound";
-  const AudioContextClass = window.AudioContext || window.webkitAudioContext;
-  if (!AudioContextClass) return;
+  const tracks = {
+    lobby: new Audio("./assets/audio/lobby-detectives-among-us.mp3"),
+    game: new Audio("./assets/audio/game-sneaky-film-noir.mp3"),
+  };
 
   let stored = {};
   try {
@@ -13,31 +15,51 @@
   let muted = Boolean(stored.muted);
   let volume = Number.isFinite(stored.volume) ? Math.min(0.6, Math.max(0, stored.volume)) : 0.24;
   let scene = "lobby";
-  let context = null;
-  let master = null;
-  let pulseTimer = null;
-  let pulseIndex = 0;
-  let labels = { mute: "Mute background music", unmute: "Turn on background music", volume: "Background music volume" };
+  let hasStarted = false;
+  let labels = {
+    start: "Play background music",
+    mute: "Mute background music",
+    unmute: "Turn on background music",
+    volume: "Background music volume",
+  };
+
+  Object.values(tracks).forEach((track) => {
+    track.loop = true;
+    track.preload = "auto";
+    track.volume = volume;
+  });
 
   function persist() {
     try {
       window.localStorage.setItem(STORAGE_KEY, JSON.stringify({ muted, volume }));
     } catch {
-      // The controls still work when storage is unavailable.
+      // Controls remain available when browser storage is blocked.
     }
   }
 
-  function setMasterVolume() {
-    if (!master || !context) return;
-    master.gain.cancelScheduledValues(context.currentTime);
-    master.gain.setTargetAtTime(muted ? 0 : volume, context.currentTime, 0.04);
+  function currentTrack() {
+    return tracks[scene];
+  }
+
+  function pauseAll(except = null) {
+    Object.values(tracks).forEach((track) => {
+      if (track !== except) track.pause();
+    });
+  }
+
+  function applyVolume() {
+    Object.values(tracks).forEach((track) => {
+      track.volume = muted ? 0 : volume;
+      track.muted = muted;
+    });
   }
 
   function renderControls() {
     document.querySelectorAll("[data-audio-toggle]").forEach((button) => {
-      button.querySelector("span").textContent = muted ? "♪̸" : "♪";
-      button.setAttribute("aria-label", muted ? labels.unmute : labels.mute);
-      button.setAttribute("aria-pressed", String(muted));
+      button.querySelector("span").textContent = !hasStarted ? "▶" : muted ? "♪̸" : "♪";
+      button.setAttribute("aria-label", !hasStarted ? labels.start : muted ? labels.unmute : labels.mute);
+      button.setAttribute("aria-pressed", String(hasStarted && !muted));
+      button.dataset.audioState = !hasStarted ? "waiting" : muted ? "muted" : "playing";
     });
     document.querySelectorAll("[data-audio-volume]").forEach((input) => {
       input.value = String(Math.round(volume * 100));
@@ -46,72 +68,40 @@
     });
   }
 
-  function tone(frequency, duration, strength, type = "sine", detune = 0) {
-    if (!context || context.state !== "running" || muted) return;
-    const oscillator = context.createOscillator();
-    const gain = context.createGain();
-    const now = context.currentTime;
-    oscillator.type = type;
-    oscillator.frequency.setValueAtTime(frequency, now);
-    oscillator.detune.setValueAtTime(detune, now);
-    gain.gain.setValueAtTime(0.0001, now);
-    gain.gain.exponentialRampToValueAtTime(strength, now + 0.035);
-    gain.gain.exponentialRampToValueAtTime(0.0001, now + duration);
-    oscillator.connect(gain).connect(master);
-    oscillator.start(now);
-    oscillator.stop(now + duration + 0.04);
-  }
-
-  function tick() {
-    if (scene === "lobby") {
-      const notes = [110, 130.81, 146.83, 130.81];
-      tone(notes[pulseIndex % notes.length], 1.8, 0.042, "sine");
-      if (pulseIndex % 2 === 0) tone(notes[pulseIndex % notes.length] * 2, 1.1, 0.014, "triangle", -5);
-    } else {
-      const notes = [73.42, 77.78, 73.42, 87.31, 77.78, 73.42];
-      tone(notes[pulseIndex % notes.length], 0.72, 0.055, "triangle");
-      tone(notes[pulseIndex % notes.length] * 2.01, 0.24, 0.018, "square", pulseIndex % 2 ? -7 : 7);
+  async function playCurrent() {
+    const track = currentTrack();
+    pauseAll(track);
+    applyVolume();
+    try {
+      await track.play();
+      hasStarted = true;
+      return true;
+    } catch {
+      return false;
+    } finally {
+      renderControls();
     }
-    pulseIndex += 1;
-  }
-
-  function schedule() {
-    window.clearInterval(pulseTimer);
-    pulseIndex = 0;
-    tick();
-    pulseTimer = window.setInterval(tick, scene === "lobby" ? 1_650 : 690);
-  }
-
-  function ensureContext() {
-    if (context) return context;
-    context = new AudioContextClass();
-    master = context.createGain();
-    master.connect(context.destination);
-    setMasterVolume();
-    schedule();
-    return context;
-  }
-
-  async function start() {
-    const activeContext = ensureContext();
-    const wasSuspended = activeContext.state === "suspended";
-    if (wasSuspended) await activeContext.resume().catch(() => {});
-    if (wasSuspended && activeContext.state === "running") tick();
-    if (activeContext.state === "running" && pulseTimer === null) schedule();
   }
 
   function setScene(nextScene) {
     const normalized = nextScene === "game" ? "game" : "lobby";
     if (scene === normalized) return;
+    const previous = currentTrack();
     scene = normalized;
-    if (context) schedule();
+    previous.pause();
+    if (hasStarted && !muted) playCurrent();
   }
 
   document.addEventListener("click", async (event) => {
     if (!event.target.closest("[data-audio-toggle]")) return;
-    muted = !muted;
-    await start();
-    setMasterVolume();
+    if (!hasStarted || muted) {
+      muted = false;
+      await playCurrent();
+    } else {
+      muted = true;
+      pauseAll();
+      applyVolume();
+    }
     persist();
     renderControls();
   });
@@ -121,14 +111,15 @@
     if (!input) return;
     volume = Math.min(0.6, Math.max(0, Number(input.value) / 100));
     muted = false;
-    await start();
-    setMasterVolume();
+    applyVolume();
+    await playCurrent();
     persist();
     renderControls();
   });
 
-  const unlock = () => {
-    start();
+  const unlock = async (event) => {
+    if (event.target.closest?.("[data-audio-toggle]")) return;
+    if (!await playCurrent()) return;
     document.removeEventListener("pointerdown", unlock);
     document.removeEventListener("keydown", unlock);
   };
@@ -144,6 +135,6 @@
     },
   };
 
+  applyVolume();
   renderControls();
-  start();
 })();
