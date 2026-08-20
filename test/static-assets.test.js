@@ -36,10 +36,11 @@ test("브라우저 에셋과 내부 모듈은 패키지 버전으로 캐시를 �
 });
 
 test("자유 입력 채팅은 서버 프록시만 사용하고 브라우저에 비밀값을 넣지 않는다", async () => {
-  const [gameSource, adapterSource, indexHtml] = await Promise.all([
+  const [gameSource, adapterSource, indexHtml, styles] = await Promise.all([
     readProjectFile("game.js"),
     readProjectFile("chat-adapter.js"),
     readProjectFile("index.html"),
+    readProjectFile("styles.css"),
   ]);
 
   assert.match(gameSource, /fetch\("\/api\/chat"/);
@@ -53,6 +54,9 @@ test("자유 입력 채팅은 서버 프록시만 사용하고 브라우저에 �
   assert.match(gameSource, /data-chat-stage="friend"/);
   assert.doesNotMatch(gameSource, /class="crew-card/);
   assert.match(adapterSource, /MAX_CHAT_LENGTH = 280/);
+  assert.match(styles, /\.game-room-view \.chat-dock \.chat-suggestions \{[\s\S]+grid-template-columns: minmax\(0, 1fr\)/);
+  assert.match(styles, /\.game-room-view \.chat-dock \.chat-suggestion \{[\s\S]+width: 100%[\s\S]+min-height: 48px/);
+  assert.match(styles, /\.game-room-view \.chat-dock \.chat-suggestion span \{[\s\S]+white-space: normal/);
   assert.doesNotMatch(`${gameSource}\n${adapterSource}\n${indexHtml}`, /OPENAI_API_KEY|api\.openai\.com/);
 });
 
