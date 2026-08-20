@@ -42,6 +42,10 @@ test("자유 입력 채팅은 서버 프록시만 사용하고 브라우저에 �
   assert.match(gameSource, /fetch\("\/api\/chat"/);
   assert.match(gameSource, /class="chat-composer"/);
   assert.match(gameSource, /<textarea/);
+  assert.match(gameSource, /class="game-room-view is-chat is-setup"/);
+  assert.match(gameSource, /class="composer-send"/);
+  assert.match(gameSource, /relationStrong/);
+  assert.doesNotMatch(gameSource, /class="crew-card/);
   assert.match(adapterSource, /MAX_CHAT_LENGTH = 280/);
   assert.doesNotMatch(`${gameSource}\n${adapterSource}\n${indexHtml}`, /OPENAI_API_KEY|api\.openai\.com/);
 });

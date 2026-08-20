@@ -17,15 +17,15 @@ import {
   plantEvidence,
   resolveVote,
   startGame,
-} from "./game-engine.js?v=0.9.3";
-import { getCopy, normalizeLocale } from "./i18n.js?v=0.9.3";
+} from "./game-engine.js?v=0.10.1";
+import { getCopy, normalizeLocale } from "./i18n.js?v=0.10.1";
 import {
   buildChatPayload,
   fallbackAccusation,
   fallbackResponse,
   MAX_CHAT_LENGTH,
   normalizeInterpretation,
-} from "./chat-adapter.js?v=0.9.3";
+} from "./chat-adapter.js?v=0.10.1";
 
 const app = document.querySelector("#app");
 const assetVersion = new URL(import.meta.url).searchParams.get("v");
@@ -152,15 +152,23 @@ function roomStatusLabel() {
   return ui.roomStatus;
 }
 
+function currentThemeIcon() {
+  return { system: "◐", light: "○", dark: "●" }[themeController?.read() ?? "system"];
+}
+
 function gameRoomBar(step, label) {
   return `
     <header class="game-room-bar">
+      <a class="room-back" href="./?lang=${locale}" aria-label="${copy.meta.home}">‹</a>
       ${roomAvatarStack()}
       <div class="game-room-bar__copy">
         <strong>${ui.chatRoomTitle}</strong>
         <small>${roomStatusLabel()}</small>
       </div>
       <span class="room-phase"><strong>${step}/5</strong><span>${label}</span></span>
+      <button class="room-theme" type="button" data-action="cycle-theme" aria-label="${copy.meta.themeControl(copy.meta.themeModes[themeController?.read() ?? "system"])}">
+        <span aria-hidden="true">${currentThemeIcon()}</span>
+      </button>
     </header>
   `;
 }
@@ -228,44 +236,43 @@ function crewChoiceCard(person, selectedId, action) {
   const isSelected = selectedId === person.id;
   return `
     <button
-      class="crew-card ${isSelected ? "is-selected" : ""}"
+      class="crew-action ${isSelected ? "is-selected" : ""}"
       data-action="${action}"
       data-id="${person.id}"
       role="radio"
       aria-checked="${isSelected}"
     >
-      ${personAvatar(person)}
-      <span class="crew-name">${person.name}</span>
-      <span class="crew-style">${person.style}</span>
-      <span class="selected-label">${isSelected ? ui.selected : ui.select}</span>
+      ${personAvatar(person, "small")}
+      <span>${person.name}</span>
+      <small>${isSelected ? ui.selected : ui.select}</small>
     </button>
   `;
 }
 
 function renderEvidence() {
   return `
-    <div class="game-room-view is-setup">
+    <div class="game-room-view is-chat is-setup">
       ${gameRoomBar(1, ui.stages.evidence)}
-      <div class="game-room-scroll">
-        <p class="room-divider">${incident.place} · ${incident.time}</p>
-        <article class="room-system-card is-alert">
-          <span class="eyebrow">${ui.incidentHappened}</span>
-          <h1 tabindex="-1">${incident.title}</h1>
-          <p>${incident.description}</p>
-        </article>
-
-        ${subquestCard()}
-
-        <div class="evidence-note">
-          <span aria-hidden="true">${ui.evidenceMark}</span>
-          <div><strong>${incident.evidence}</strong><p>${ui.evidencePrompt}</p></div>
+      <section class="chat-room is-focus" aria-label="${ui.chatTranscriptAria}">
+        <div class="chat-transcript setup-transcript">
+          <p class="chat-day">${incident.place} · ${incident.time}</p>
+          <p class="chat-event">${ui.incidentHappened}</p>
+          <article class="room-system-card is-alert">
+            <span class="eyebrow">${ui.secretMessage}</span>
+            <h1 tabindex="-1">${incident.title}</h1>
+            <p>${incident.description}</p>
+          </article>
+          ${subquestCard()}
+          <article class="private-action-card">
+            <span>${ui.evidenceMark}</span>
+            <div><strong>${incident.evidence}</strong><p>${ui.evidencePrompt}</p></div>
+          </article>
         </div>
-
-        <div class="crew-grid" role="radiogroup" aria-label="${ui.evidenceGroup}">
+      </section>
+      <div class="chat-dock setup-dock">
+        <div class="crew-action-row" role="radiogroup" aria-label="${ui.evidenceGroup}">
           ${crew.map((person) => crewChoiceCard(person, selectedTargetId, "select-target")).join("")}
         </div>
-      </div>
-      <div class="room-action-dock">
         <button class="primary-button" data-action="plant" ${selectedTargetId ? "" : "disabled"}>
           ${selectedTargetId ? ui.plant(crewMember(selectedTargetId).name) : ui.chooseOne}
         </button>
@@ -291,30 +298,26 @@ function factCard(person) {
 function renderMeeting() {
   const target = crewMember(state.targetId);
   return `
-    <div class="game-room-view is-setup">
+    <div class="game-room-view is-chat is-setup">
       ${gameRoomBar(2, ui.stages.facts)}
-      <div class="game-room-scroll">
-        <p class="room-divider">${ui.evidenceFound}</p>
-        <article class="room-system-card">
-          <h1 tabindex="-1">${ui.meetingTitle(target.name)}</h1>
-          <p>${ui.roundFacts}</p>
-        </article>
-
-        <section class="room-facts" aria-label="${ui.publicFacts}">
-          <strong class="room-section-title">${ui.publicFacts}</strong>
-          <div class="fact-list">
-            ${crew.map((person) => factCard(person)).join("")}
-          </div>
-        </section>
-
-        <section class="meeting-chat-preview" aria-label="${ui.openingStatements}">
-          <p class="room-divider">${ui.openingStatements}</p>
+      <details class="chat-context clue-context" open>
+        <summary><span>${ui.publicFacts}</span><strong>${ui.clueCount(crew.length)}</strong></summary>
+        <div class="chat-context__body fact-list">${crew.map((person) => factCard(person)).join("")}</div>
+      </details>
+      <section class="chat-room is-focus" aria-label="${ui.openingStatements}">
+        <div class="chat-transcript setup-transcript">
+          <p class="chat-day">${incident.place} · ${incident.time}</p>
+          <p class="chat-event">${ui.evidenceFound}</p>
+          <article class="room-system-card">
+            <h1 tabindex="-1">${ui.meetingTitle(target.name)}</h1>
+            <p>${ui.roundFacts}</p>
+          </article>
           ${getMeetingStatements(state)
             .map((statement) => chatMessage({ speakerId: statement.id, text: statement.text }))
             .join("")}
-        </section>
-      </div>
-      <div class="room-action-dock">
+        </div>
+      </section>
+      <div class="chat-dock setup-dock is-single-action">
         <button class="primary-button" data-action="open-chat">${ui.makeLie}</button>
       </div>
     </div>
@@ -331,13 +334,25 @@ function strongestClaim(personId) {
 
 function chatSuggestions(stage) {
   const suggestions = stage === "accusation"
-    ? crew.map((person) => strongestClaim(person.id).label)
-    : getResponseOptions(state).map((option) => option.label.replaceAll("“", "").replaceAll("”", ""));
+    ? crew.map((person) => {
+      const claim = strongestClaim(person.id);
+      const impact = state.facts[person.id].impacts[claim.id];
+      const relation = impact < 0 ? ui.relationConflict : impact >= 20 ? ui.relationStrong : ui.relationWeak;
+      return { text: claim.label, meta: `${person.name} · ${relation}`, tone: impact < 0 ? "is-conflict" : impact >= 20 ? "is-strong" : "is-weak" };
+    })
+    : getResponseOptions(state).map((option) => ({
+      text: option.label.replaceAll("“", "").replaceAll("”", ""),
+      meta: option.hint,
+      tone: "is-weak",
+    }));
   return `
     <div class="chat-suggestions" aria-label="${ui.chatSuggestions}">
-      <span>${ui.chatSuggestions}</span>
-      ${suggestions.map((text) => `
-        <button type="button" class="chat-suggestion" data-action="draft-message" data-message="${encodeURIComponent(text)}">${escapeHtml(text)}</button>
+      <span>${ui.chatSuggestions}<small>${ui.chatSuggestionsHint}</small></span>
+      ${suggestions.map((suggestion) => `
+        <button type="button" class="chat-suggestion ${suggestion.tone}" data-action="draft-message" data-message="${encodeURIComponent(suggestion.text)}">
+          <small>${escapeHtml(suggestion.meta)}</small>
+          <span>${escapeHtml(suggestion.text)}</span>
+        </button>
       `).join("")}
     </div>
   `;
@@ -352,7 +367,7 @@ function chatMessage(item) {
     <article class="chat-message ${item.speakerId === "player" ? "is-player" : ""}">
       ${person ? personAvatar(person, "small") : `<span class="avatar avatar--small avatar--player" aria-hidden="true">${ui.chatYouMark}</span>`}
       <div>
-        <strong>${item.speakerId === "player" ? ui.chatYou : escapeHtml(person?.name ?? item.speakerId)}</strong>
+        <strong>${item.speakerId === "player" ? ui.chatYou : escapeHtml(person?.name ?? item.speakerId)}<small>${ui.chatNow}</small></strong>
         <p>${escapeHtml(item.text)}</p>
       </div>
     </article>
@@ -368,7 +383,7 @@ function renderChat() {
     <div class="game-room-view is-chat">
       ${gameRoomBar(step, stageLabel)}
       <div class="chat-turn-banner">
-        <span>${ui.yourTurn}</span>
+        <span>${ui.yourTurn} · ${ui.freeChat}</span>
         <h1 tabindex="-1">${isAccusation ? ui.chatAccuseTitle : ui.chatReplyTitle}</h1>
       </div>
       ${chatContext()}
@@ -388,7 +403,7 @@ function renderChat() {
           <label class="visually-hidden" for="player-message">${ui.chatInputLabel}</label>
           <div class="chat-composer__row">
             <textarea id="player-message" name="message" maxlength="${MAX_CHAT_LENGTH}" rows="1" placeholder="${isAccusation ? ui.chatPlaceholderAccuse : ui.chatPlaceholderReply}" ${chatPending ? "disabled" : ""} required></textarea>
-            <button class="primary-button" type="submit" ${chatPending ? "disabled" : ""}>${ui.chatSend}</button>
+            <button class="composer-send" type="submit" aria-label="${ui.chatSend}" ${chatPending ? "disabled" : ""}><span aria-hidden="true">↑</span></button>
           </div>
           <small class="chat-limit">${ui.chatLength(MAX_CHAT_LENGTH)}</small>
         </form>
@@ -677,7 +692,9 @@ function render() {
     window.scrollTo(0, 0);
     app.querySelector("h1")?.focus({ preventScroll: true });
   }
-  app.querySelector(".chat-transcript")?.scrollTo(0, 10_000);
+  if (["lie", "challenge", "response"].includes(state.phase)) {
+    app.querySelector(".chat-transcript")?.scrollTo(0, 10_000);
+  }
   renderedPhase = state.phase;
 }
 
@@ -704,6 +721,10 @@ app.addEventListener("click", (event) => {
   if (action === "select-target") selectedTargetId = button.dataset.id;
   if (action === "plant" && selectedTargetId) state = plantEvidence(state, selectedTargetId);
   if (action === "open-chat") startChat();
+  if (action === "cycle-theme") {
+    themeController?.next();
+    renderThemeControl();
+  }
   if (action === "draft-message") {
     const input = app.querySelector("#player-message");
     if (input) {
