@@ -17,20 +17,39 @@ import {
   plantEvidence,
   resolveVote,
   startGame,
-} from "./game-engine.js?v=0.12.2";
-import { getCopy, normalizeLocale } from "./i18n.js?v=0.12.2";
+} from "./game-engine.js?v=0.12.6";
+import { getCopy, normalizeLocale } from "./i18n.js?v=0.12.6";
 import {
   buildChatPayload,
   fallbackAccusation,
   fallbackResponse,
   MAX_CHAT_LENGTH,
   normalizeInterpretation,
-} from "./chat-adapter.js?v=0.12.2";
+} from "./chat-adapter.js?v=0.12.6";
+import {
+  acceptPersonalQuest,
+  createProgression,
+  dismissCompletedQuest,
+  isAttackAllowed,
+  isPrivateDetectiveEquipped,
+  localDateKey,
+  markDebriefViewed,
+  PRIVATE_DETECTIVE_ID,
+  PROGRESSION_STORAGE_KEY,
+  setEquippedJob,
+  settlePersonalQuest,
+} from "./progression.js?v=0.12.6";
 
 const app = document.querySelector("#app");
 const assetVersion = new URL(import.meta.url).searchParams.get("v");
 const versionLabel = assetVersion ? `v${assetVersion}` : "dev";
 const locale = normalizeLocale(new URLSearchParams(window.location.search).get("lang"));
+const requestedTestDate = new URLSearchParams(window.location.search).get("testDate");
+const injectedTestDate = ["127.0.0.1", "localhost"].includes(window.location.hostname)
+  && /^\d{4}-\d{2}-\d{2}$/.test(requestedTestDate ?? "")
+  ? requestedTestDate
+  : null;
+const currentDateKey = () => injectedTestDate ?? localDateKey();
 const copy = getCopy(locale);
 const ui = copy.ui;
 const FRIEND_EMOJI_OPTIONS = ["😂", "🥹", "😅", "🤔", "😳", "🙄", "👍", "👏", "❤️", "🔥", "👀", "🚀"];
@@ -96,6 +115,11 @@ let typingSpeakerId = null;
 let selectedFriendId = null;
 let friendConversationIndex = 0;
 let playerProfile = loadPlayerProfile();
+let progression = loadProgression();
+let questOfferCharacterId = null;
+let lastPersonalQuestResult = null;
+let lastClueAward = null;
+let detectiveInspection = null;
 
 const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
 const wait = (milliseconds) => new Promise((resolve) => {
@@ -117,6 +141,24 @@ function loadPlayerProfile() {
   } catch {
     return { name: "", avatar: "" };
   }
+}
+
+function loadProgression() {
+  try {
+    return createProgression(JSON.parse(window.localStorage.getItem(PROGRESSION_STORAGE_KEY) ?? "null"));
+  } catch {
+    return createProgression();
+  }
+}
+
+function saveProgression(nextProgression) {
+  progression = createProgression(nextProgression);
+  try {
+    window.localStorage.setItem(PROGRESSION_STORAGE_KEY, JSON.stringify(progression));
+  } catch {
+    // The current session still works when browser storage is unavailable.
+  }
+  return progression;
 }
 
 function savePlayerProfile(profile) {
@@ -299,6 +341,7 @@ function chatContext() {
       <div class="chat-context__body">
         ${incidentBoard(true)}
         ${subquestCard()}
+        ${renderActivePersonalQuest("game")}
       </div>
     </details>
   `;
@@ -358,6 +401,102 @@ function homeHistoryRow(person, index) {
       <time>${ui.homeHistoryTime[index]}</time>
       <span aria-hidden="true">›</span>
     </button>
+  `;
+}
+
+function personalQuestCopy(quest = progression.activeQuest) {
+  if (!quest) return null;
+  return {
+    name: ui.personalQuest.names[quest.questId],
+    goal: ui.personalQuest.goals[quest.questId],
+    person: crewMember(quest.characterId),
+  };
+}
+
+function renderQuestOffer(person) {
+  if (questOfferCharacterId !== person.id || progression.activeQuest) return "";
+  const questId = { mina: "mina-shift", juno: "juno-counterexample", noel: "noel-consistency" }[person.id];
+  return `
+    <article class="personal-quest-card is-offer">
+      <div class="personal-quest-card__person">${personAvatar(person, "small")}<span><small>${ui.personalQuest.title}</small><strong>${person.name}</strong></span></div>
+      <h2>${ui.personalQuest.names[questId]}</h2>
+      <p>${ui.personalQuest.goals[questId]}</p>
+      <div class="personal-quest-card__actions">
+        <button class="tonal-button" type="button" data-action="accept-personal-quest" data-id="${person.id}">${ui.personalQuest.accept}</button>
+        <button class="text-button" type="button" data-action="later-personal-quest">${ui.personalQuest.later}</button>
+      </div>
+    </article>
+  `;
+}
+
+function renderActivePersonalQuest(mode = "game") {
+  const result = mode === "result" ? lastPersonalQuestResult : null;
+  const quest = progression.activeQuest ?? result;
+  if (!quest || (mode === "game" && quest.status !== "active")) return "";
+  const detail = personalQuestCopy(quest);
+  if (mode === "result" && !result) return "";
+  const status = result
+    ? result.success ? ui.personalQuest.success : ui.personalQuest.failure
+    : mode === "friend" ? ui.personalQuest.accepted : ui.personalQuest.inProgress;
+  return `
+    <details class="personal-quest-card is-${mode}" ${mode === "game" ? "" : "open"}>
+      <summary>
+        ${personAvatar(detail.person, "small")}
+        <span><small>${mode === "game" ? ui.personalQuest.inGameLabel : ui.personalQuest.title}</small><strong>${detail.name}</strong></span>
+        <b>${status}</b>
+      </summary>
+      <div class="personal-quest-card__body">
+        <p>${detail.goal}</p>
+        ${result ? `<strong>${ui.personalQuest.affinityGain(result.affinityDelta)}</strong><p>${ui.personalQuest.reactions[result.characterId][result.success ? "success" : "failure"]}</p>` : ""}
+      </div>
+    </details>
+  `;
+}
+
+function clueBody(clue, index) {
+  const speaker = clue.characterId === "group" ? ui.journal.groupName : crewMember(clue.characterId).name;
+  const outcome = clue.outcome ? ui.debriefOutcome[clue.outcome] : "";
+  const selected = clue.selectedId ? displayName(clue.selectedId) : ui.debriefNoSelection;
+  return ui.journal.clueBodies[index](speaker, outcome, selected);
+}
+
+function renderJournal() {
+  const count = progression.clues.length;
+  const todayComplete = progression.clueDates.includes(currentDateKey());
+  const nextPerson = progression.activeQuest
+    ? crewMember(progression.activeQuest.characterId)
+    : crewMember(selectedFriendId) ?? crew[0];
+  return `
+    <section class="job-journal" aria-label="${ui.journal.title}">
+      <div class="job-journal__head">
+        <span aria-hidden="true">${count >= 5 ? "✓" : "?"}</span>
+        <div><strong>${ui.journal.title}</strong><small>${ui.journal.progress(count)}</small></div>
+      </div>
+      <div class="job-journal__track"><span style="width:${count * 20}%"></span></div>
+      <p>${count >= 5 ? ui.journal.complete : todayComplete ? ui.journal.todayComplete : ui.journal.next(nextPerson.name)}</p>
+      ${count ? `
+        <details>
+          <summary>${ui.journal.cluesOpen}</summary>
+          <ol>${progression.clues.map((clue, index) => `<li><strong>${ui.journal.clueTitles[index]}</strong><span>${clueBody(clue, index)}</span></li>`).join("")}</ol>
+        </details>
+      ` : `<div class="job-silhouette" aria-label="${ui.journal.locked}">?</div>`}
+    </section>
+  `;
+}
+
+function renderJobChoice() {
+  if (!progression.unlockedJobs.includes(PRIVATE_DETECTIVE_ID)) return renderJournal();
+  const equipped = isPrivateDetectiveEquipped(progression);
+  return `
+    ${renderJournal()}
+    <section class="job-choice">
+      <span>${ui.detective.jobTitle}</span>
+      <div>
+        <button class="${equipped ? "is-selected" : ""}" type="button" data-action="equip-job" data-id="${PRIVATE_DETECTIVE_ID}">${ui.detective.equip}</button>
+        <button class="${equipped ? "" : "is-selected"}" type="button" data-action="equip-job" data-id="basic">${ui.detective.playBasic}</button>
+      </div>
+      <small>${equipped ? ui.detective.equipped : ui.detective.basic}</small>
+    </section>
   `;
 }
 
@@ -435,6 +574,8 @@ function renderIntro() {
       <p>${ui.introLead}</p>
     </section>
 
+    ${renderJobChoice()}
+
     <div class="intro-actions">
       <button class="primary-button" data-action="start">${ui.start}</button>
       <button class="secondary-button" data-action="open-friends">${ui.friendChatOpen}</button>
@@ -473,11 +614,12 @@ function renderFriendSelect() {
           <h1 tabindex="-1">${ui.friendChatSelectTitle}</h1>
           <p>${ui.friendChatSelectDescription}</p>
         </div>
+        ${renderJournal()}
         <div class="friend-list" role="list">
           ${crew.map((person) => `
             <button class="friend-row" type="button" data-action="choose-friend" data-id="${person.id}" aria-label="${ui.friendChatWith(person.name)}">
               ${personAvatar(person)}
-              <span><strong>${person.name}</strong><small>${person.style}</small></span>
+              <span><strong>${person.name}</strong><small>${person.style} · ${ui.affinity(progression.affinity[person.id])}</small></span>
               <span class="online-dot" aria-label="${ui.online}"></span>
               <span class="friend-row__arrow" aria-hidden="true">›</span>
             </button>
@@ -492,6 +634,7 @@ function openFriendChat(personId) {
   const person = crewMember(personId);
   const variant = (state.caseIndex + friendConversationIndex + crew.findIndex((item) => item.id === personId)) % 3;
   selectedFriendId = personId;
+  questOfferCharacterId = null;
   friendConversationIndex += 1;
   chatLog = [{ speakerId: personId, text: ui.friendGreetings[person.personality][variant] }];
   chatPending = false;
@@ -532,6 +675,7 @@ function renderEvidence() {
             <p>${incident.description}</p>
           </article>
           ${subquestCard()}
+          ${renderActivePersonalQuest("game")}
           <article class="private-action-card">
             <span>${ui.evidenceMark}</span>
             <div><strong>${incident.evidence}</strong><p>${ui.evidencePrompt}</p></div>
@@ -564,6 +708,26 @@ function factCard(person) {
   `;
 }
 
+function renderDetectivePanel() {
+  if (!isPrivateDetectiveEquipped(progression)) return "";
+  if (detectiveInspection) {
+    const voter = crewMember(detectiveInspection.voterId);
+    return `
+      <details class="detective-panel is-revealed" open>
+        <summary><span>${ui.detective.abilityTitle}</span><strong>${ui.detective.blocked}</strong></summary>
+        <p>${ui.detective.revealed(voter.name, displayName(detectiveInspection.candidateId))}</p>
+      </details>
+    `;
+  }
+  return `
+    <details class="detective-panel">
+      <summary><span>${ui.detective.abilityTitle}</span><strong>${ui.detective.choose}</strong></summary>
+      <p>${ui.detective.abilityLead}</p>
+      <div>${crew.map((person) => `<button type="button" data-action="inspect-suspicion" data-id="${person.id}">${ui.detective.inspect(person.name)}</button>`).join("")}</div>
+    </details>
+  `;
+}
+
 function renderMeeting() {
   const target = crewMember(state.targetId);
   return `
@@ -573,6 +737,8 @@ function renderMeeting() {
         <summary><span>${ui.publicFacts}</span><strong>${ui.clueCount(crew.length)}</strong></summary>
         <div class="chat-context__body fact-list">${crew.map((person) => factCard(person)).join("")}</div>
       </details>
+      ${renderActivePersonalQuest("game")}
+      ${renderDetectivePanel()}
       <section class="chat-room is-focus" aria-label="${ui.openingStatements}">
         <div class="chat-transcript setup-transcript">
           <p class="chat-day">${incident.place} · ${incident.time}</p>
@@ -607,7 +773,8 @@ function chatSuggestions(stage) {
       const claim = strongestClaim(person.id);
       const impact = state.facts[person.id].impacts[claim.id];
       const relation = impact < 0 ? ui.relationConflict : impact >= 20 ? ui.relationStrong : ui.relationWeak;
-      return { text: claim.label, meta: `${person.name} · ${relation}`, tone: impact < 0 ? "is-conflict" : impact >= 20 ? "is-strong" : "is-weak" };
+      const blocked = !isAttackAllowed(detectiveInspection?.voterId, person.id);
+      return { text: claim.label, meta: blocked ? ui.detective.blocked : `${person.name} · ${relation}`, tone: blocked ? "is-blocked" : impact < 0 ? "is-conflict" : impact >= 20 ? "is-strong" : "is-weak", blocked };
     })
     : getResponseOptions(state).map((option) => ({
       text: option.label.replaceAll("“", "").replaceAll("”", ""),
@@ -618,7 +785,7 @@ function chatSuggestions(stage) {
     <div class="chat-suggestions" aria-label="${ui.chatSuggestions}">
       <span>${ui.chatSuggestions}<small>${ui.chatSuggestionsHint}</small></span>
       ${suggestions.map((suggestion) => `
-        <button type="button" class="chat-suggestion ${suggestion.tone}" data-action="draft-message" data-message="${encodeURIComponent(suggestion.text)}">
+        <button type="button" class="chat-suggestion ${suggestion.tone}" data-action="draft-message" data-message="${encodeURIComponent(suggestion.text)}" ${suggestion.blocked ? "disabled" : ""}>
           <small>${escapeHtml(suggestion.meta)}</small>
           <span>${escapeHtml(suggestion.text)}</span>
         </button>
@@ -710,7 +877,7 @@ function friendRoomBar(person) {
       ${personAvatar(person, "small")}
       <div class="game-room-bar__copy">
         <strong>${person.name}</strong>
-        <small>${chatPending ? ui.chatTypingPerson(person.name) : friendStatusLabel()}</small>
+        <small>${chatPending ? ui.chatTypingPerson(person.name) : friendStatusLabel()} · ${ui.affinity(progression.affinity[person.id])}</small>
       </div>
       <button class="room-sound" type="button" data-audio-toggle aria-label="${ui.audioMute}"><span aria-hidden="true">♪</span></button>
       <button class="room-theme" type="button" data-action="cycle-theme" aria-label="${copy.meta.themeControl(copy.meta.themeModes[themeController?.read() ?? "system"])}">
@@ -730,10 +897,13 @@ function renderFriendChat() {
           <p class="chat-day">${ui.friendChatDay}</p>
           ${chatLog.map(chatMessage).join("")}
           ${typingIndicator()}
+          ${renderQuestOffer(person)}
+          ${progression.activeQuest?.characterId === person.id ? renderActivePersonalQuest("friend") : ""}
         </div>
       </section>
       <div class="chat-dock friend-chat-dock">
         ${chatNotice ? `<p class="chat-notice" role="status">${escapeHtml(chatNotice)}</p>` : ""}
+        ${renderJournal()}
         <form class="chat-composer" data-chat-stage="friend">
           <label class="visually-hidden" for="player-message">${ui.chatInputLabel}</label>
           <div class="chat-composer__row has-emoji">
@@ -769,6 +939,8 @@ function renderResponse() {
       <section class="chat-room is-focus" aria-label="${ui.chatTranscriptAria}">
         <div class="chat-transcript">${chatLog.map(chatMessage).join("")}</div>
       </section>
+
+      ${renderActivePersonalQuest("game")}
 
       <section class="pre-vote-sheet" aria-label="${ui.preVoteAria}">
         <strong>${ui.chatDecisionLead}</strong>
@@ -874,6 +1046,8 @@ function renderResult() {
 
     ${subquestCard("result")}
 
+    ${renderActivePersonalQuest("result")}
+
     ${renderVoteShifts()}
 
     <div class="vote-grid" aria-label="${ui.resultAria}">
@@ -917,6 +1091,12 @@ function buildDebriefSummary() {
     selectedId: state.selectedId,
     voteShiftCount: state.voteShiftCount,
     votes: state.votes.map((vote) => ({ voterId: vote.voterId, candidateId: vote.candidateId })),
+    personalQuest: lastPersonalQuestResult ? {
+      questId: lastPersonalQuestResult.questId,
+      characterId: lastPersonalQuestResult.characterId,
+      success: lastPersonalQuestResult.success,
+      affinityDelta: lastPersonalQuestResult.affinityDelta,
+    } : null,
   };
 }
 
@@ -933,16 +1113,21 @@ function debriefSummaryLine() {
 
 function fallbackDebriefReplies() {
   const outcome = ui.debriefOutcome[state.outcome];
-  return crew.map((person) => ({
-    speakerId: person.id,
-    text: ui.debriefPractice[person.personality](
-      person.personality === "record"
-        ? displayName(state.selectedId)
-        : person.personality === "skeptic"
-          ? displayName(state.accusedId)
-          : outcome,
-    ),
-  }));
+  return crew.map((person) => {
+    const questReaction = lastPersonalQuestResult?.characterId === person.id
+      ? ui.personalQuest.reactions[person.id][lastPersonalQuestResult.success ? "success" : "failure"]
+      : null;
+    return {
+      speakerId: person.id,
+      text: questReaction ?? ui.debriefPractice[person.personality](
+        person.personality === "record"
+          ? displayName(state.selectedId)
+          : person.personality === "skeptic"
+            ? displayName(state.accusedId)
+            : outcome,
+      ),
+    };
+  });
 }
 
 function renderDebrief() {
@@ -959,6 +1144,9 @@ function renderDebrief() {
         <strong>${ui.debriefOutcome[state.outcome]}</strong>
         <p>${debriefSummaryLine()}</p>
       </section>
+      ${renderActivePersonalQuest("result")}
+      ${lastClueAward ? `<p class="clue-award-banner"><strong>${ui.journal.clueAwarded}</strong><span>${progression.clues.length >= 5 ? ui.journal.unlock : ui.journal.clueTitles[progression.clues.length - 1]}</span></p>` : ""}
+      ${renderJournal()}
       <section class="chat-room is-focus" aria-label="${ui.debriefTitle}">
         <div class="chat-transcript" aria-live="polite">
           ${chatLog.map(chatMessage).join("")}
@@ -1018,6 +1206,9 @@ async function requestCharacterChat(stage, message, friendId = null) {
 
 async function openDebrief() {
   if (chatPending) return;
+  const dailyProgress = markDebriefViewed(progression, { date: currentDateKey() });
+  saveProgression(dailyProgress.progress);
+  lastClueAward = dailyProgress.clue;
   chatLog = [{ speakerId: "system", text: debriefSummaryLine() }];
   chatPending = true;
   chatNotice = null;
@@ -1118,6 +1309,17 @@ async function handleChatSubmit(stage, rawMessage) {
   if (chatPending) return;
   const message = String(rawMessage).trim().slice(0, MAX_CHAT_LENGTH);
   if (!message) return;
+  const blockedPerson = stage === "accusation" && detectiveInspection
+    ? crewMember(detectiveInspection.voterId)
+    : null;
+  if (blockedPerson) {
+    const normalized = message.toLocaleLowerCase();
+    if (normalized.includes(blockedPerson.id) || normalized.includes(blockedPerson.name.toLocaleLowerCase())) {
+      chatNotice = ui.detective.cannotAccuse(blockedPerson.name);
+      render();
+      return;
+    }
+  }
 
   chatLog.push({ speakerId: "player", text: message });
   chatPending = true;
@@ -1134,13 +1336,16 @@ async function handleChatSubmit(stage, rawMessage) {
   }
 
   if (stage === "accusation") {
-    const localFallback = fallbackAccusation(message, state, crew);
+    const allowedCrew = detectiveInspection
+      ? crew.filter((person) => isAttackAllowed(detectiveInspection.voterId, person.id))
+      : crew;
+    const localFallback = fallbackAccusation(message, state, allowedCrew);
     const interpretation = normalizeInterpretation(
       stage,
       remote?.interpretation ?? localFallback,
       message,
       state,
-      crew,
+      allowedCrew,
     );
     const nextState = applyLie(state, interpretation.accusedId, interpretation.claimId);
     chatLog.push({ speakerId: "system", text: ui.chatInterpretedLie(nextState.lie) });
@@ -1193,6 +1398,7 @@ async function handleFriendSubmit(rawMessage) {
   await revealReplies(replies.length === 1 ? replies : fallbackFriendReply(message), "friend");
   typingSpeakerId = null;
   chatPending = false;
+  if (!progression.activeQuest) questOfferCharacterId = selectedFriendId;
   render();
 }
 
@@ -1243,6 +1449,10 @@ function resetGame() {
   chatNotice = null;
   typingSpeakerId = null;
   selectedFriendId = null;
+  questOfferCharacterId = null;
+  lastPersonalQuestResult = null;
+  lastClueAward = null;
+  detectiveInspection = null;
   render();
 }
 
@@ -1264,12 +1474,20 @@ app.addEventListener("click", (event) => {
     input.focus();
     return;
   }
-  if (action === "get-started") state = { ...state, phase: playerProfile.name ? "intro" : "profile" };
+  if (action === "get-started") {
+    void soundController?.start?.();
+    state = { ...state, phase: playerProfile.name ? "intro" : "profile" };
+  }
   if (action === "back-welcome") state = { ...state, phase: "welcome" };
   if (action === "edit-profile") state = { ...state, phase: "profile" };
   if (action === "go-home") state = { ...state, phase: "home" };
   if (action === "open-tutorial") state = { ...state, phase: "intro" };
-  if (action === "start") state = startGame(state);
+  if (action === "start") {
+    detectiveInspection = null;
+    lastPersonalQuestResult = null;
+    lastClueAward = null;
+    state = startGame(state);
+  }
   if (action === "open-friends") state = { ...state, phase: "friend-select" };
   if (action === "back-home") state = { ...state, phase: "home" };
   if (action === "back-friends") {
@@ -1280,6 +1498,19 @@ app.addEventListener("click", (event) => {
     state = { ...state, phase: "friend-select" };
   }
   if (action === "choose-friend") openFriendChat(button.dataset.id);
+  if (action === "accept-personal-quest") {
+    saveProgression(acceptPersonalQuest(progression, button.dataset.id, { date: currentDateKey() }));
+    questOfferCharacterId = null;
+  }
+  if (action === "later-personal-quest") questOfferCharacterId = null;
+  if (action === "equip-job") {
+    saveProgression(setEquippedJob(progression, button.dataset.id === PRIVATE_DETECTIVE_ID ? PRIVATE_DETECTIVE_ID : null));
+  }
+  if (action === "inspect-suspicion" && isPrivateDetectiveEquipped(progression) && !detectiveInspection && state.phase === "meeting") {
+    const voterId = button.dataset.id;
+    const lean = getCurrentLeans(state).find((item) => item.voterId === voterId);
+    if (lean) detectiveInspection = { voterId, candidateId: lean.candidateId };
+  }
   if (action === "select-target") selectedTargetId = button.dataset.id;
   if (action === "plant" && selectedTargetId) state = plantEvidence(state, selectedTargetId);
   if (action === "open-chat") startChat();
@@ -1295,9 +1526,17 @@ app.addEventListener("click", (event) => {
     }
     return;
   }
-  if (action === "vote") state = resolveVote(state);
+  if (action === "vote") {
+    state = resolveVote(state);
+    const settlement = settlePersonalQuest(progression, state, { date: currentDateKey() });
+    saveProgression(settlement.progress);
+    lastPersonalQuestResult = settlement.result;
+  }
   if (action === "debrief") return openDebrief();
-  if (action === "restart") return resetGame();
+  if (action === "restart") {
+    saveProgression(dismissCompletedQuest(progression));
+    return resetGame();
+  }
 
   render();
 });

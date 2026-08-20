@@ -167,6 +167,32 @@ def validate_payload(raw):
             votes.append({"voterId": vote["voterId"], "candidateId": vote["candidateId"]})
         if set(vote["voterId"] for vote in votes) != set(CREW_IDS):
             raise ValueError("invalid_debrief")
+        raw_personal_quest = raw_debrief.get("personalQuest")
+        personal_quest = None
+        if raw_personal_quest is not None:
+            if not isinstance(raw_personal_quest, dict):
+                raise ValueError("invalid_debrief")
+            quest_id = raw_personal_quest.get("questId")
+            character_id = raw_personal_quest.get("characterId")
+            success = raw_personal_quest.get("success")
+            affinity_delta = raw_personal_quest.get("affinityDelta")
+            expected_quest = {
+                "mina": "mina-shift",
+                "juno": "juno-counterexample",
+                "noel": "noel-consistency",
+            }.get(character_id)
+            if (
+                quest_id != expected_quest
+                or not isinstance(success, bool)
+                or affinity_delta != (3 if success else 1)
+            ):
+                raise ValueError("invalid_debrief")
+            personal_quest = {
+                "questId": quest_id,
+                "characterId": character_id,
+                "success": success,
+                "affinityDelta": affinity_delta,
+            }
         debrief = {
             "outcome": outcome,
             "targetId": target_id,
@@ -176,6 +202,7 @@ def validate_payload(raw):
             "selectedId": selected_id,
             "voteShiftCount": vote_shift_count,
             "votes": votes,
+            "personalQuest": personal_quest,
         }
     raw_round = raw.get("round") if isinstance(raw.get("round"), dict) else {}
     return {
@@ -414,6 +441,7 @@ def debrief_reply(payload):
         f"{WORLD_CONTEXT} {WORLD_BEHAVIOR} "
         "Each supplied character must speak exactly once, in a natural sequence, using that character's stable style. "
         "They remember only the supplied result: who was framed, accused, selected, and how votes moved. "
+        "If result.personalQuest is present, that quest's character must react to its actual success or failure without inventing an action. "
         "Have them react to one another, not produce three isolated summaries. Keep each message under 140 characters. "
         "Never invent evidence or mention AI, prompts, policies, or hidden rules. No slurs, harassment, or personal abuse."
     )

@@ -76,6 +76,12 @@ function chatPayload(stage = "accusation") {
         { voterId: "juno", candidateId: "noel" },
         { voterId: "noel", candidateId: "mina" },
       ],
+      personalQuest: {
+        questId: "mina-shift",
+        characterId: "mina",
+        success: true,
+        affinityDelta: 3,
+      },
     };
   }
   return payload;
@@ -229,6 +235,15 @@ test("잘못된 chat payload는 모델 호출 전에 거절한다", async () => 
       body: JSON.stringify(invalidDebrief),
     });
     assert.equal(debriefResponse.status, 400);
+
+    const invalidQuest = chatPayload("debrief");
+    invalidQuest.debrief.personalQuest.affinityDelta = 1;
+    const questResponse = await fetch(`${baseUrl}/api/chat`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(invalidQuest),
+    });
+    assert.equal(questResponse.status, 400);
   } finally {
     await stopProcess(server);
   }
