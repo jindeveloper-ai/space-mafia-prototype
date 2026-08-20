@@ -46,6 +46,15 @@ test("모델 판정값이 잘못돼도 허용된 엔진 ID로 정규화한다", 
     crew,
   );
   assert.deepEqual(result, { accusedId: "mina", claimId: "changed" });
+
+  const explicit = normalizeInterpretation(
+    "accusation",
+    { accusedId: "juno", claimId: "seen" },
+    "노엘이 정화기를 만지는 걸 직접 봤음",
+    state,
+    crew,
+  );
+  assert.deepEqual(explicit, { accusedId: "noel", claimId: "machine" });
 });
 
 test("서버 payload는 공개 상태와 최근 대화 12개만 포함한다", () => {
@@ -66,4 +75,26 @@ test("서버 payload는 공개 상태와 최근 대화 12개만 포함한다", (
   assert.equal(payload.transcript[0].text, "message 3");
   assert.deepEqual(payload.crew.map((member) => member.id), ["mina", "juno", "noel"]);
   assert.equal(payload.targetId, "mina");
+  assert.deepEqual(payload.round, { caseIndex: 0, subquestId: "redirect", turn: 15 });
+});
+
+test("친구 채팅 payload는 선택한 캐릭터와 대화 차수를 전달한다", () => {
+  const state = preparedState("ko");
+  const transcript = [
+    { speakerId: "juno", text: "왔네." },
+    { speakerId: "player", text: "오늘 뭐함?" },
+  ];
+  const payload = buildChatPayload({
+    locale: "ko",
+    stage: "friend",
+    message: "오늘 뭐함?",
+    state,
+    crew: getCrew("ko"),
+    incident: getIncident("ko"),
+    transcript,
+    friendId: "juno",
+  });
+
+  assert.equal(payload.friendId, "juno");
+  assert.equal(payload.round.turn, 1);
 });

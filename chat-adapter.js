@@ -49,13 +49,15 @@ export function fallbackResponse(message) {
 export function normalizeInterpretation(stage, interpretation, message, state, crew) {
   if (stage === "accusation") {
     const fallback = fallbackAccusation(message, state, crew);
+    const explicitMember = namedCrewMember(message, crew);
+    const explicitClaim = claimFromMessage(message);
     return {
-      accusedId: crew.some((member) => member.id === interpretation?.accusedId)
+      accusedId: explicitMember?.id ?? (crew.some((member) => member.id === interpretation?.accusedId)
         ? interpretation.accusedId
-        : fallback.accusedId,
-      claimId: CLAIM_IDS.includes(interpretation?.claimId)
+        : fallback.accusedId),
+      claimId: explicitClaim ?? (CLAIM_IDS.includes(interpretation?.claimId)
         ? interpretation.claimId
-        : fallback.claimId,
+        : fallback.claimId),
     };
   }
   return {
@@ -65,7 +67,7 @@ export function normalizeInterpretation(stage, interpretation, message, state, c
   };
 }
 
-export function buildChatPayload({ locale, stage, message, state, crew, incident, transcript }) {
+export function buildChatPayload({ locale, stage, message, state, crew, incident, transcript, friendId = null }) {
   return {
     locale,
     stage,
@@ -90,6 +92,12 @@ export function buildChatPayload({ locale, stage, message, state, crew, incident
     accusedId: state.accusedId,
     claimId: state.claimId,
     challengeText: state.challengeText,
+    friendId,
+    round: {
+      caseIndex: state.caseIndex,
+      subquestId: state.subquestId,
+      turn: transcript.filter((item) => item.speakerId === "player").length,
+    },
     transcript: transcript.slice(-12).map(({ speakerId, text }) => ({ speakerId, text })),
   };
 }

@@ -17,15 +17,15 @@ import {
   plantEvidence,
   resolveVote,
   startGame,
-} from "./game-engine.js?v=0.10.1";
-import { getCopy, normalizeLocale } from "./i18n.js?v=0.10.1";
+} from "./game-engine.js?v=0.11.0";
+import { getCopy, normalizeLocale } from "./i18n.js?v=0.11.0";
 import {
   buildChatPayload,
   fallbackAccusation,
   fallbackResponse,
   MAX_CHAT_LENGTH,
   normalizeInterpretation,
-} from "./chat-adapter.js?v=0.10.1";
+} from "./chat-adapter.js?v=0.11.0";
 
 const app = document.querySelector("#app");
 const assetVersion = new URL(import.meta.url).searchParams.get("v");
@@ -55,6 +55,7 @@ document.querySelectorAll("[data-lang]").forEach((link) => {
 
 const themeButton = document.querySelector("[data-theme-action]");
 const themeController = window.oxygenRoomTheme;
+const soundController = window.oxygenRoomSound;
 
 function renderThemeControl() {
   const theme = themeController?.read() ?? "system";
@@ -71,6 +72,11 @@ themeButton.addEventListener("click", () => {
   renderThemeControl();
 });
 renderThemeControl();
+soundController?.setLabels({
+  mute: ui.audioMute,
+  unmute: ui.audioUnmute,
+  volume: ui.audioVolume,
+});
 
 let state = createGame({ locale });
 let selectedTargetId = null;
@@ -78,6 +84,14 @@ let chatLog = [];
 let chatPending = false;
 let chatMode = "ready";
 let chatNotice = null;
+let typingSpeakerId = null;
+let selectedFriendId = null;
+let friendConversationIndex = 0;
+
+const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
+const wait = (milliseconds) => new Promise((resolve) => {
+  window.setTimeout(resolve, reducedMotion.matches ? 0 : milliseconds);
+});
 
 const escapeHtml = (value) => {
   const element = document.createElement("span");
@@ -152,6 +166,26 @@ function roomStatusLabel() {
   return ui.roomStatus;
 }
 
+function friendStatusLabel() {
+  if (chatMode === "live") return ui.chatModeLive;
+  if (chatNotice) return ui.chatModeMock;
+  return ui.online;
+}
+
+function practiceVariant(speakerId, stage) {
+  const source = [
+    state.caseIndex,
+    state.subquestId,
+    state.targetId,
+    state.accusedId,
+    state.claimId,
+    speakerId,
+    stage,
+    chatLog.filter((item) => item.speakerId === "player").length,
+  ].join(":");
+  return [...source].reduce((total, character) => total + character.charCodeAt(0), 0) % 3;
+}
+
 function currentThemeIcon() {
   return { system: "◐", light: "○", dark: "●" }[themeController?.read() ?? "system"];
 }
@@ -166,6 +200,7 @@ function gameRoomBar(step, label) {
         <small>${roomStatusLabel()}</small>
       </div>
       <span class="room-phase"><strong>${step}/5</strong><span>${label}</span></span>
+      <button class="room-sound" type="button" data-audio-toggle aria-label="${ui.audioMute}"><span aria-hidden="true">♪</span></button>
       <button class="room-theme" type="button" data-action="cycle-theme" aria-label="${copy.meta.themeControl(copy.meta.themeModes[themeController?.read() ?? "system"])}">
         <span aria-hidden="true">${currentThemeIcon()}</span>
       </button>
@@ -224,12 +259,70 @@ function renderIntro() {
       <p>${ui.introLead}</p>
     </section>
 
-    <button class="primary-button" data-action="start">${ui.start}</button>
+    <div class="intro-actions">
+      <button class="primary-button" data-action="start">${ui.start}</button>
+      <button class="secondary-button" data-action="open-friends">${ui.friendChatOpen}</button>
+    </div>
 
     <ol class="rules" aria-label="${ui.rulesAria}">
       ${ui.rules.map((rule, index) => `<li><span>${index + 1}</span><p>${rule}</p></li>`).join("")}
     </ol>
   `;
+}
+
+function friendSelectBar() {
+  return `
+    <header class="game-room-bar friend-room-bar">
+      <button class="room-back" type="button" data-action="back-home" aria-label="${copy.meta.home}">‹</button>
+      ${roomAvatarStack()}
+      <div class="game-room-bar__copy">
+        <strong>${ui.friendChatTitle}</strong>
+        <small>${ui.friendChatSelectLead}</small>
+      </div>
+      <button class="room-sound" type="button" data-audio-toggle aria-label="${ui.audioMute}"><span aria-hidden="true">♪</span></button>
+      <button class="room-theme" type="button" data-action="cycle-theme" aria-label="${copy.meta.themeControl(copy.meta.themeModes[themeController?.read() ?? "system"])}">
+        <span aria-hidden="true">${currentThemeIcon()}</span>
+      </button>
+    </header>
+  `;
+}
+
+function renderFriendSelect() {
+  return `
+    <div class="game-room-view friend-select-view">
+      ${friendSelectBar()}
+      <section class="friend-select-content">
+        <div class="section-heading">
+          <span class="eyebrow">${ui.friendChatEyebrow}</span>
+          <h1 tabindex="-1">${ui.friendChatSelectTitle}</h1>
+          <p>${ui.friendChatSelectDescription}</p>
+        </div>
+        <div class="friend-list" role="list">
+          ${crew.map((person) => `
+            <button class="friend-row" type="button" data-action="choose-friend" data-id="${person.id}" aria-label="${ui.friendChatWith(person.name)}">
+              ${personAvatar(person)}
+              <span><strong>${person.name}</strong><small>${person.style}</small></span>
+              <span class="online-dot" aria-label="${ui.online}"></span>
+              <span class="friend-row__arrow" aria-hidden="true">›</span>
+            </button>
+          `).join("")}
+        </div>
+      </section>
+    </div>
+  `;
+}
+
+function openFriendChat(personId) {
+  const person = crewMember(personId);
+  const variant = (state.caseIndex + friendConversationIndex + crew.findIndex((item) => item.id === personId)) % 3;
+  selectedFriendId = personId;
+  friendConversationIndex += 1;
+  chatLog = [{ speakerId: personId, text: ui.friendGreetings[person.personality][variant] }];
+  chatPending = false;
+  chatMode = "ready";
+  chatNotice = null;
+  typingSpeakerId = null;
+  state = { ...state, phase: "friend-chat" };
 }
 
 function crewChoiceCard(person, selectedId, action) {
@@ -374,6 +467,28 @@ function chatMessage(item) {
   `;
 }
 
+function typingIndicator() {
+  if (!chatPending) return "";
+  const dots = `
+    <span class="typing-dots" aria-hidden="true">
+      <span></span><span></span><span></span>
+    </span>
+  `;
+  if (!typingSpeakerId) {
+    return `<p class="chat-pending">${dots}<span>${ui.chatTyping}</span></p>`;
+  }
+  const person = crewMember(typingSpeakerId);
+  return `
+    <article class="chat-message chat-message--typing" aria-label="${ui.chatTypingPerson(person.name)}">
+      ${personAvatar(person, "small")}
+      <div>
+        <strong>${escapeHtml(person.name)}<small>${ui.chatNow}</small></strong>
+        <p>${dots}<span class="visually-hidden">${ui.chatTypingPerson(person.name)}</span></p>
+      </div>
+    </article>
+  `;
+}
+
 function renderChat() {
   const isAccusation = state.phase === "lie";
   const stage = isAccusation ? "accusation" : "response";
@@ -391,7 +506,7 @@ function renderChat() {
       <section class="chat-room is-focus" aria-label="${ui.chatTranscriptAria}">
         <div class="chat-transcript" aria-live="polite">
           ${chatLog.map(chatMessage).join("")}
-          ${chatPending ? `<p class="chat-pending">${ui.chatTyping}</p>` : ""}
+          ${typingIndicator()}
         </div>
       </section>
 
@@ -406,6 +521,50 @@ function renderChat() {
             <button class="composer-send" type="submit" aria-label="${ui.chatSend}" ${chatPending ? "disabled" : ""}><span aria-hidden="true">↑</span></button>
           </div>
           <small class="chat-limit">${ui.chatLength(MAX_CHAT_LENGTH)}</small>
+        </form>
+      </div>
+    </div>
+  `;
+}
+
+function friendRoomBar(person) {
+  return `
+    <header class="game-room-bar friend-room-bar">
+      <button class="room-back" type="button" data-action="back-friends" aria-label="${ui.friendChatBack}" ${chatPending ? "disabled" : ""}>‹</button>
+      ${personAvatar(person, "small")}
+      <div class="game-room-bar__copy">
+        <strong>${person.name}</strong>
+        <small>${chatPending ? ui.chatTypingPerson(person.name) : friendStatusLabel()}</small>
+      </div>
+      <button class="room-sound" type="button" data-audio-toggle aria-label="${ui.audioMute}"><span aria-hidden="true">♪</span></button>
+      <button class="room-theme" type="button" data-action="cycle-theme" aria-label="${copy.meta.themeControl(copy.meta.themeModes[themeController?.read() ?? "system"])}">
+        <span aria-hidden="true">${currentThemeIcon()}</span>
+      </button>
+    </header>
+  `;
+}
+
+function renderFriendChat() {
+  const person = crewMember(selectedFriendId);
+  return `
+    <div class="game-room-view is-chat friend-chat-view">
+      ${friendRoomBar(person)}
+      <section class="chat-room is-focus" aria-label="${ui.friendTranscriptAria(person.name)}">
+        <div class="chat-transcript" aria-live="polite">
+          <p class="chat-day">${ui.friendChatDay}</p>
+          ${chatLog.map(chatMessage).join("")}
+          ${typingIndicator()}
+        </div>
+      </section>
+      <div class="chat-dock friend-chat-dock">
+        ${chatNotice ? `<p class="chat-notice" role="status">${escapeHtml(chatNotice)}</p>` : ""}
+        <form class="chat-composer" data-chat-stage="friend">
+          <label class="visually-hidden" for="player-message">${ui.chatInputLabel}</label>
+          <div class="chat-composer__row">
+            <textarea id="player-message" name="message" maxlength="${MAX_CHAT_LENGTH}" rows="1" placeholder="${ui.friendChatPlaceholder(person.name)}" ${chatPending ? "disabled" : ""} required></textarea>
+            <button class="composer-send" type="submit" aria-label="${ui.chatSend}" ${chatPending ? "disabled" : ""}><span aria-hidden="true">↑</span></button>
+          </div>
+          <small class="chat-limit">${ui.friendChatPrivacy} · ${ui.chatLength(MAX_CHAT_LENGTH)}</small>
         </form>
       </div>
     </div>
@@ -570,11 +729,21 @@ function startChat() {
   chatPending = false;
   chatMode = "ready";
   chatNotice = null;
+  typingSpeakerId = null;
   state = { ...state, phase: "lie" };
 }
 
-async function requestCharacterChat(stage, message) {
-  const payload = buildChatPayload({ locale, stage, message, state, crew, incident, transcript: chatLog });
+async function requestCharacterChat(stage, message, friendId = null) {
+  const payload = buildChatPayload({
+    locale,
+    stage,
+    message,
+    state,
+    crew,
+    incident,
+    transcript: chatLog,
+    friendId,
+  });
   const response = await fetch("/api/chat", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -587,11 +756,11 @@ async function requestCharacterChat(stage, message) {
   return data;
 }
 
-function safeLiveReplies(replies) {
+function safeLiveReplies(replies, maxLength = 120) {
   const seen = new Set();
   return replies.flatMap((reply) => {
     if (!crew.some((member) => member.id === reply?.speakerId) || seen.has(reply.speakerId)) return [];
-    const text = String(reply.message ?? "").trim().slice(0, 120);
+    const text = String(reply.message ?? "").trim().slice(0, maxLength);
     if (!text) return [];
     seen.add(reply.speakerId);
     return [{ speakerId: reply.speakerId, text }];
@@ -604,7 +773,11 @@ function fallbackAccusationReplies(nextState) {
     speakerId: member.id,
     text: member.id === nextState.challengerId
       ? nextState.challengeText
-      : ui.chatPracticeReaction(member.personality, displayName(leans.get(member.id).candidateId)),
+      : ui.chatPracticeReaction(
+        member.personality,
+        displayName(leans.get(member.id).candidateId),
+        practiceVariant(member.id, "accusation"),
+      ),
   }));
 }
 
@@ -614,8 +787,46 @@ function fallbackResponseReplies(nextState) {
     text: ui.chatPracticeDecision(
       crewMember(lean.voterId).personality,
       displayName(lean.candidateId),
+      practiceVariant(lean.voterId, "response"),
     ),
   }));
+}
+
+function fallbackFriendReply(message) {
+  const person = crewMember(selectedFriendId);
+  return [{
+    speakerId: person.id,
+    text: ui.friendPracticeReply(
+      person.personality,
+      practiceVariant(person.id, "friend"),
+      message.slice(0, 28),
+    ),
+  }];
+}
+
+function orderedReplies(replies, stage) {
+  if (stage === "friend" || replies.length < 2) return replies;
+  const byId = new Map(replies.map((reply) => [reply.speakerId, reply]));
+  const ordered = crew.map((person) => byId.get(person.id)).filter(Boolean);
+  const offset = (state.caseIndex + (stage === "response" ? 1 : 0)) % ordered.length;
+  return [...ordered.slice(offset), ...ordered.slice(0, offset)];
+}
+
+function typingDuration(reply) {
+  const millisecondsPerCharacter = { mina: 8, juno: 11, noel: 14 }[reply.speakerId] ?? 10;
+  return Math.min(1_450, 420 + reply.text.length * millisecondsPerCharacter);
+}
+
+async function revealReplies(replies, stage) {
+  for (const reply of orderedReplies(replies, stage)) {
+    typingSpeakerId = reply.speakerId;
+    render();
+    await wait(typingDuration(reply));
+    typingSpeakerId = null;
+    chatLog.push(reply);
+    render();
+    await wait(140);
+  }
 }
 
 async function handleChatSubmit(stage, rawMessage) {
@@ -649,7 +860,7 @@ async function handleChatSubmit(stage, rawMessage) {
     const nextState = applyLie(state, interpretation.accusedId, interpretation.claimId);
     chatLog.push({ speakerId: "system", text: ui.chatInterpretedLie(nextState.lie) });
     const replies = safeLiveReplies(remote?.replies ?? []);
-    chatLog.push(...(replies.length === crew.length ? replies : fallbackAccusationReplies(nextState)));
+    await revealReplies(replies.length === crew.length ? replies : fallbackAccusationReplies(nextState), stage);
     chatLog.push({ speakerId: "system", text: ui.chatReplyLead });
     state = nextState;
   } else {
@@ -664,10 +875,38 @@ async function handleChatSubmit(stage, rawMessage) {
     const nextState = applyResponse(state, interpretation.responseId);
     chatLog.push({ speakerId: "system", text: ui.chatInterpretedResponse(nextState.responseText) });
     const replies = safeLiveReplies(remote?.replies ?? []);
-    chatLog.push(...(replies.length === crew.length ? replies : fallbackResponseReplies(nextState)));
+    await revealReplies(replies.length === crew.length ? replies : fallbackResponseReplies(nextState), stage);
     state = nextState;
   }
 
+  typingSpeakerId = null;
+  chatPending = false;
+  render();
+}
+
+async function handleFriendSubmit(rawMessage) {
+  if (chatPending || !selectedFriendId) return;
+  const message = String(rawMessage).trim().slice(0, MAX_CHAT_LENGTH);
+  if (!message) return;
+
+  chatLog.push({ speakerId: "player", text: message });
+  chatPending = true;
+  chatNotice = null;
+  typingSpeakerId = null;
+  render();
+
+  let replies = [];
+  try {
+    const remote = await requestCharacterChat("friend", message, selectedFriendId);
+    replies = safeLiveReplies(remote?.replies ?? [], 160).filter((reply) => reply.speakerId === selectedFriendId);
+    chatMode = "live";
+  } catch {
+    chatMode = "mock";
+    chatNotice = ui.friendChatFallback;
+  }
+
+  await revealReplies(replies.length === 1 ? replies : fallbackFriendReply(message), "friend");
+  typingSpeakerId = null;
   chatPending = false;
   render();
 }
@@ -677,6 +916,8 @@ let renderedPhase = null;
 function render() {
   const views = {
     intro: renderIntro,
+    "friend-select": renderFriendSelect,
+    "friend-chat": renderFriendChat,
     evidence: renderEvidence,
     meeting: renderMeeting,
     lie: renderChat,
@@ -692,9 +933,11 @@ function render() {
     window.scrollTo(0, 0);
     app.querySelector("h1")?.focus({ preventScroll: true });
   }
-  if (["lie", "challenge", "response"].includes(state.phase)) {
+  if (["lie", "challenge", "response", "friend-chat"].includes(state.phase)) {
     app.querySelector(".chat-transcript")?.scrollTo(0, 10_000);
   }
+  soundController?.setScene(["intro", "friend-select", "friend-chat"].includes(state.phase) ? "lobby" : "game");
+  soundController?.refresh();
   renderedPhase = state.phase;
 }
 
@@ -709,6 +952,8 @@ function resetGame() {
   chatPending = false;
   chatMode = "ready";
   chatNotice = null;
+  typingSpeakerId = null;
+  selectedFriendId = null;
   render();
 }
 
@@ -718,6 +963,16 @@ app.addEventListener("click", (event) => {
 
   const action = button.dataset.action;
   if (action === "start") state = startGame(state);
+  if (action === "open-friends") state = { ...state, phase: "friend-select" };
+  if (action === "back-home") state = { ...state, phase: "intro" };
+  if (action === "back-friends") {
+    selectedFriendId = null;
+    chatLog = [];
+    chatPending = false;
+    typingSpeakerId = null;
+    state = { ...state, phase: "friend-select" };
+  }
+  if (action === "choose-friend") openFriendChat(button.dataset.id);
   if (action === "select-target") selectedTargetId = button.dataset.id;
   if (action === "plant" && selectedTargetId) state = plantEvidence(state, selectedTargetId);
   if (action === "open-chat") startChat();
@@ -744,7 +999,8 @@ app.addEventListener("submit", (event) => {
   if (!form) return;
   event.preventDefault();
   const message = new FormData(form).get("message");
-  handleChatSubmit(form.dataset.chatStage, message);
+  if (form.dataset.chatStage === "friend") handleFriendSubmit(message);
+  else handleChatSubmit(form.dataset.chatStage, message);
 });
 
 app.addEventListener("input", (event) => {

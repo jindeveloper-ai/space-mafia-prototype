@@ -8,8 +8,8 @@
       content="익명 커뮤니티에서 만난 세 친구와 부담 없이 즐기는 3분 소셜 추리 게임"
     />
     <title>산소실의 거짓말</title>
-    <link rel="stylesheet" href="./styles.css?v=0.10.1" />
-    <script src="./theme.js?v=0.10.1"></script>
+    <link rel="stylesheet" href="./styles.css?v=0.11.0" />
+    <script src="./theme.js?v=0.11.0"></script>
   </head>
   <body>
     <main class="page-shell">
@@ -19,6 +19,12 @@
           <span class="brand-name">산소실의 거짓말</span>
         </a>
         <div class="topbar-tools">
+          <div class="audio-controls">
+            <button class="audio-toggle" type="button" data-audio-toggle aria-label="배경음 음소거">
+              <span aria-hidden="true">♪</span>
+            </button>
+            <input data-audio-volume type="range" min="0" max="60" step="1" value="24" aria-label="배경음 음량" />
+          </div>
           <nav class="language-switch" aria-label="언어 선택">
             <a data-lang="ko" href="./?lang=ko" hreflang="ko">KO</a>
             <a data-lang="en" href="./?lang=en" hreflang="en">EN</a>
@@ -34,9 +40,10 @@
 
       <footer>
         <span class="footer-copy">한 판 약 3분 · 게임 진행은 저장되지 않음</span>
-        <span class="footer-version">v0.10.1</span>
+        <span class="footer-version">v0.11.0</span>
       </footer>
     </main>
-    <script type="module" src="./game.js?v=0.10.1"></script>
+    <script src="./sound.js?v=0.11.0"></script>
+    <script type="module" src="./game.js?v=0.11.0"></script>
   </body>
 </html>

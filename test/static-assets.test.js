@@ -19,6 +19,7 @@ test("브라우저 에셋과 내부 모듈은 패키지 버전으로 캐시를 �
 
   assert.ok(indexHtml.includes(`./styles.css?v=${version}`));
   assert.ok(indexHtml.includes(`./theme.js?v=${version}`));
+  assert.ok(indexHtml.includes(`./sound.js?v=${version}`));
   assert.ok(indexHtml.includes(`./game.js?v=${version}`));
   assert.ok(gameSource.includes(`./game-engine.js?v=${version}`));
   assert.ok(gameSource.includes(`./i18n.js?v=${version}`));
@@ -45,9 +46,26 @@ test("자유 입력 채팅은 서버 프록시만 사용하고 브라우저에 �
   assert.match(gameSource, /class="game-room-view is-chat is-setup"/);
   assert.match(gameSource, /class="composer-send"/);
   assert.match(gameSource, /relationStrong/);
+  assert.match(gameSource, /async function revealReplies/);
+  assert.match(gameSource, /typingDuration/);
+  assert.match(gameSource, /data-chat-stage="friend"/);
   assert.doesNotMatch(gameSource, /class="crew-card/);
   assert.match(adapterSource, /MAX_CHAT_LENGTH = 280/);
   assert.doesNotMatch(`${gameSource}\n${adapterSource}\n${indexHtml}`, /OPENAI_API_KEY|api\.openai\.com/);
+});
+
+test("배경음은 저작권 에셋 없이 대기실·게임 장면과 음량을 제어한다", async () => {
+  const [indexHtml, soundSource] = await Promise.all([
+    readProjectFile("index.html"),
+    readProjectFile("sound.js"),
+  ]);
+
+  assert.match(indexHtml, /data-audio-toggle/);
+  assert.match(indexHtml, /data-audio-volume/);
+  assert.match(soundSource, /scene === "lobby"/);
+  assert.match(soundSource, /nextScene === "game"/);
+  assert.match(soundSource, /AudioContext/);
+  assert.doesNotMatch(soundSource, /https?:\/\//);
 });
 
 test("화면 테마는 시스템·라이트·다크를 지원하고 AI 템플릿 장식을 사용하지 않는다", async () => {

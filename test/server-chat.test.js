@@ -58,6 +58,8 @@ function chatPayload(stage = "accusation") {
     accusedId: stage === "response" ? "noel" : null,
     claimId: stage === "response" ? "machine" : null,
     challengeText: stage === "response" ? "그게 증거임?" : "",
+    friendId: stage === "friend" ? "juno" : null,
+    round: { caseIndex: 2, subquestId: "redirect", turn: 1 },
     transcript: [{ speakerId: "player", text: "노엘이 수상함" }],
   };
 }
@@ -79,6 +81,47 @@ test("API 키가 없으면 비밀을 요구하지 않고 mock 전환 신호를 �
   }
 });
 
+test("1:1 친구 채팅은 선택한 캐릭터 모델만 한 번 호출한다", async () => {
+  const requests = [];
+  const upstream = http.createServer((request, response) => {
+    let body = "";
+    request.setEncoding("utf8");
+    request.on("data", (chunk) => { body += chunk; });
+    request.on("end", () => {
+      const parsed = JSON.parse(body);
+      requests.push(parsed);
+      response.writeHead(200, { "Content-Type": "application/json" });
+      response.end(JSON.stringify({
+        output: [{ type: "message", content: [{ type: "output_text", text: JSON.stringify({ message: "ㅇㅋ 오늘은 좀 한가함. 너는?" }) }] }],
+      }));
+    });
+  });
+  upstream.listen(0, "127.0.0.1");
+  await once(upstream, "listening");
+  const upstreamPort = upstream.address().port;
+  const { server, baseUrl } = await startPrototype({
+    OPENAI_API_KEY: "test-only-key",
+    OPENAI_API_BASE: `http://127.0.0.1:${upstreamPort}/v1`,
+  });
+
+  try {
+    const response = await fetch(`${baseUrl}/api/chat`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(chatPayload("friend")),
+    });
+    const result = await response.json();
+    assert.equal(response.status, 200);
+    assert.deepEqual(result.replies, [{ speakerId: "juno", message: "ㅇㅋ 오늘은 좀 한가함. 너는?" }]);
+    assert.equal(requests.length, 1);
+    assert.equal(requests[0].text.format.name, "friend_reply_juno");
+  } finally {
+    await stopProcess(server);
+    upstream.close();
+    await once(upstream, "close");
+  }
+});
+
 test("잘못된 chat payload는 모델 호출 전에 거절한다", async () => {
   const { server, baseUrl } = await startPrototype();
   try {
@@ -89,6 +132,15 @@ test("잘못된 chat payload는 모델 호출 전에 거절한다", async () => 
     });
     assert.equal(response.status, 400);
     assert.deepEqual(await response.json(), { error: "invalid_request", mode: "mock" });
+
+    const missingFriend = chatPayload("friend");
+    missingFriend.friendId = null;
+    const friendResponse = await fetch(`${baseUrl}/api/chat`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(missingFriend),
+    });
+    assert.equal(friendResponse.status, 400);
   } finally {
     await stopProcess(server);
   }
