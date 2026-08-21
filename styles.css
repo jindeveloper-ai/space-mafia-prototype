@@ -8,6 +8,7 @@
   --font-display: ui-rounded, "SF Pro Rounded", "Arial Rounded MT Bold", Pretendard, "Apple SD Gothic Neo", sans-serif;
   --surface: #fefbff;
   --surface-container-low: #f7f4ff;
+  --surface-container-lowest: var(--surface);
   --surface-container: #f1edfa;
   --surface-container-high: #ebe6f5;
   --surface-container-highest: #e4deef;
@@ -4270,4 +4271,138 @@ body {
 .room-preview__header small {
   flex: 0 0 auto;
   white-space: nowrap;
+}
+
+/* v0.16.3 — fixed 390px frame and long-chat usability fixes. */
+.game-room-view.is-setup {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.game-room-view.is-setup .chat-room {
+  flex: 0 0 auto;
+  min-height: 220px;
+  overflow: visible;
+}
+
+.game-room-view.is-setup .chat-transcript {
+  overflow: visible;
+}
+
+.game-room-view.is-setup .setup-dock {
+  position: sticky;
+  z-index: 6;
+  bottom: 0;
+}
+
+.habitat-map-card figure {
+  max-height: 210px;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+
+.habitat-map-locations {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.habitat-map-locations::-webkit-scrollbar {
+  display: none;
+}
+
+.habitat-map-locations span {
+  flex: 0 0 auto;
+  padding: 4px 7px;
+  border: 1px dashed var(--outline);
+  border-radius: 7px;
+  color: var(--on-surface);
+  font-family: var(--font-display);
+  font-size: 0.73rem;
+  transform: rotate(-1deg);
+}
+
+.chat-context summary {
+  grid-template-columns: auto minmax(0, 1fr) auto;
+}
+
+.chat-context summary > span {
+  white-space: nowrap;
+}
+
+.chat-context summary > strong {
+  min-width: 0;
+  overflow: hidden;
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.emoji-picker__panel,
+.chat-media-card {
+  background: var(--surface);
+}
+
+.composer-send {
+  margin: 0;
+}
+
+.game-room-bar {
+  grid-template-columns: 44px minmax(0, 1fr) auto 44px 44px;
+}
+
+.game-room-bar .room-avatar-stack,
+.friend-room-bar > .avatar {
+  display: none;
+}
+
+.friend-room-bar,
+.friend-select-view .friend-room-bar {
+  grid-template-columns: 44px minmax(0, 1fr) 44px 44px;
+}
+
+.debrief-view .friend-room-bar {
+  grid-template-columns: 44px minmax(0, 1fr) 44px;
+}
+
+.game-room-view .chat-room {
+  min-height: 180px;
+}
+
+.game-room-view .chat-dock .chat-suggestions {
+  display: flex;
+  align-items: stretch;
+  gap: 7px;
+  padding: 8px 12px 6px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+}
+
+.game-room-view .chat-dock .chat-suggestions > span {
+  display: grid;
+  flex: 0 0 104px;
+  align-content: center;
+  gap: 3px;
+}
+
+.game-room-view .chat-dock .chat-suggestions > span small {
+  max-width: 104px;
+  text-align: left;
+}
+
+.game-room-view .chat-dock .chat-suggestion {
+  flex: 0 0 220px;
+  width: 220px;
+  min-height: 64px;
+  max-width: 220px;
+}
+
+.game-room-view .chat-dock .chat-suggestion span {
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }

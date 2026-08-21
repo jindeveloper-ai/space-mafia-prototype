@@ -1,4 +1,4 @@
-import { getCopy, normalizeLocale, withJosa } from "./i18n.js?v=0.16.2";
+import { getCopy, normalizeLocale, withJosa } from "./i18n.js?v=0.16.3";
 
 export { withJosa };
 
@@ -734,7 +734,7 @@ export function resolveVote(state) {
       ? outcome === "win" && state.responseId === "check-time"
       : state.subquestId === "weak-link"
         ? outcome === "win" && state.lieImpact >= 0 && state.lieImpact < 12
-        : outcome === "win" && resultTier === "survivor";
+        : outcome === "win" && voteShiftCount >= 1;
 
   return { ...result, subquestCompleted };
 }

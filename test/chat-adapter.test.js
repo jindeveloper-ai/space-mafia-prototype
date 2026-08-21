@@ -75,6 +75,32 @@ test("모델 판정값이 잘못돼도 허용된 엔진 ID로 정규화한다", 
   assert.deepEqual(semanticResponse, { responseId: "check-time" });
 });
 
+test("명시한 최종 대상과 실제 근거를 우선하고 없는 목격담을 만들지 않는다", () => {
+  const state = preparedState("ko");
+  const koCrew = getCrew("ko");
+  const cardClaim = normalizeInterpretation(
+    "accusation",
+    { accusedId: "noel", claimId: "seen" },
+    "노엘 사물함에서 카드 나온 거 다들 봤지? 조종실 카메라 얼굴 나왔다는 것도 결국 노엘 본인 주장이고. 난 노엘한테 표 던짐.",
+    state,
+    koCrew,
+  );
+  assert.equal(cardClaim.accusedId, "noel");
+  assert.notEqual(cardClaim.claimId, "seen");
+
+  const hardState = applyHardLie(state, "juno", "machine");
+  const enCrew = getCrew("en");
+  const finalTarget = normalizeInterpretation(
+    "hard-final",
+    { targetId: "noel", claimId: "changed", responseId: "double-down" },
+    "Final position: Juno. The tool and purifier evidence point to Juno. Noel just mixed up a time. Vote Juno.",
+    hardState,
+    enCrew,
+  );
+  assert.equal(finalTarget.targetId, "juno");
+  assert.equal(finalTarget.claimId, "machine");
+});
+
 test("서버 payload는 공개 상태와 최근 대화 12개만 포함한다", () => {
   const state = preparedState("ko");
   const crew = getCrew("ko");

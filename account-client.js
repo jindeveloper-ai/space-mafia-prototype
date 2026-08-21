@@ -11,8 +11,8 @@ import {
   PROGRESSION_STORAGE_KEY,
   sanitizeChats,
   sanitizeMatches,
-} from "./account-core.js?v=0.16.2";
-import { createProgression } from "./progression.js?v=0.16.2";
+} from "./account-core.js?v=0.16.3";
+import { createProgression } from "./progression.js?v=0.16.3";
 
 const AUTH_SESSION_KEY = "mars-net-auth-session-v1";
 const AUTH_TRANSACTION_KEY = "mars-net-auth-transaction-v1";
@@ -444,6 +444,12 @@ class AccountController extends EventTarget {
     const next = sanitizeChats({ ...current, [characterId]: [...current[characterId], ...messages] });
     writeJson(CHAT_HISTORY_STORAGE_KEY, next);
     return next[characterId];
+  }
+
+  latestChat(characterId) {
+    if (!CREW_IDS.includes(characterId)) return null;
+    const messages = sanitizeChats(readJson(CHAT_HISTORY_STORAGE_KEY, {}))[characterId] ?? [];
+    return messages.at(-1) ?? null;
   }
 
   async recordChat(characterId, messages) {

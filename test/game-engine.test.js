@@ -414,6 +414,33 @@ test("모든 서브퀘스트는 실제 선택으로 달성할 수 있고 다음 
   }
 });
 
+test("safe-win 서브퀘스트는 별점 보상과 반대로 1★를 요구하지 않는다", () => {
+  const matrix = strategyMatrix();
+  const oneStar = matrix.find((item) => item.result.outcome === "win" && item.result.voteShiftCount === 0);
+  const shifted = matrix.find((item) => item.result.outcome === "win" && item.result.voteShiftCount >= 1);
+  assert.ok(oneStar);
+  assert.ok(shifted);
+
+  const oneStarQuest = play({
+    caseIndex: oneStar.caseIndex,
+    frameId: oneStar.frameId,
+    accusedId: oneStar.accusedId,
+    claimId: oneStar.claimId,
+    responseId: oneStar.responseId,
+    subquestId: "safe-win",
+  });
+  const shiftedQuest = play({
+    caseIndex: shifted.caseIndex,
+    frameId: shifted.frameId,
+    accusedId: shifted.accusedId,
+    claimId: shifted.claimId,
+    responseId: shifted.responseId,
+    subquestId: "safe-win",
+  });
+  assert.equal(oneStarQuest.subquestCompleted, false);
+  assert.equal(shiftedQuest.subquestCompleted, true);
+});
+
 test("서브퀘스트 종류는 본 게임의 승패와 투표를 바꾸지 않는다", () => {
   const choices = {
     caseIndex: 2,

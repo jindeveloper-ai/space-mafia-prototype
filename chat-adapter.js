@@ -34,22 +34,54 @@ function crewMentions(message, crew) {
 
 function claimFromMessage(message) {
   const normalized = message.toLocaleLowerCase();
-  if (/(말\s*바|바꿔|시간|시각|진술|changed|story|time)/u.test(normalized)) return "changed";
+  if (
+    /(?:말|이야기|진술|시간|시각).{0,18}(?:바꿔|바뀌|다르|헷갈|오락가락|정정)/u.test(normalized)
+    || /(?:바꿔|바뀌|다르|헷갈|오락가락|정정).{0,18}(?:말|이야기|진술|시간|시각)/u.test(normalized)
+    || /(?:changed|mixed\s*up|conflicting|different).{0,18}(?:story|statement|time)/u.test(normalized)
+    || /(?:story|statement|time).{0,18}(?:changed|mixed\s*up|conflicting|different)/u.test(normalized)
+  ) return "changed";
   if (/(정화기|기계|고장|만졌|조작|공구|machine|purifier|tamper|tool)/u.test(normalized)) return "machine";
-  if (/(산소실|나왔|봤|목격|oxygen|saw|seen)/u.test(normalized)) return "seen";
+  if (
+    /(?:산소실).{0,22}(?:나오|봤|목격|있었)/u.test(normalized)
+    || /(?:봤|목격).{0,22}(?:산소실)/u.test(normalized)
+    || /(?:saw|seen|spotted|watched).{0,24}(?:oxygen\s*room)/u.test(normalized)
+    || /(?:oxygen\s*room).{0,24}(?:leav|came\s*out|saw|seen|spotted)/u.test(normalized)
+  ) return "seen";
   return null;
+}
+
+function decisionTarget(message, mentions) {
+  const normalized = message.toLocaleLowerCase();
+  const decisionPattern = /(?:최종|결론|투표|표\s*던|찍|지목|몰|의심|범인|마피아|final(?:\s+position)?|vote|voting|target|accuse|suspect|pick)/u;
+  const candidates = mentions.filter((mention) => {
+    const start = Math.max(0, mention.index - 34);
+    const end = Math.min(normalized.length, mention.index + mention.length + 34);
+    return decisionPattern.test(normalized.slice(start, end));
+  });
+  return (candidates.at(-1) ?? mentions.at(-1))?.member ?? null;
 }
 
 function accusationFromMessage(message, crew) {
   const mentions = crewMentions(message, crew);
   if (!mentions.length) return { member: null, claimId: null };
-  const paired = mentions.flatMap((mention, index) => {
-    const end = mentions[index + 1]?.index ?? message.length;
-    const claimId = claimFromMessage(message.slice(mention.index, end));
-    return claimId ? [{ member: mention.member, claimId, index: mention.index }] : [];
+  const member = decisionTarget(message, mentions);
+  const targetMentions = mentions.filter((mention) => mention.member.id === member.id);
+  const pairedClaims = targetMentions.flatMap((mention) => {
+    const nextOther = mentions.find((candidate) => candidate.index > mention.index && candidate.member.id !== member.id);
+    const start = Math.max(0, mention.index - 30);
+    const end = nextOther?.index ?? Math.min(message.length, mention.index + mention.length + 120);
+    const claimId = claimFromMessage(message.slice(start, end));
+    return claimId ? [claimId] : [];
   });
-  if (paired.length) return paired.at(-1);
-  return { member: mentions.at(-1).member, claimId: null };
+  const claimCounts = pairedClaims.reduce((counts, claimId) => ({
+    ...counts,
+    [claimId]: (counts[claimId] ?? 0) + 1,
+  }), {});
+  const claimId = pairedClaims.reduce((best, claimId) =>
+    !best || claimCounts[claimId] >= claimCounts[best] ? claimId : best,
+  null)
+    ?? (new Set(mentions.map((mention) => mention.member.id)).size === 1 ? claimFromMessage(message) : null);
+  return { member, claimId };
 }
 
 function responseFromMessage(message) {
@@ -86,10 +118,12 @@ export function normalizeInterpretation(stage, interpretation, message, state, c
       ? interpretation.accusedId
       : null;
     const accusedId = explicit.member?.id ?? remoteMemberId ?? fallback.accusedId;
-    const remoteClaimMatchesTarget = remoteMemberId === accusedId && CLAIM_IDS.includes(interpretation?.claimId);
     return {
       accusedId,
-      claimId: explicit.claimId ?? (remoteClaimMatchesTarget ? interpretation.claimId : fallback.claimId),
+      // A model-selected canonical claim must never turn an unrelated camera/card
+      // sentence into an eyewitness statement. Local semantic evidence wins; an
+      // ambiguous sentence falls back to the target's current fact relationship.
+      claimId: explicit.claimId ?? fallback.claimId,
     };
   }
   if (stage === "hard-response" || stage === "hard-final") {
@@ -98,11 +132,10 @@ export function normalizeInterpretation(stage, interpretation, message, state, c
       ? interpretation.targetId
       : null;
     const targetId = explicit.member?.id ?? remoteTargetId ?? state.accusedId;
-    const remoteClaimId = CLAIM_IDS.includes(interpretation?.claimId) ? interpretation.claimId : null;
     const explicitResponseId = responseFromMessage(message);
     return {
       targetId,
-      claimId: explicit.claimId ?? remoteClaimId ?? state.claimId,
+      claimId: explicit.claimId ?? state.claimId,
       responseId: explicitResponseId ?? (RESPONSE_IDS.includes(interpretation?.responseId)
         ? interpretation.responseId
         : fallbackResponse(message).responseId),

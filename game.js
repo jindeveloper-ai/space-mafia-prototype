@@ -19,15 +19,15 @@ import {
   plantEvidence,
   resolveVote,
   startGame,
-} from "./game-engine.js?v=0.16.2";
-import { getCopy, normalizeLocale } from "./i18n.js?v=0.16.2";
+} from "./game-engine.js?v=0.16.3";
+import { getCopy, normalizeLocale } from "./i18n.js?v=0.16.3";
 import {
   buildChatPayload,
   fallbackAccusation,
   fallbackResponse,
   MAX_CHAT_LENGTH,
   normalizeInterpretation,
-} from "./chat-adapter.js?v=0.16.2";
+} from "./chat-adapter.js?v=0.16.3";
 import {
   acceptPersonalQuest,
   awardCrewLevels,
@@ -42,8 +42,8 @@ import {
   setEquippedJob,
   setDifficultyMode,
   settlePersonalQuest,
-} from "./progression.js?v=0.16.2";
-import { accountController, createMutationId } from "./account-client.js?v=0.16.2";
+} from "./progression.js?v=0.16.3";
+import { accountController, createMutationId } from "./account-client.js?v=0.16.3";
 
 const app = document.querySelector("#app");
 const assetVersion = new URL(import.meta.url).searchParams.get("v");
@@ -151,6 +151,9 @@ document.querySelector(".language-switch").setAttribute("aria-label", copy.meta.
 document.querySelector(".footer-copy").textContent = copy.meta.footer;
 document.querySelector(".footer-version").textContent = versionLabel;
 document.querySelectorAll("[data-lang]").forEach((link) => {
+  const nextParams = new URLSearchParams(window.location.search);
+  nextParams.set("lang", link.dataset.lang);
+  link.href = `./?${nextParams.toString()}`;
   link.setAttribute("aria-current", link.dataset.lang === locale ? "page" : "false");
 });
 
@@ -206,6 +209,13 @@ let archiveReturnFocusId = null;
 const archiveSessionComments = Object.create(null);
 const archivePendingReplies = Object.create(null);
 const shownContextMedia = new Set();
+
+document.querySelectorAll("[data-lang]").forEach((link) => {
+  link.addEventListener("click", (event) => {
+    if (["welcome", "profile", "home", "intro"].includes(state.phase)) return;
+    if (!window.confirm(ui.languageRestartConfirm)) event.preventDefault();
+  });
+});
 
 const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
 const wait = (milliseconds) => new Promise((resolve) => {
@@ -462,6 +472,18 @@ function addAmbientArchiveComments(person, post, postIndex) {
   return { ...post, comments: [...existingAnonymous, ...extra, ...authorComments] };
 }
 
+function archiveReplyForComment(person, comment, postIndex) {
+  const normalized = comment.toLocaleLowerCase(locale);
+  if (/(?:내가|i)\s*.{0,24}(?:카드|card).{0,24}(?:넣|심|plant|put)/iu.test(normalized)) {
+    return ui.characterArchive.confessionReplies[person.id];
+  }
+  if (/(카드|사물함|출입|기록|원본|사진|영상|card|locker|access|record|original|photo|video)/iu.test(normalized)) {
+    return ui.characterArchive.evidenceReplies[person.id];
+  }
+  const replies = ui.characterArchive.genericReplies[person.id];
+  return replies[postIndex % replies.length];
+}
+
 function archivePostsFor(person) {
   const basePosts = ui.characterArchive.posts[person.id] ?? [];
   const seedPosts = [0, 1, 2].map((index) => generatedArchivePost(person, index));
@@ -514,6 +536,9 @@ function renderHabitatMap(open = false) {
       <figure>
         <img src="./assets/images/game/habitat-map-${locale}-v1.jpg" alt="${escapeHtml(ui.habitatMapAlt)}" loading="lazy" />
         <figcaption>${ui.habitatMapHint}</figcaption>
+        <div class="habitat-map-locations" aria-label="${escapeHtml(ui.habitatMapLocationsLabel)}">
+          ${ui.habitatMapLocations.map((location) => `<span>${escapeHtml(location)}</span>`).join("")}
+        </div>
       </figure>
     </details>
   `;
@@ -726,11 +751,13 @@ function renderProfileSetup() {
 }
 
 function homeHistoryRow(person, index) {
+  const latestMessage = accountController.latestChat(person.id);
+  const preview = latestMessage?.body ?? ui.homeHistoryPreview[person.personality];
   return `
     <div class="home-history-row ${index === 1 ? "is-featured" : ""}">
       ${characterProfileButton(person, "small", `home-${person.id}`)}
       <button class="home-history-row__chat" type="button" data-action="choose-friend" data-id="${person.id}" aria-label="${ui.friendChatWith(person.name)}">
-        <span><strong>${person.name} <small class="level-badge">${crewLevelLabel(person.id)}</small></strong><small>${ui.homeHistoryPreview[person.personality]}</small></span>
+        <span><strong>${person.name} <small class="level-badge">${crewLevelLabel(person.id)}</small></strong><small>${escapeHtml(preview)}</small></span>
         <time>${ui.homeHistoryTime[index]}</time>
         <span aria-hidden="true">›</span>
       </button>
@@ -1595,7 +1622,7 @@ function renderDebrief() {
 function startChat() {
   shownContextMedia.clear();
   chatLog = [
-    { speakerId: "system", text: ui.chatAccuseLead },
+    { speakerId: "system", text: state.difficultyMode === "hard" ? ui.chatHardAccuseLead : ui.chatAccuseLead },
     ...getMeetingStatements(state).map((statement) => ({
       speakerId: statement.id,
       text: statement.text,
@@ -1797,7 +1824,15 @@ async function handleChatSubmit(stage, rawMessage) {
     const nextState = state.difficultyMode === "hard"
       ? applyHardLie(state, interpretation.accusedId, interpretation.claimId)
       : applyLie(state, interpretation.accusedId, interpretation.claimId);
-    chatLog.push({ speakerId: "system", text: ui.chatInterpretedLie(nextState.lie) });
+    const interpretedClaim = getClaimOptions(interpretation.accusedId, locale)
+      .find((option) => option.id === interpretation.claimId);
+    chatLog.push({
+      speakerId: "system",
+      text: ui.chatInterpretedLie(
+        displayName(interpretation.accusedId),
+        interpretedClaim?.short ?? interpretation.claimId,
+      ),
+    });
     const replies = safeLiveReplies(remote?.replies ?? []);
     await revealReplies(replies.length === crew.length ? replies : fallbackAccusationReplies(nextState), stage);
     chatLog.push({
@@ -2143,19 +2178,24 @@ app.addEventListener("submit", (event) => {
     const person = crewMember(characterId);
     if (!comment || !person) return;
     const threadKey = `${characterId}:${postIndex}`;
+    const archiveScrollTop = app.querySelector(".character-archive__sheet")?.scrollTop ?? 0;
     archiveSessionComments[threadKey] = [
       ...(archiveSessionComments[threadKey] ?? []),
       { author: ui.characterArchive.youAnonymous, text: comment, time: ui.characterArchive.now },
     ];
     archivePendingReplies[threadKey] = true;
     render();
+    window.requestAnimationFrame(() => {
+      const sheet = app.querySelector(".character-archive__sheet");
+      if (sheet) sheet.scrollTop = archiveScrollTop;
+    });
     const normalizedComment = comment.toLocaleLowerCase(locale);
     const mentionsCharacter = normalizedComment.includes(person.name.toLocaleLowerCase(locale))
       || normalizedComment.includes(person.id);
-    const replyOptions = mentionsCharacter
-      ? ui.characterArchive.denialReplies[characterId]
-      : ui.characterArchive.genericReplies[characterId];
-    const reply = replyOptions[postIndex % replyOptions.length];
+    const replyOptions = ui.characterArchive.denialReplies[characterId];
+    const reply = mentionsCharacter
+      ? replyOptions[postIndex % replyOptions.length]
+      : archiveReplyForComment(person, comment, postIndex);
     window.setTimeout(() => {
       archiveSessionComments[threadKey] = [
         ...(archiveSessionComments[threadKey] ?? []),
@@ -2163,8 +2203,13 @@ app.addEventListener("submit", (event) => {
       ];
       delete archivePendingReplies[threadKey];
       if (openArchiveCharacterId === characterId && openArchiveView === "posts") {
+        const currentScrollTop = app.querySelector(".character-archive__sheet")?.scrollTop ?? archiveScrollTop;
         render();
-        app.querySelector(`#archive-comment-${characterId}-${postIndex}`)?.focus();
+        window.requestAnimationFrame(() => {
+          const sheet = app.querySelector(".character-archive__sheet");
+          if (sheet) sheet.scrollTop = currentScrollTop;
+          app.querySelector(`#archive-comment-${characterId}-${postIndex}`)?.focus({ preventScroll: true });
+        });
       }
     }, reducedMotion.matches ? 0 : 900 + ((postIndex % 3) * 180));
     return;

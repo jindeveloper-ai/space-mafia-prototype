@@ -91,7 +91,7 @@ const COPY = {
       redirect: { title: "증거를 심은 사람 말고 다른 사람을 탈락시키세요." },
       "check-time": { title: "마지막 답변에서 22:10 기록을 확인하고 승리하세요." },
       "weak-link": { title: "‘연결 약함’ 거짓말로 승리하세요." },
-      "safe-win": { title: "표를 새로 움직이지 않고 1★로 안전하게 승리하세요." },
+      "safe-win": { title: "최소 한 명의 표를 움직여 2★ 이상으로 승리하세요." },
     },
     engine: {
       player: "당신",
@@ -248,10 +248,13 @@ const COPY = {
       friendStickerSend: (label) => `${label} 이모티콘 보내기`,
       friendChatPrivacy: "게스트는 이 기기에, 로그인하면 비공개 클라우드에 저장됨",
       affinity: (score) => `친밀도 ${score}`,
+      languageRestartConfirm: "언어를 바꾸면 현재 판이 종료되고 첫 화면으로 이동합니다. 계속할까요?",
       habitatMapTitle: "화성 거주구역 구조도",
       habitatMapOpen: "그림판 낙서",
       habitatMapAlt: "산소실, 조종실, 사물함, 거주 돔 입구가 복도로 연결된 손그림 구조도",
       habitatMapHint: "빨간 X는 공기 정화기 안전장치가 고장 난 지점입니다.",
+      habitatMapLocationsLabel: "구조도 장소",
+      habitatMapLocations: ["산소실", "조종실", "사물함", "거주 돔 입구"],
       contextMedia: {
         accessCard: "사물함에서 발견된 망가진 출입카드",
         controlCamera: "22:10 화성 표준시 조종실 카메라 기록",
@@ -302,6 +305,16 @@ const COPY = {
           mina: ["원본 화질은 진짜 좋네", "저 각도면 뒤쪽 구역도 잘 보였을 듯", "공연 후기 더 올려줘ㅋㅋ", "캡처 시간 표시 있는 버전도 있음?", "굿즈 배송은 요즘 다 늦더라", "정리 자체는 도움 됐음"],
           juno: ["우리 구역도 같은 경보 떴는데 센서는 정상이었음", "원본 로그 공개되면 결론 달라질 수도 있겠네", "재시작 전에 전원 기록부터 남기는 게 낫지 않나", "이 반례는 꽤 설득력 있음", "다른 돔 수치랑 비교한 사람 있음?", "결론보다 확인 순서가 궁금함"],
           noel: ["그때 채팅창 진짜 순식간에 뒤집힘ㅋㅋ", "원본 클립은 어디서 봄?", "목소리보다 채팅 반응이 더 웃겼음", "두 번째로 보니까 눈 피한 건 맞네", "편집 여부는 아직 모르겠는데 타이밍은 묘함", "다음 중계도 이 구간 저장해줘"],
+        },
+        confessionReplies: {
+          mina: "잠깐 이걸 여기서 자백함? 일단 캡처함ㅋㅋ",
+          juno: "자백만으로 사실 확정은 못 함. 카드 원본 기록부터 보자.",
+          noel: "지금 미안하다는 반응까지 포함해서 기억해 둠ㅋㅋ",
+        },
+        evidenceReplies: {
+          mina: "그 자료 원본 있으면 올려줘. 시간 표시까지 봐야 함.",
+          juno: "그 근거면 원본 기록과 반대 가능성을 같이 확인해야 함.",
+          noel: "원본이랑 올린 타이밍 같이 보면 반응 흐름 보일 듯.",
         },
         dailyTemplates: {
           mina: [
@@ -465,7 +478,7 @@ const COPY = {
       journal: {
         title: "위장 직업 조사일지",
         progress: (count) => `${count}/5회 완료 · 서로 다른 날`,
-        next: (name) => `다음 단서: 오늘 한 판을 끝내고 ${withJosa(name, "과", "와")} 결과를 회상하기`,
+        next: (name) => `다음 단서: 오늘 한 판을 끝내고 ${withJosa(name, "과", "와")} 결과를 회상하기 · 하루 최대 1개, 서로 다른 날 5회`,
         todayComplete: "오늘 단서는 완료했습니다. 다른 날 다시 한 판을 끝내면 다음 단서를 얻습니다.",
         complete: "사립탐정 조사 완료",
         clueAwarded: "오늘의 단서 1개 획득",
@@ -529,6 +542,7 @@ const COPY = {
       yourTurn: "당신의 차례",
       chatAccuseTitle: "채팅으로 한 명을 몰아가세요.",
       chatAccuseLead: "이름과 이유를 자유롭게 쓰세요. 추천 문장은 초안일 뿐, 고쳐 써도 됩니다.",
+      chatHardAccuseLead: "이름과 이유를 직접 입력하세요. 하드 모드에는 빠른 초안이 없습니다.",
       chatReplyTitle: "반박에 직접 답하세요.",
       chatReplyLead: "기록을 들이밀거나, 증거로 화제를 돌리거나, 주장을 밀어붙일 수 있습니다.",
       hardTurn: (current, total) => `긴 회의 · 방어 ${current}/${total}`,
@@ -572,8 +586,8 @@ const COPY = {
       chatYouMark: "나",
       chatNow: "방금",
       freeChat: "자유 입력",
-      chatInterpretedLie: (text) => `게임 판정 · “${text}”로 이해함`,
-      chatInterpretedResponse: (text) => `게임 판정 · “${text}” 전략으로 이해함`,
+      chatInterpretedLie: (target, claim) => `게임 판정 · ${target} 지목 · 핵심 근거 ${claim}`,
+      chatInterpretedResponse: (text) => `게임 판정 · 핵심 대응 “${text}” · 세부 주장은 입력 원문 반영`,
       chatPracticeReaction: (personality, name, variant) => ({
         record: [`지금 나온 기록만 보면 ${name} 쪽도 봐야겠는데.`, `잠깐, 정리해보면 현재 로그는 ${name} 쪽임.`, `캡처 다시 봤는데 ${name} 쪽 흐름이 제일 안 맞음.`],
         skeptic: [`확인된 것만 놓고 보면 아직 ${name} 가능성이 제일 큼.`, `추측 걷어내도 ${name} 쪽은 설명이 더 필요함.`, `다른 경우까지 비교해봤는데 난 아직 ${name} 봄.`],
@@ -595,7 +609,7 @@ const COPY = {
       audioVolume: "배경음 음량",
       debriefOpen: "끝나고 친구들 반응 보기",
       debriefRequest: "방금 끝난 판을 세 사람이 서로 이야기해줘.",
-      debriefTitle: "방금 판, 다들 어떻게 봤어?",
+      debriefTitle: "방금 판 복기 중",
       debriefLead: "친구들이 바로 전 판의 선택과 결과를 기억하고 이야기합니다.",
       debriefSummary: "이전 판 요약",
       debriefOutcome: { win: "내 승리", lose: "정체 발각", draw: "무승부" },
@@ -720,7 +734,7 @@ const COPY = {
       redirect: { title: "Eliminate someone other than the crewmate you framed." },
       "check-time": { title: "Win after checking the 22:10 records in your final response." },
       "weak-link": { title: "Win with a Weak connection lie." },
-      "safe-win": { title: "Win a safe 1★ round without moving a new vote." },
+      "safe-win": { title: "Move at least one vote and win with 2★ or better." },
     },
     engine: {
       player: "You",
@@ -877,10 +891,13 @@ const COPY = {
       friendStickerSend: (label) => `Send ${label} sticker`,
       friendChatPrivacy: "Saved on this device as a guest, or privately in the cloud when signed in",
       affinity: (score) => `Closeness ${score}`,
+      languageRestartConfirm: "Changing language ends the current round and returns to the first screen. Continue?",
       habitatMapTitle: "Mars habitat map",
       habitatMapOpen: "rough paint sketch",
       habitatMapAlt: "Hand-drawn map connecting the oxygen room, control room, lockers, and habitat airlock",
       habitatMapHint: "The red X marks the failed air-purifier safety unit.",
+      habitatMapLocationsLabel: "Map locations",
+      habitatMapLocations: ["Oxygen Room", "Control Room", "Lockers", "Habitat Airlock"],
       contextMedia: {
         accessCard: "The broken access card found in a locker",
         controlCamera: "Control-room camera record at 22:10 Mars Standard Time",
@@ -931,6 +948,16 @@ const COPY = {
           mina: ["the original quality is actually nice", "that angle probably worked from the back blocks too", "post more concert notes lol", "is there a version with the capture time?", "dome merch delivery is slow for everyone lately", "the breakdown itself was useful"],
           juno: ["our zone got the same alert with a normal sensor", "the conclusion may change once the raw log is public", "wouldn't it be better to save the power log before restarting?", "that counter-case is pretty convincing", "did anyone compare another dome's readings?", "i care more about the check order than the conclusion"],
           noel: ["chat really flipped in seconds lol", "where is the raw clip?", "the chat reaction was funnier than the voice", "on the second watch the eye shift is real", "not sure about the edit but the timing is weird", "save this section on the next feed too"],
+        },
+        confessionReplies: {
+          mina: "wait, you're confessing here? screenshot saved lol",
+          juno: "a confession alone is not verification. check the card's raw access record.",
+          noel: "noting the apology reaction too lol. that timing matters.",
+        },
+        evidenceReplies: {
+          mina: "post the original if you have it. the timestamp matters too.",
+          juno: "then compare the raw record with the counter-case before concluding.",
+          noel: "the original plus the upload timing should show the reaction sequence.",
         },
         dailyTemplates: {
           mina: [
@@ -1094,7 +1121,7 @@ const COPY = {
       journal: {
         title: "Cover-job investigation log",
         progress: (count) => `${count}/5 distinct days complete`,
-        next: (name) => `Next clue: finish a game today and review the result with ${name}`,
+        next: (name) => `Next clue: finish a game today and review the result with ${name} · one clue per day, five distinct days`,
         todayComplete: "Today's clue is complete. Finish another game on a different day for the next clue.",
         complete: "Private Detective investigation complete",
         clueAwarded: "Today's clue collected",
@@ -1158,6 +1185,7 @@ const COPY = {
       yourTurn: "Your turn",
       chatAccuseTitle: "Frame someone in your own words.",
       chatAccuseLead: "Type a name and a reason. Quick drafts are optional and fully editable.",
+      chatHardAccuseLead: "Type the name and reason yourself. Hard mode has no quick drafts.",
       chatReplyTitle: "Answer the challenge yourself.",
       chatReplyLead: "Push your claim, return to the planted card, or ask everyone to check the records.",
       hardTurn: (current, total) => `Long meeting · defense ${current}/${total}`,
@@ -1201,8 +1229,8 @@ const COPY = {
       chatYouMark: "Y",
       chatNow: "now",
       freeChat: "free text",
-      chatInterpretedLie: (text) => `Game read · interpreted as “${text}”`,
-      chatInterpretedResponse: (text) => `Game read · interpreted as the “${text}” strategy`,
+      chatInterpretedLie: (target, claim) => `Game read · target ${target} · main evidence ${claim}`,
+      chatInterpretedResponse: (text) => `Game read · main response “${text}” · details kept from your original message`,
       chatPracticeReaction: (personality, name, variant) => ({
         record: [`the receipts put ${name} on my list right now.`, `hold on, the timeline still points at ${name}.`, `checked it again. ${name}'s story fits the record the least.`],
         skeptic: [`facts only, ${name} is still the strongest possibility.`, `take out the guesses and ${name} still owes us an explanation.`, `i tested the other reads. i'm still on ${name}.`],
@@ -1224,7 +1252,7 @@ const COPY = {
       audioVolume: "Background music volume",
       debriefOpen: "See the friends' post-game chat",
       debriefRequest: "Talk together about the game that just ended.",
-      debriefTitle: "So, what did everyone think?",
+      debriefTitle: "Reviewing the last round",
       debriefLead: "Your friends remember the choices and result from the game that just ended.",
       debriefSummary: "Previous game",
       debriefOutcome: { win: "You won", lose: "You were exposed", draw: "Draw" },
