@@ -3003,6 +3003,23 @@ body:is(
   background: var(--surface-container-low);
 }
 
+.chat-history-more {
+  justify-self: center;
+  border: 1px solid var(--outline-variant);
+  border-radius: 999px;
+  padding: 7px 12px;
+  color: var(--on-surface-variant);
+  background: var(--surface-container);
+  font: inherit;
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+
+.chat-history-more:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
 .friend-chat-dock {
   padding-top: 5px;
 }

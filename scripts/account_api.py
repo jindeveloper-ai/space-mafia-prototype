@@ -546,7 +546,11 @@ def register_account_routes(app: FastAPI) -> None:
             if before:
                 query["played_at"] = f"lt.{before[:35]}"
             rows = await backend.rest("GET", f"match_history?{urlencode(query)}", user)
-            return {"matches": [db_match_to_client(item) for item in rows], "nextCursor": rows[-1].get("played_at") if rows else None}
+            page_limit = max(1, min(100, limit))
+            return {
+                "matches": [db_match_to_client(item) for item in rows],
+                "nextCursor": rows[-1].get("played_at") if len(rows) == page_limit else None,
+            }
         except AccountError as error:
             return account_response(error)
 
@@ -577,7 +581,11 @@ def register_account_routes(app: FastAPI) -> None:
                 query["created_at"] = f"lt.{before[:35]}"
             rows = await backend.rest("GET", f"chat_messages?{urlencode(query)}", user)
             messages = [db_chat_to_client(item) for item in reversed(rows)]
-            return {"messages": messages, "nextCursor": rows[-1].get("created_at") if rows else None}
+            page_limit = max(1, min(100, limit))
+            return {
+                "messages": messages,
+                "nextCursor": rows[-1].get("created_at") if len(rows) == page_limit else None,
+            }
         except AccountError as error:
             return account_response(error)
 

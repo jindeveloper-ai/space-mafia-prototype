@@ -121,12 +121,14 @@ test("하드 모드는 빠른 초안을 숨기고 일반 모드는 기존 초안
 });
 
 test("캐릭터 프로필은 익명 게시글·흑역사와 세션 댓글을 연다", async () => {
-  const [gameSource, styles, indexHtml, bootstrapSource] = await Promise.all([
+  const [gameSource, styles, indexHtml, bootstrapSource, packageSource] = await Promise.all([
     readProjectFile("game.js"),
     readProjectFile("styles.css"),
     readProjectFile("index.html"),
     readProjectFile("bootstrap.js"),
+    readProjectFile("package.json"),
   ]);
+  const { version } = JSON.parse(packageSource);
   const ko = getCopy("ko");
   const en = getCopy("en");
 
@@ -159,7 +161,7 @@ test("캐릭터 프로필은 익명 게시글·흑역사와 세션 댓글을 연
   assert.match(indexHtml, /id="file-protocol-notice"/);
   assert.match(indexHtml, /scripts\/serve/);
   assert.match(bootstrapSource, /window\.location\.protocol === "file:"/);
-  assert.match(bootstrapSource, /import\("\.\/game\.js\?v=0\.16\.0"\)/);
+  assert.ok(bootstrapSource.includes(`import("./game.js?v=${version}")`));
   for (const characterId of ["mina", "juno", "noel"]) {
     assert.ok(ko.ui.characterArchive.posts[characterId].length >= 2);
     assert.equal(en.ui.characterArchive.posts[characterId].length, ko.ui.characterArchive.posts[characterId].length);
@@ -180,7 +182,7 @@ test("공개 배포는 Python API 프록시와 비밀 환경변수를 유지한�
 });
 
 test("계정 UI와 Supabase 설정은 서버 중개와 RLS를 유지한다", async () => {
-  const [page, gameSource, accountSource, accountCore, serverSource, migration, renderConfig] = await Promise.all([
+  const [page, gameSource, accountSource, accountCore, serverSource, migration, renderConfig, packageSource] = await Promise.all([
     readProjectFile("index.html"),
     readProjectFile("game.js"),
     readProjectFile("account-client.js"),
@@ -188,9 +190,11 @@ test("계정 UI와 Supabase 설정은 서버 중개와 RLS를 유지한다", asy
     readProjectFile("scripts/account_api.py"),
     readProjectFile("supabase/migrations/202608220001_accounts.sql"),
     readProjectFile("render.yaml"),
+    readProjectFile("package.json"),
   ]);
-  assert.match(page, /account\.css\?v=0\.16\.0/);
-  assert.match(page, /bootstrap\.js\?v=0\.16\.0/);
+  const { version } = JSON.parse(packageSource);
+  assert.ok(page.includes(`account.css?v=${version}`));
+  assert.ok(page.includes(`bootstrap.js?v=${version}`));
   assert.doesNotMatch(page, /<script>\s*if \(window\.location\.protocol/);
   assert.match(gameSource, /<mars-account-control>/);
   assert.match(gameSource, /<mars-account-save>/);

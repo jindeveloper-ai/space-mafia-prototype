@@ -19,15 +19,15 @@ import {
   plantEvidence,
   resolveVote,
   startGame,
-} from "./game-engine.js?v=0.16.0";
-import { getCopy, normalizeLocale } from "./i18n.js?v=0.16.0";
+} from "./game-engine.js?v=0.16.1";
+import { getCopy, normalizeLocale } from "./i18n.js?v=0.16.1";
 import {
   buildChatPayload,
   fallbackAccusation,
   fallbackResponse,
   MAX_CHAT_LENGTH,
   normalizeInterpretation,
-} from "./chat-adapter.js?v=0.16.0";
+} from "./chat-adapter.js?v=0.16.1";
 import {
   acceptPersonalQuest,
   awardCrewLevels,
@@ -42,8 +42,8 @@ import {
   setEquippedJob,
   setDifficultyMode,
   settlePersonalQuest,
-} from "./progression.js?v=0.16.0";
-import { accountController, createMutationId } from "./account-client.js?v=0.16.0";
+} from "./progression.js?v=0.16.1";
+import { accountController, createMutationId } from "./account-client.js?v=0.16.1";
 
 const app = document.querySelector("#app");
 const assetVersion = new URL(import.meta.url).searchParams.get("v");
@@ -193,6 +193,7 @@ let chatNotice = null;
 let typingSpeakerId = null;
 let selectedFriendId = null;
 let friendConversationIndex = 0;
+let friendChatLoadingOlder = false;
 let playerProfile = loadPlayerProfile();
 let questOfferCharacterId = null;
 let lastPersonalQuestResult = null;
@@ -993,6 +994,7 @@ function openFriendChat(personId) {
   const person = crewMember(personId);
   const variant = (state.caseIndex + friendConversationIndex + crew.findIndex((item) => item.id === personId)) % 3;
   selectedFriendId = personId;
+  friendChatLoadingOlder = false;
   questOfferCharacterId = null;
   friendConversationIndex += 1;
   chatLog = [{ speakerId: personId, text: ui.friendGreetings[person.personality][variant] }];
@@ -1296,6 +1298,7 @@ function renderFriendChat() {
       <section class="chat-room is-focus" aria-label="${ui.friendTranscriptAria(person.name)}">
         <div class="chat-transcript" aria-live="polite">
           <p class="chat-day">${ui.friendChatDay}</p>
+          ${accountController.hasOlderChat(person.id) ? `<button class="chat-history-more" type="button" data-action="load-older-chat" ${friendChatLoadingOlder ? "disabled" : ""}>${friendChatLoadingOlder ? ui.friendChatOlderLoading : ui.friendChatOlder}</button>` : ""}
           ${chatLog.map(chatMessage).join("")}
           ${typingIndicator()}
           ${renderQuestOffer(person)}
@@ -2020,6 +2023,26 @@ app.addEventListener("click", (event) => {
     render();
     return;
   }
+  if (action === "load-older-chat") {
+    if (friendChatLoadingOlder || !selectedFriendId) return;
+    const personId = selectedFriendId;
+    friendChatLoadingOlder = true;
+    render();
+    void accountController.loadOlderChat(personId).then((messages) => {
+      if (selectedFriendId !== personId || state.phase !== "friend-chat") return;
+      chatLog = messages.map((message) => ({
+        speakerId: message.sender === "player" ? "player" : personId,
+        text: message.body,
+        clientMessageId: message.id,
+      }));
+    }).catch(() => {
+      chatNotice = ui.friendChatFallback;
+    }).finally(() => {
+      friendChatLoadingOlder = false;
+      if (state.phase === "friend-chat") render();
+    });
+    return;
+  }
   if (action === "get-started") {
     void soundController?.start?.();
     state = { ...state, phase: playerProfile.name ? "intro" : "profile" };
@@ -2049,6 +2072,7 @@ app.addEventListener("click", (event) => {
   if (action === "back-home") state = { ...state, phase: "home" };
   if (action === "back-friends") {
     selectedFriendId = null;
+    friendChatLoadingOlder = false;
     chatLog = [];
     chatPending = false;
     typingSpeakerId = null;

@@ -11,8 +11,8 @@ import {
   PROGRESSION_STORAGE_KEY,
   sanitizeChats,
   sanitizeMatches,
-} from "./account-core.js?v=0.16.0";
-import { createProgression } from "./progression.js?v=0.16.0";
+} from "./account-core.js?v=0.16.1";
+import { createProgression } from "./progression.js?v=0.16.1";
 
 const AUTH_SESSION_KEY = "mars-net-auth-session-v1";
 const AUTH_TRANSACTION_KEY = "mars-net-auth-transaction-v1";
@@ -217,14 +217,17 @@ class SupabasePkceAuth {
   }
 
   async signOut() {
-    const token = await this.accessToken();
-    if (token && this.config.enabled) {
-      await fetch(`${this.config.supabaseUrl}/auth/v1/logout`, {
-        method: "POST",
-        headers: { apikey: this.config.publishableKey, Authorization: `Bearer ${token}` },
-      }).catch(() => {});
+    try {
+      const token = await this.accessToken();
+      if (token && this.config.enabled) {
+        await fetch(`${this.config.supabaseUrl}/auth/v1/logout`, {
+          method: "POST",
+          headers: { apikey: this.config.publishableKey, Authorization: `Bearer ${token}` },
+        }).catch(() => {});
+      }
+    } finally {
+      this.setSession(null);
     }
-    this.setSession(null);
   }
 }
 
@@ -292,7 +295,12 @@ class AccountController extends EventTarget {
     this.modalOpen = false;
     this.syncTimer = null;
     this.flushing = false;
+    this.modalOpener = null;
+    this.chatCursors = Object.fromEntries(CREW_IDS.map((id) => [id, null]));
     window.addEventListener("online", () => void this.flush());
+    window.addEventListener("keydown", (event) => {
+      if (event.key === "Escape" && this.modalOpen) this.closeModal();
+    });
   }
 
   get signedIn() {
@@ -313,9 +321,14 @@ class AccountController extends EventTarget {
   async initialize() {
     this.registerElements();
     this.renderModal();
+    const hadStoredSession = Boolean(this.auth.session);
     try {
       await this.auth.initialize();
       if (this.signedIn) await this.bootstrap();
+      else if (hadStoredSession) {
+        this.restoreGuestBackup();
+        window.dispatchEvent(new CustomEvent("mars:account-hydrated", { detail: this.localSnapshot() }));
+      }
     } catch {
       this.setSyncState("error");
     }
@@ -449,6 +462,7 @@ class AccountController extends EventTarget {
     if (!this.signedIn) return local;
     try {
       const data = await this.api(`/api/account/chats/${characterId}?limit=50`);
+      this.chatCursors[characterId] = data.nextCursor ?? null;
       const merged = sanitizeChats({ [characterId]: [...local, ...(data.messages ?? [])] })[characterId];
       const all = sanitizeChats(readJson(CHAT_HISTORY_STORAGE_KEY, {}));
       writeJson(CHAT_HISTORY_STORAGE_KEY, { ...all, [characterId]: merged });
@@ -456,6 +470,21 @@ class AccountController extends EventTarget {
     } catch {
       return local;
     }
+  }
+
+  hasOlderChat(characterId) {
+    return this.signedIn && Boolean(this.chatCursors[characterId]);
+  }
+
+  async loadOlderChat(characterId) {
+    const cursor = this.chatCursors[characterId];
+    if (!this.signedIn || !CREW_IDS.includes(characterId) || !cursor) return [];
+    const data = await this.api(`/api/account/chats/${characterId}?limit=50&before=${encodeURIComponent(cursor)}`);
+    this.chatCursors[characterId] = data.nextCursor ?? null;
+    const chats = sanitizeChats(readJson(CHAT_HISTORY_STORAGE_KEY, {}));
+    const merged = sanitizeChats({ [characterId]: [...(data.messages ?? []), ...chats[characterId]] })[characterId];
+    writeJson(CHAT_HISTORY_STORAGE_KEY, { ...chats, [characterId]: merged });
+    return merged;
   }
 
   async uploadAvatar(dataUrl) {
@@ -574,6 +603,7 @@ class AccountController extends EventTarget {
   }
 
   openModal() {
+    this.modalOpener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     this.modalOpen = true;
     this.renderModal();
     document.querySelector(".account-modal button")?.focus();
@@ -582,6 +612,8 @@ class AccountController extends EventTarget {
   closeModal() {
     this.modalOpen = false;
     this.renderModal();
+    this.modalOpener?.focus();
+    this.modalOpener = null;
   }
 
   renderModal() {
