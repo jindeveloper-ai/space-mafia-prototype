@@ -44,6 +44,7 @@ async function stopProcess(process) {
 }
 
 function chatPayload(stage = "accusation") {
+  const isHardStage = stage === "hard-response" || stage === "hard-final";
   const payload = {
     locale: "ko",
     stage,
@@ -55,9 +56,13 @@ function chatPayload(stage = "accusation") {
     ],
     incident: { place: "산소실", time: "22:10", confirmed: "안전장치 고장", evidence: "망가진 출입카드" },
     targetId: "mina",
-    accusedId: stage === "response" ? "noel" : null,
-    claimId: stage === "response" ? "machine" : null,
+    accusedId: stage === "response" || isHardStage ? "noel" : null,
+    claimId: stage === "response" || isHardStage ? "machine" : null,
     challengeText: stage === "response" ? "그게 증거임?" : "",
+    difficultyMode: isHardStage ? "hard" : "normal",
+    hardTurns: isHardStage
+      ? [{ targetId: "noel", claimId: "machine", responseId: null }]
+      : [],
     friendId: stage === "friend" ? "juno" : null,
     round: { caseIndex: 2, subquestId: "redirect", turn: 1 },
     transcript: [{ speakerId: "player", text: "노엘이 수상함" }],
@@ -298,6 +303,68 @@ test("Luna 구조화 판정 뒤 세 캐릭터를 격리된 요청으로 병렬 �
     assert.deepEqual(
       requests.map((item) => item.text.format.name).sort(),
       ["mafia_accusation", "reply_juno", "reply_mina", "reply_noel"],
+    );
+  } finally {
+    await stopProcess(server);
+    upstream.close();
+    await once(upstream, "close");
+  }
+});
+
+test("일반 한 판은 8회, 하드 긴 회의는 최대 13회만 모델을 호출한다", async () => {
+  const requests = [];
+  const upstream = http.createServer((request, response) => {
+    let body = "";
+    request.setEncoding("utf8");
+    request.on("data", (chunk) => { body += chunk; });
+    request.on("end", () => {
+      const parsed = JSON.parse(body);
+      requests.push(parsed.text.format.name);
+      const schemaName = parsed.text.format.name;
+      const output = schemaName === "mafia_accusation"
+        ? { accusedId: "noel", claimId: "machine" }
+        : schemaName === "mafia_response"
+          ? { responseId: "check-time" }
+          : schemaName === "mafia_hard_defense"
+            ? { targetId: "noel", claimId: "machine", responseId: "check-time" }
+            : { message: `${schemaName} reply`, intent: "observe", suspectId: "noel" };
+      response.writeHead(200, { "Content-Type": "application/json" });
+      response.end(JSON.stringify({
+        output: [{ type: "message", content: [{ type: "output_text", text: JSON.stringify(output) }] }],
+      }));
+    });
+  });
+  upstream.listen(0, "127.0.0.1");
+  await once(upstream, "listening");
+  const { server, baseUrl } = await startPrototype({
+    OPENAI_API_KEY: "test-only-key",
+    OPENAI_API_BASE: `http://127.0.0.1:${upstream.address().port}/v1`,
+  });
+
+  const post = (payload) => fetch(`${baseUrl}/api/chat`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+
+  try {
+    await post(chatPayload("accusation"));
+    await post(chatPayload("response"));
+    assert.equal(requests.length, 8);
+
+    requests.length = 0;
+    const hardAccusation = chatPayload("accusation");
+    hardAccusation.difficultyMode = "hard";
+    await post(hardAccusation);
+    await post(chatPayload("hard-response"));
+    await post(chatPayload("hard-response"));
+    const finalResponse = await post(chatPayload("hard-final"));
+    const finalData = await finalResponse.json();
+    assert.equal(requests.length, 13);
+    assert.deepEqual(finalData.replies, []);
+    assert.deepEqual(
+      requests.filter((name) => name === "mafia_hard_defense").length,
+      3,
     );
   } finally {
     await stopProcess(server);

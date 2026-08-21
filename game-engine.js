@@ -1,4 +1,4 @@
-import { getCopy, normalizeLocale, withJosa } from "./i18n.js?v=0.13.1";
+import { getCopy, normalizeLocale, withJosa } from "./i18n.js?v=0.14.0";
 
 export { withJosa };
 
@@ -13,6 +13,7 @@ const CREW_BASE = [
 ];
 
 const CLAIM_IDS = ["seen", "machine", "changed"];
+const RESPONSE_IDS = ["double-down", "return-evidence", "check-time"];
 export const SUBQUEST_IDS = ["redirect", "check-time", "weak-link", "safe-win"];
 
 export function getCrew(locale = "ko") {
@@ -70,6 +71,9 @@ const CASE_ASSIGNMENTS = [
 const EVIDENCE_WEIGHTS = { record: 8, skeptic: 5, behavior: 7 };
 const CONNECTED_CLUE_BONUS = 18;
 const HARD_MODE_LEVEL_BONUS = 20;
+const HARD_CONSISTENCY_FACTOR = 0.6;
+const HARD_TARGET_CHANGE_PENALTY = 8;
+const HARD_FACT_CONFLICT_PENALTY = 10;
 const CLAIM_MULTIPLIERS = {
   record: { seen: 1.15, machine: 1.1, changed: 0.7 },
   skeptic: { seen: 0.75, machine: 0.7, changed: 0.8 },
@@ -194,6 +198,8 @@ export function createGame(options = {}) {
     challengeText: null,
     responseId: null,
     responseText: null,
+    hardTurns: [],
+    hardAppliedEffects: [],
     beliefs: createBeliefs(crewLevels, difficultyMode),
     reasonLog: createReasonLog(),
     leanHistory: {
@@ -263,6 +269,8 @@ function cloneDecisionState(state) {
       afterLie: [...state.leanHistory.afterLie],
       afterResponse: [...state.leanHistory.afterResponse],
     },
+    hardTurns: state.hardTurns.map((turn) => ({ ...turn })),
+    hardAppliedEffects: [...state.hardAppliedEffects],
   };
 }
 
@@ -448,6 +456,33 @@ export function applyLie(state, accusedId, claimId) {
   return next;
 }
 
+function applyHardPlayerSuspicion(next, delta, reason, clueId) {
+  for (const voter of CREW) {
+    adjustBelief(next, voter.id, PLAYER_ID, delta, reason, clueId);
+  }
+}
+
+function applyHardFactConflict(next, targetId, claimId) {
+  const effectId = `conflict:${targetId}:${claimId}`;
+  if (next.hardAppliedEffects.includes(effectId) || next.facts[targetId].impacts[claimId] >= 0) return;
+  applyHardPlayerSuspicion(
+    next,
+    HARD_FACT_CONFLICT_PENALTY,
+    getCopy(next.locale).engine.reasons.hardFactConflict,
+    `hard:${effectId}`,
+  );
+  next.hardAppliedEffects.push(effectId);
+}
+
+export function applyHardLie(state, accusedId, claimId) {
+  if (state.difficultyMode !== "hard") return applyLie(state, accusedId, claimId);
+  const next = applyLie(state, accusedId, claimId);
+  next.phase = "hard-defense-1";
+  next.hardTurns = [{ targetId: accusedId, claimId, responseId: null }];
+  applyHardFactConflict(next, accusedId, claimId);
+  return next;
+}
+
 export function getResponseOptions(state) {
   const copy = getCopy(state.locale);
   const target = getCrewMember(state.targetId, state.locale);
@@ -521,6 +556,76 @@ export function applyResponse(state, responseId) {
   }
 
   next.leanHistory.afterResponse = getCurrentLeans(next);
+  return next;
+}
+
+function applyHardConsistency(next, targetId, claimId) {
+  const effectId = `consistent:${targetId}:${claimId}`;
+  if (
+    targetId !== next.accusedId
+    || claimId !== next.claimId
+    || next.hardAppliedEffects.includes(effectId)
+    || next.lieImpact <= 0
+  ) return;
+
+  const reasons = getCopy(next.locale).engine.reasons;
+  for (const voter of CREW) {
+    if (voter.id === targetId) continue;
+    const personalityImpact = Math.round(next.lieImpact * claimMultiplier(voter, claimId));
+    const scaledImpact = scaleClaimImpactForDifficulty(next, voter.id, personalityImpact);
+    const consistencyImpact = Math.max(1, Math.round(scaledImpact * HARD_CONSISTENCY_FACTOR));
+    adjustBelief(next, voter.id, targetId, consistencyImpact, reasons.hardConsistent, `claim:${claimId}`);
+  }
+  next.hardAppliedEffects.push(effectId);
+}
+
+export function applyHardDefense(state, interpretation) {
+  const copy = getCopy(state.locale);
+  const expectedPhases = ["hard-defense-1", "hard-defense-2", "hard-final"];
+  if (state.difficultyMode !== "hard" || !expectedPhases.includes(state.phase)) {
+    throw new Error(copy.engine.errors.hardDefenseFirst);
+  }
+
+  const targetId = getCrewMember(interpretation?.targetId, state.locale)?.id;
+  const claimId = interpretation?.claimId;
+  const responseId = interpretation?.responseId;
+  if (!targetId) throw new Error(copy.engine.errors.accused);
+  if (!CLAIM_IDS.includes(claimId)) throw new Error(copy.engine.errors.claim);
+  if (!RESPONSE_IDS.includes(responseId)) throw new Error(copy.engine.errors.response);
+
+  const isFirstDefense = state.phase === "hard-defense-1";
+  const next = isFirstDefense
+    ? applyResponse({ ...state, phase: "challenge" }, responseId)
+    : cloneDecisionState(state);
+  next.responseId = responseId;
+  next.responseText = getResponseOptions(next)
+    .find((option) => option.id === responseId)
+    .label.replaceAll("“", "").replaceAll("”", "");
+  next.hardTurns.push({ targetId, claimId, responseId });
+
+  const previousTurn = state.hardTurns.at(-1);
+  if (targetId !== previousTurn.targetId) {
+    const effectId = `target-change:${previousTurn.targetId}:${targetId}`;
+    if (!next.hardAppliedEffects.includes(effectId)) {
+      applyHardPlayerSuspicion(
+        next,
+        HARD_TARGET_CHANGE_PENALTY,
+        copy.engine.reasons.hardTargetChanged,
+        `hard:${effectId}`,
+      );
+      next.hardAppliedEffects.push(effectId);
+    }
+  } else {
+    applyHardConsistency(next, targetId, claimId);
+  }
+  applyHardFactConflict(next, targetId, claimId);
+
+  next.phase = state.phase === "hard-defense-1"
+    ? "hard-defense-2"
+    : state.phase === "hard-defense-2"
+      ? "hard-final"
+      : "response";
+  if (next.phase === "response") next.leanHistory.afterResponse = getCurrentLeans(next);
   return next;
 }
 

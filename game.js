@@ -1,4 +1,6 @@
 import {
+  applyHardDefense,
+  applyHardLie,
   applyLie,
   applyResponse,
   createGame,
@@ -17,15 +19,15 @@ import {
   plantEvidence,
   resolveVote,
   startGame,
-} from "./game-engine.js?v=0.13.1";
-import { getCopy, normalizeLocale } from "./i18n.js?v=0.13.1";
+} from "./game-engine.js?v=0.14.0";
+import { getCopy, normalizeLocale } from "./i18n.js?v=0.14.0";
 import {
   buildChatPayload,
   fallbackAccusation,
   fallbackResponse,
   MAX_CHAT_LENGTH,
   normalizeInterpretation,
-} from "./chat-adapter.js?v=0.13.1";
+} from "./chat-adapter.js?v=0.14.0";
 import {
   acceptPersonalQuest,
   awardCrewLevels,
@@ -40,7 +42,7 @@ import {
   setEquippedJob,
   setDifficultyMode,
   settlePersonalQuest,
-} from "./progression.js?v=0.13.1";
+} from "./progression.js?v=0.14.0";
 
 const app = document.querySelector("#app");
 const assetVersion = new URL(import.meta.url).searchParams.get("v");
@@ -128,6 +130,8 @@ let lastPersonalQuestResult = null;
 let lastClueAward = null;
 let lastLevelGrowth = null;
 let detectiveInspection = null;
+let openArchiveCharacterId = null;
+const archiveSessionComments = Object.create(null);
 
 const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
 const wait = (milliseconds) => new Promise((resolve) => {
@@ -270,8 +274,11 @@ function subquestCard(mode = "active") {
   `;
 }
 
-function personAvatar(person, size = "normal") {
-  return `<span class="avatar avatar--${size} avatar--${person.id}" aria-hidden="true"><img src="${CREW_AVATARS[person.id]}" alt="" /></span>`;
+function personAvatar(person, size = "normal", opensArchive = true) {
+  const archiveAttributes = opensArchive
+    ? `data-character-profile="${person.id}" title="${escapeHtml(ui.characterArchive.open(person.name))}"`
+    : "";
+  return `<span class="avatar avatar--${size} avatar--${person.id}" ${archiveAttributes} aria-hidden="true"><img src="${CREW_AVATARS[person.id]}" alt="" /></span>`;
 }
 
 function crewLevelLabel(personId) {
@@ -282,6 +289,57 @@ function roomAvatarStack() {
   return `
     <div class="room-avatar-stack" aria-hidden="true">
       ${crew.map((person) => personAvatar(person, "small")).join("")}
+    </div>
+  `;
+}
+
+function renderCharacterArchive() {
+  const person = crewMember(openArchiveCharacterId);
+  const posts = ui.characterArchive.posts[openArchiveCharacterId];
+  if (!person || !posts) return "";
+  return `
+    <div class="character-archive" role="dialog" aria-modal="true" aria-labelledby="character-archive-title">
+      <button class="character-archive__backdrop" type="button" data-action="close-character-archive" aria-label="${ui.characterArchive.close}"></button>
+      <section class="character-archive__sheet">
+        <header>
+          ${personAvatar(person, "normal", false)}
+          <div>
+            <span>${ui.characterArchive.eyebrow}</span>
+            <h2 id="character-archive-title">${ui.characterArchive.title(person.name)}</h2>
+            <small>${person.style}</small>
+          </div>
+          <button type="button" data-action="close-character-archive" aria-label="${ui.characterArchive.close}">×</button>
+        </header>
+        <p class="character-archive__lead">${ui.characterArchive.lead}</p>
+        <div class="character-archive__posts">
+          ${posts.map((post, postIndex) => {
+            const threadKey = `${person.id}:${postIndex}`;
+            const sessionComments = archiveSessionComments[threadKey] ?? [];
+            return `
+            <article class="archive-post ${post.isHistory ? "is-history" : ""}">
+              <div><span>${escapeHtml(post.board)}</span>${post.isHistory ? `<b>${ui.characterArchive.historyTag}</b>` : ""}</div>
+              <small>${ui.characterArchive.anonymous} · ${escapeHtml(post.time)}</small>
+              <h3>${escapeHtml(post.title)}</h3>
+              <p>${escapeHtml(post.body)}</p>
+              <footer>${escapeHtml(post.meta)}</footer>
+              <section class="archive-comments" aria-label="${ui.characterArchive.comments}">
+                <strong>${ui.characterArchive.comments}</strong>
+                ${[...post.comments, ...sessionComments].map((comment) => `
+                  <p class="archive-comment ${comment.isAuthor ? "is-author" : ""}">
+                    <b>${escapeHtml(comment.author)}</b><span>${escapeHtml(comment.text)}</span><small>${escapeHtml(comment.time ?? ui.characterArchive.now)}</small>
+                  </p>
+                `).join("")}
+                <form class="archive-comment-form" data-character-id="${person.id}" data-post-index="${postIndex}">
+                  <label class="visually-hidden" for="archive-comment-${person.id}-${postIndex}">${ui.characterArchive.commentPlaceholder}</label>
+                  <input id="archive-comment-${person.id}-${postIndex}" name="comment" maxlength="120" placeholder="${ui.characterArchive.commentPlaceholder}" required />
+                  <button type="submit">${ui.characterArchive.commentSend}</button>
+                </form>
+                <small class="archive-comments__privacy">${ui.characterArchive.sessionOnly}</small>
+              </section>
+            </article>
+          `;}).join("")}
+        </div>
+      </section>
     </div>
   `;
 }
@@ -866,15 +924,33 @@ function typingIndicator() {
 
 function renderChat() {
   const isAccusation = state.phase === "lie";
-  const stage = isAccusation ? "accusation" : "response";
+  const hardDefenseNumber = {
+    "hard-defense-1": 1,
+    "hard-defense-2": 2,
+    "hard-final": 3,
+  }[state.phase] ?? 0;
+  const stage = isAccusation
+    ? "accusation"
+    : state.phase === "hard-final"
+      ? "hard-final"
+      : hardDefenseNumber
+        ? "hard-response"
+        : "response";
   const step = isAccusation ? 3 : 4;
   const stageLabel = isAccusation ? ui.stages.lie : ui.stages.challenge;
+  const title = isAccusation
+    ? ui.chatAccuseTitle
+    : hardDefenseNumber
+      ? ui.hardReplyTitles[hardDefenseNumber - 1]
+      : ui.chatReplyTitle;
+  const turnLabel = hardDefenseNumber ? ui.hardTurn(hardDefenseNumber, 3) : `${ui.yourTurn} · ${ui.freeChat}`;
   return `
     <div class="game-room-view is-chat">
       ${gameRoomBar(step, stageLabel)}
       <div class="chat-turn-banner">
-        <span>${ui.yourTurn} · ${ui.freeChat}</span>
-        <h1 tabindex="-1">${isAccusation ? ui.chatAccuseTitle : ui.chatReplyTitle}</h1>
+        <span>${turnLabel}</span>
+        <h1 tabindex="-1">${title}</h1>
+        ${hardDefenseNumber ? `<p>${ui.hardReplyLeads[hardDefenseNumber - 1]}</p>` : ""}
       </div>
       ${chatContext()}
 
@@ -1312,6 +1388,24 @@ function fallbackResponseReplies(nextState) {
   }));
 }
 
+function fallbackHardReplies(nextState, interpretation) {
+  const fact = nextState.facts[interpretation.targetId];
+  const changed = interpretation.targetId !== nextState.accusedId;
+  const conflict = fact.impacts[interpretation.claimId] < 0;
+  const round = Math.max(1, nextState.hardTurns.length - 1);
+  return crew.map((member) => ({
+    speakerId: member.id,
+    text: ui.hardPracticeChallenge(
+      member.personality,
+      displayName(interpretation.targetId),
+      fact.text,
+      changed,
+      conflict,
+      round,
+    ),
+  }));
+}
+
 function fallbackFriendReply(message) {
   const person = crewMember(selectedFriendId);
   return [{
@@ -1391,11 +1485,16 @@ async function handleChatSubmit(stage, rawMessage) {
       state,
       allowedCrew,
     );
-    const nextState = applyLie(state, interpretation.accusedId, interpretation.claimId);
+    const nextState = state.difficultyMode === "hard"
+      ? applyHardLie(state, interpretation.accusedId, interpretation.claimId)
+      : applyLie(state, interpretation.accusedId, interpretation.claimId);
     chatLog.push({ speakerId: "system", text: ui.chatInterpretedLie(nextState.lie) });
     const replies = safeLiveReplies(remote?.replies ?? []);
     await revealReplies(replies.length === crew.length ? replies : fallbackAccusationReplies(nextState), stage);
-    chatLog.push({ speakerId: "system", text: ui.chatReplyLead });
+    chatLog.push({
+      speakerId: "system",
+      text: state.difficultyMode === "hard" ? ui.hardReplyLeads[0] : ui.chatReplyLead,
+    });
     state = nextState;
   } else {
     const localFallback = fallbackResponse(message);
@@ -1406,11 +1505,34 @@ async function handleChatSubmit(stage, rawMessage) {
       state,
       crew,
     );
-    const nextState = applyResponse(state, interpretation.responseId);
-    chatLog.push({ speakerId: "system", text: ui.chatInterpretedResponse(nextState.responseText) });
-    const replies = safeLiveReplies(remote?.replies ?? []);
-    await revealReplies(replies.length === crew.length ? replies : fallbackResponseReplies(nextState), stage);
-    state = nextState;
+    if (stage === "hard-response" || stage === "hard-final") {
+      const nextState = applyHardDefense(state, interpretation);
+      const claim = getClaimOptions(interpretation.targetId, locale)
+        .find((option) => option.id === interpretation.claimId);
+      const response = getResponseOptions(nextState)
+        .find((option) => option.id === interpretation.responseId);
+      chatLog.push({
+        speakerId: "system",
+        text: ui.hardInterpreted(
+          displayName(interpretation.targetId),
+          claim?.short ?? interpretation.claimId,
+          response?.label.replaceAll("“", "").replaceAll("”", "") ?? interpretation.responseId,
+        ),
+      });
+      if (stage === "hard-final") {
+        chatLog.push({ speakerId: "system", text: ui.hardFinalSubmitted });
+      } else {
+        const replies = safeLiveReplies(remote?.replies ?? []);
+        await revealReplies(replies.length === crew.length ? replies : fallbackHardReplies(nextState, interpretation), stage);
+      }
+      state = nextState;
+    } else {
+      const nextState = applyResponse(state, interpretation.responseId);
+      chatLog.push({ speakerId: "system", text: ui.chatInterpretedResponse(nextState.responseText) });
+      const replies = safeLiveReplies(remote?.replies ?? []);
+      await revealReplies(replies.length === crew.length ? replies : fallbackResponseReplies(nextState), stage);
+      state = nextState;
+    }
   }
 
   typingSpeakerId = null;
@@ -1460,6 +1582,9 @@ function render() {
     meeting: renderMeeting,
     lie: renderChat,
     challenge: renderChat,
+    "hard-defense-1": renderChat,
+    "hard-defense-2": renderChat,
+    "hard-final": renderChat,
     response: renderResponse,
     result: renderResult,
     debrief: renderDebrief,
@@ -1467,12 +1592,12 @@ function render() {
   const phaseChanged = renderedPhase !== state.phase;
   document.body.dataset.phase = state.phase;
   app.dataset.phase = state.phase;
-  app.innerHTML = views[state.phase]();
+  app.innerHTML = `${views[state.phase]()}${renderCharacterArchive()}`;
   if (phaseChanged) {
     window.scrollTo(0, 0);
     app.querySelector("h1")?.focus({ preventScroll: true });
   }
-  if (["lie", "challenge", "response", "friend-chat", "debrief"].includes(state.phase)) {
+  if (["lie", "challenge", "hard-defense-1", "hard-defense-2", "hard-final", "response", "friend-chat", "debrief"].includes(state.phase)) {
     app.querySelector(".chat-transcript")?.scrollTo(0, 10_000);
   }
   soundController?.setScene(["welcome", "profile", "home", "intro", "friend-select", "friend-chat", "debrief"].includes(state.phase) ? "lobby" : "game");
@@ -1505,10 +1630,22 @@ function resetGame() {
 }
 
 app.addEventListener("click", (event) => {
+  const archiveAvatar = event.target.closest("[data-character-profile]");
+  if (archiveAvatar) {
+    openArchiveCharacterId = archiveAvatar.dataset.characterProfile;
+    render();
+    app.querySelector('.character-archive [data-action="close-character-archive"]')?.focus();
+    return;
+  }
   const button = event.target.closest("button[data-action]");
   if (!button) return;
 
   const action = button.dataset.action;
+  if (action === "close-character-archive") {
+    openArchiveCharacterId = null;
+    render();
+    return;
+  }
   if (action === "insert-friend-emoji") {
     const input = app.querySelector("#player-message");
     const emoji = button.dataset.emoji ?? "";
@@ -1610,6 +1747,24 @@ app.addEventListener("click", (event) => {
 });
 
 app.addEventListener("submit", (event) => {
+  const archiveForm = event.target.closest(".archive-comment-form");
+  if (archiveForm) {
+    event.preventDefault();
+    const characterId = archiveForm.dataset.characterId;
+    const postIndex = Number(archiveForm.dataset.postIndex);
+    const comment = String(new FormData(archiveForm).get("comment") ?? "").trim().slice(0, 120);
+    const denial = ui.characterArchive.denialReplies[characterId]?.[postIndex];
+    if (!comment || !denial) return;
+    const threadKey = `${characterId}:${postIndex}`;
+    archiveSessionComments[threadKey] = [
+      ...(archiveSessionComments[threadKey] ?? []),
+      { author: ui.characterArchive.youAnonymous, text: comment, time: ui.characterArchive.now },
+      { author: ui.characterArchive.author, text: denial, time: ui.characterArchive.now, isAuthor: true },
+    ];
+    render();
+    app.querySelector(`#archive-comment-${characterId}-${postIndex}`)?.focus();
+    return;
+  }
   const profileForm = event.target.closest(".profile-form");
   if (profileForm) {
     event.preventDefault();
@@ -1655,6 +1810,11 @@ app.addEventListener("change", async (event) => {
 });
 
 app.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && openArchiveCharacterId) {
+    openArchiveCharacterId = null;
+    render();
+    return;
+  }
   const input = event.target.closest("#player-message");
   if (!input || event.key !== "Enter" || event.shiftKey || event.isComposing) return;
   event.preventDefault();

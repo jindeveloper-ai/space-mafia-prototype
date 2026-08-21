@@ -92,6 +92,22 @@ export function normalizeInterpretation(stage, interpretation, message, state, c
       claimId: explicit.claimId ?? (remoteClaimMatchesTarget ? interpretation.claimId : fallback.claimId),
     };
   }
+  if (stage === "hard-response" || stage === "hard-final") {
+    const explicit = accusationFromMessage(message, crew);
+    const remoteTargetId = crew.some((member) => member.id === interpretation?.targetId)
+      ? interpretation.targetId
+      : null;
+    const targetId = explicit.member?.id ?? remoteTargetId ?? state.accusedId;
+    const remoteClaimId = CLAIM_IDS.includes(interpretation?.claimId) ? interpretation.claimId : null;
+    const explicitResponseId = responseFromMessage(message);
+    return {
+      targetId,
+      claimId: explicit.claimId ?? remoteClaimId ?? state.claimId,
+      responseId: explicitResponseId ?? (RESPONSE_IDS.includes(interpretation?.responseId)
+        ? interpretation.responseId
+        : fallbackResponse(message).responseId),
+    };
+  }
   const explicitResponseId = responseFromMessage(message);
   return {
     responseId: explicitResponseId ?? (RESPONSE_IDS.includes(interpretation?.responseId)
@@ -126,6 +142,8 @@ export function buildChatPayload({ locale, stage, message, state, crew, incident
     accusedId: state.accusedId,
     claimId: state.claimId,
     challengeText: state.challengeText,
+    difficultyMode: state.difficultyMode,
+    hardTurns: state.hardTurns.map(({ targetId, claimId, responseId }) => ({ targetId, claimId, responseId })),
     friendId,
     round: {
       caseIndex: state.caseIndex,

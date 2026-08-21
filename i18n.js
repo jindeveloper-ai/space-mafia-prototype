@@ -105,6 +105,7 @@ const COPY = {
         challengeFirst: "다른 참가자의 반박 뒤에 답할 수 있습니다.",
         response: "답변을 선택하세요.",
         responseFirst: "마지막 답변 뒤에 투표할 수 있습니다.",
+        hardDefenseFirst: "하드 모드 재반박 순서에 맞춰 답하세요.",
       },
       meetingFramed: (personality) => ({
         record: "아니 카드 누가 내 사물함에 넣은 거임. 일단 그거부터 봐.",
@@ -153,6 +154,9 @@ const COPY = {
         timeContradiction: "22:10 전후 진술이 서로 안 맞음",
         alibiClears: "22:10 조종실 로그가 지목된 사람 알리바이를 확인해 줌",
         noTimeConflict: "시간 확인해도 지목된 사람 위치 모순이 안 나옴",
+        hardConsistent: "처음 지목과 근거를 재반박에서도 일관되게 유지함",
+        hardTargetChanged: "긴 회의 중 처음 지목한 대상에서 방향을 바꿈",
+        hardFactConflict: "공개된 사실과 충돌하는 주장을 반복함",
         weakAlibi: "다른 사람보다 알리바이가 약함",
         join: (first, second) => `${withoutSentenceEnd(first)}. ${withoutSentenceEnd(second)}`,
         record: (reason) => `지금 나온 것만 보면 ${withoutSentenceEnd(reason)}. 난 이쪽 봄`,
@@ -218,7 +222,7 @@ const COPY = {
       introTitle: "당신은 마피아입니다.",
       introLead: "가짜 증거와 거짓말로 다른 참가자가 2표를 받게 만드세요.",
       rulesAria: "게임 규칙",
-      rules: ["한 명에게 <strong>가짜 증거</strong>를 심습니다.", "세 사람의 <strong>현재 사실</strong>을 확인합니다.", "게임방 채팅에 <strong>자유롭게 거짓말</strong>합니다.", "참가자의 반박에 <strong>채팅으로 한 번 답합니다.</strong>", "다른 사람이 <strong>2표</strong>를 받으면 승리, 당신이 2표면 패배합니다."],
+      rules: ["한 명에게 <strong>가짜 증거</strong>를 심습니다.", "세 사람의 <strong>현재 사실</strong>을 확인합니다.", "게임방 채팅에 <strong>자유롭게 거짓말</strong>합니다.", "일반은 한 번, 하드는 <strong>세 번 방어</strong>하며 말을 맞춥니다.", "다른 사람이 <strong>2표</strong>를 받으면 승리, 당신이 2표면 패배합니다."],
       start: "게임방 입장",
       friendChatOpen: "친구와 1:1 채팅",
       friendChatEyebrow: "게임 밖에서도 접속 중",
@@ -236,6 +240,107 @@ const COPY = {
       friendEmojiInsert: (emoji) => `${emoji} 이모티콘 넣기`,
       friendChatPrivacy: "이 대화는 현재 세션에만 표시됨",
       affinity: (score) => `친밀도 ${score}`,
+      characterArchive: {
+        open: (name) => `${name}의 MARS.NET 익명 활동 보기`,
+        eyebrow: "MARS.NET 익명 활동",
+        title: (name) => `${name}의 게시글 아카이브`,
+        lead: "프로필과 연결된 예전 익명글입니다. 본인은 대체로 자기 글이 아니라고 주장합니다.",
+        close: "게시글 아카이브 닫기",
+        anonymous: "익명",
+        author: "글쓴이",
+        youAnonymous: "익명(나)",
+        historyTag: "흑역사",
+        comments: "댓글",
+        commentPlaceholder: "익명으로 댓글 달기",
+        commentSend: "등록",
+        sessionOnly: "내 댓글은 현재 세션에만 표시됩니다.",
+        now: "방금",
+        posts: {
+          mina: [
+            {
+              board: "남자 아이돌·팬덤 게시판",
+              time: "3일 전",
+              title: "지구 중계 무대 캡처 뜬 거 봄?",
+              body: "0.25배로 보면 마지막에 웃는 거 맞음. 프레임별로 저장해 둠. 반박은 캡처 들고 오셈.",
+              meta: "댓글 12 · 조회 84",
+              isHistory: false,
+              comments: [
+                { author: "익명1", text: "이 캡처 정리 방식 미나 아니냐ㅋㅋ", time: "3일 전" },
+                { author: "글쓴이", text: "뭔 미나임;; 저장 많이 하면 다 미나냐", time: "3일 전", isAuthor: true },
+              ],
+            },
+            {
+              board: "남자 아이돌·팬덤 게시판",
+              time: "한 달 전",
+              title: "오늘 돔 공연 절대 안 감",
+              body: "예고편 편집부터 별로라 관심 없음. 표 남아도 안 감 진짜로.",
+              meta: "댓글 31 · 조회 206",
+              isHistory: true,
+              comments: [
+                { author: "익명2", text: "세 시간 뒤 공연장 앞 인증 올린 사람 누구였더라", time: "한 달 전" },
+                { author: "글쓴이", text: "그건 동명이인임 ㅇㅇ 나 아님", time: "한 달 전", isAuthor: true },
+              ],
+            },
+          ],
+          juno: [
+            {
+              board: "개발·기술 게시판",
+              time: "5일 전",
+              title: "산소실 경보는 센서 쪽부터 봐야 함",
+              body: "경보가 떴다는 사실과 정화기가 고장났다는 결론은 분리해야 함. 원본 로그 없으면 아직 추정임.",
+              meta: "댓글 8 · 조회 63",
+              isHistory: false,
+              comments: [
+                { author: "익명1", text: "이 문장 구조 주노 같은데", time: "5일 전" },
+                { author: "글쓴이", text: "같은 게시판이면 문체 겹칠 수 있음. 사람 찍지 말자.", time: "5일 전", isAuthor: true },
+              ],
+            },
+            {
+              board: "개발·기술 게시판",
+              time: "두 달 전",
+              title: "공기 정화기 결함 아님. 로그상 확실함",
+              body: "센서 캐시 문제로 보임. 일단 재시작하면 끝날 가능성이 높음.",
+              meta: "댓글 19 · 조회 141",
+              isHistory: true,
+              comments: [
+                { author: "익명3", text: "다음 날 안전장치 교체 공지 올라왔던데요", time: "두 달 전" },
+                { author: "글쓴이", text: "제목은 당시 로그 기준임. 그리고 그 글쓴이 지금 없음.", time: "두 달 전", isAuthor: true },
+              ],
+            },
+          ],
+          noel: [
+            {
+              board: "인터넷방송 게시판",
+              time: "어제",
+              title: "어제 지구 중계 채팅 분위기 바뀐 순간",
+              body: "진행자가 괜찮다니까 다들 괜찮다더니 목소리 떨리자마자 채팅 여론 뒤집힘. 클립보다 반응 순서가 더 재밌음.",
+              meta: "댓글 15 · 조회 119",
+              isHistory: false,
+              comments: [
+                { author: "익명2", text: "반응 순서 보는 거 노엘 특기 아니냐", time: "어제" },
+                { author: "글쓴이", text: "그런 사람 한둘임? 바로 신상 추리하네ㅋㅋ", time: "어제", isAuthor: true },
+              ],
+            },
+            {
+              board: "인터넷방송 게시판",
+              time: "3주 전",
+              title: "이 클립 편집 주작 100%임",
+              body: "말 끊기는 타이밍이 너무 작위적임. 원본 나오면 내가 바로 인정한다.",
+              meta: "댓글 27 · 조회 244",
+              isHistory: true,
+              comments: [
+                { author: "익명4", text: "원본 떴는데 편집 아니었음ㅋㅋ", time: "3주 전" },
+                { author: "글쓴이", text: "100%는 제목 어그로고 본문은 가능성 얘기였음. 난 노엘 아님.", time: "3주 전", isAuthor: true },
+              ],
+            },
+          ],
+        },
+        denialReplies: {
+          mina: ["왜 다들 미나 찾음;; 그냥 캡처 보는 익명인데", "공연 갔다는 증거부터 가져오셈. 난 아님ㅋㅋ"],
+          juno: ["작성자 추정보다 내용 반례부터 보는 게 맞음.", "당시 데이터 기준 얘기였고, 아무튼 주노는 아님."],
+          noel: ["말투 비슷하다고 같은 사람은 아니지ㅋㅋ", "그 클립 얘기는 다들 했음. 노엘 소환 금지."],
+        },
+      },
       level: {
         label: (level) => `Lv.${level}`,
         growthTitle: "친구들이 레벨업했습니다",
@@ -248,7 +353,7 @@ const COPY = {
         short: { normal: "일반", hard: "HARD" },
         descriptions: {
           normal: "현재 레벨 그대로 플레이",
-          hard: "AI 추리를 20레벨 높여 적용",
+          hard: "빠른 초안 없이 3회 방어 · AI 추리 +20레벨",
         },
         current: (name) => `현재 ${name} 모드 · 언제든 변경 가능`,
       },
@@ -356,6 +461,26 @@ const COPY = {
       chatAccuseLead: "이름과 이유를 자유롭게 쓰세요. 추천 문장은 초안일 뿐, 고쳐 써도 됩니다.",
       chatReplyTitle: "반박에 직접 답하세요.",
       chatReplyLead: "기록을 들이밀거나, 증거로 화제를 돌리거나, 주장을 밀어붙일 수 있습니다.",
+      hardTurn: (current, total) => `긴 회의 · 방어 ${current}/${total}`,
+      hardReplyTitles: ["첫 반박에 답하세요.", "세 사람의 재반박에 다시 답하세요.", "투표 전 마지막으로 입장을 정리하세요."],
+      hardReplyLeads: ["처음 지목과 공개 사실을 기억하세요.", "대상과 근거를 바꾸면 의심이 커집니다.", "마지막 답변 뒤에는 바로 투표합니다."],
+      hardInterpreted: (target, claim, response) => `게임 판정 · 대상 ${target} · 근거 ${claim} · 대응 ${response}`,
+      hardFinalSubmitted: "최종 답변이 제출됐습니다. 이제 투표합니다.",
+      hardPracticeChallenge: (personality, target, fact, changed, conflict, round) => {
+        if (personality === "record") {
+          if (conflict) return `잠깐, 공개된 기록은 “${fact}”인데 지금 말이랑 안 맞음.`;
+          if (changed) return `기록상 처음 지목이랑 지금 ${target} 지목이 다름. 왜 바뀐 거임?`;
+          return `${round}차 답변 확인함. ${target} 쪽이라는 근거를 기록으로 더 설명해봐.`;
+        }
+        if (personality === "skeptic") {
+          if (conflict) return `그 주장은 공개 사실이랑 같이 성립 안 함. 반대 경우부터 설명해봐.`;
+          if (changed) return `대상을 바꿀 거면 앞선 가설이 왜 틀렸는지 반례가 있어야 함.`;
+          return `${target} 말고 다른 가능성을 제외할 근거가 아직 하나 부족함.`;
+        }
+        if (changed) return `처음엔 다른 사람 보더니 지금 ${target}? 방향 바뀐 건 바로 티 남.`;
+        if (conflict) return `공개 사실 나온 뒤에도 같은 톤으로 밀어붙이네. 그 부분 설명해봐.`;
+        return `지금까지 ${target} 계속 보는 건 알겠는데, 말투 말고 근거로 한 번 더 말해봐.`;
+      },
       chatRoomTitle: "게임방 #041",
       chatTranscriptAria: "마피아 게임방 채팅",
       chatSuggestions: "빠른 초안",
@@ -539,6 +664,7 @@ const COPY = {
         challengeFirst: "Respond only after another player's challenge.",
         response: "Choose a response.",
         responseFirst: "Vote only after your final response.",
+        hardDefenseFirst: "Answer in the current Hard-mode cross-examination order.",
       },
       meetingFramed: (personality) => ({
         record: "someone planted that card in my locker. start there.",
@@ -587,6 +713,9 @@ const COPY = {
         timeContradiction: "the statements around 22:10 do not match",
         alibiClears: "the 22:10 Control Room camera supports the accused person's alibi",
         noTimeConflict: "checking the time reveals no location conflict for the accused person",
+        hardConsistent: "you kept the same target and supporting fact through cross-examination",
+        hardTargetChanged: "you changed away from your first target during the long meeting",
+        hardFactConflict: "you repeated a claim that conflicts with a public fact",
         weakAlibi: "their alibi is weaker than the others",
         join: (first, second) => `${withoutSentenceEnd(first)}. also, ${withoutSentenceEnd(second)}`,
         record: (reason) => `the receipts point here: ${withoutSentenceEnd(reason)}. i'm voting this way`,
@@ -652,7 +781,7 @@ const COPY = {
       introTitle: "You are the Mafia.",
       introLead: "Use planted evidence and a lie to make someone else receive two votes.",
       rulesAria: "Game rules",
-      rules: ["Plant <strong>false evidence</strong> on one player.", "Review the <strong>current facts</strong> about all three.", "Tell <strong>your own lie</strong> in the room chat.", "Answer another player's challenge <strong>in chat once</strong>.", "You win if someone else gets <strong>2 votes</strong>. You lose if you get 2."],
+      rules: ["Plant <strong>false evidence</strong> on one player.", "Review the <strong>current facts</strong> about all three.", "Tell <strong>your own lie</strong> in the room chat.", "Defend once on Normal or <strong>three times on Hard</strong> while keeping your story straight.", "You win if someone else gets <strong>2 votes</strong>. You lose if you get 2."],
       start: "Join game room",
       friendChatOpen: "Chat one-to-one",
       friendChatEyebrow: "Online outside the game",
@@ -670,6 +799,107 @@ const COPY = {
       friendEmojiInsert: (emoji) => `Insert ${emoji} emoji`,
       friendChatPrivacy: "Shown only in this session",
       affinity: (score) => `Closeness ${score}`,
+      characterArchive: {
+        open: (name) => `View ${name}'s anonymous MARS.NET activity`,
+        eyebrow: "Anonymous MARS.NET activity",
+        title: (name) => `${name}'s post archive`,
+        lead: "Old anonymous posts linked to this profile. The owner usually insists they wrote none of them.",
+        close: "Close post archive",
+        anonymous: "Anonymous",
+        author: "OP",
+        youAnonymous: "Anonymous (you)",
+        historyTag: "aged badly",
+        comments: "Comments",
+        commentPlaceholder: "Leave an anonymous comment",
+        commentSend: "Post",
+        sessionOnly: "Your comments only remain in this session.",
+        now: "now",
+        posts: {
+          mina: [
+            {
+              board: "Idol & fandom board",
+              time: "3 days ago",
+              title: "did everyone see the Earth-feed stage caps?",
+              body: "watch at 0.25x, that smile at the end is real. i saved it frame by frame. bring screenshots if you disagree.",
+              meta: "12 comments · 84 views",
+              isHistory: false,
+              comments: [
+                { author: "anon1", text: "this screenshot filing system is so Mina lol", time: "3 days ago" },
+                { author: "OP", text: "why is everything Mina now?? plenty of people save caps", time: "3 days ago", isAuthor: true },
+              ],
+            },
+            {
+              board: "Idol & fandom board",
+              time: "1 month ago",
+              title: "absolutely not going to the dome show tonight",
+              body: "the teaser edit already lost me. even if tickets are left, i'm not going. seriously.",
+              meta: "31 comments · 206 views",
+              isHistory: true,
+              comments: [
+                { author: "anon2", text: "who posted a venue selfie three hours later again?", time: "1 month ago" },
+                { author: "OP", text: "different person with the same vibe. not me", time: "1 month ago", isAuthor: true },
+              ],
+            },
+          ],
+          juno: [
+            {
+              board: "Development & tech board",
+              time: "5 days ago",
+              title: "check the oxygen-room sensor before blaming the purifier",
+              body: "an alarm is a fact. purifier failure is a conclusion. without the raw log, that conclusion is still a guess.",
+              meta: "8 comments · 63 views",
+              isHistory: false,
+              comments: [
+                { author: "anon1", text: "this sentence structure is extremely Juno", time: "5 days ago" },
+                { author: "OP", text: "people on the same board can write alike. test the claim, not the person.", time: "5 days ago", isAuthor: true },
+              ],
+            },
+            {
+              board: "Development & tech board",
+              time: "2 months ago",
+              title: "not a purifier fault. the logs are conclusive",
+              body: "looks like a sensor-cache issue. a restart will probably settle it.",
+              meta: "19 comments · 141 views",
+              isHistory: true,
+              comments: [
+                { author: "anon3", text: "they replaced the safety unit the next day though", time: "2 months ago" },
+                { author: "OP", text: "the title reflected the data we had. also the author is no longer here.", time: "2 months ago", isAuthor: true },
+              ],
+            },
+          ],
+          noel: [
+            {
+              board: "Streaming board",
+              time: "yesterday",
+              title: "the exact moment Earth-feed chat turned",
+              body: "everyone said it was fine until the host's voice shook. then chat flipped at once. the reaction order is better than the clip.",
+              meta: "15 comments · 119 views",
+              isHistory: false,
+              comments: [
+                { author: "anon2", text: "tracking reactions like this is Noel's whole thing", time: "yesterday" },
+                { author: "OP", text: "lots of people watch reactions. instant identity detective lol", time: "yesterday", isAuthor: true },
+              ],
+            },
+            {
+              board: "Streaming board",
+              time: "3 weeks ago",
+              title: "this clip is 100% edited",
+              body: "the cut lands way too neatly. if the original proves me wrong, i'll own it immediately.",
+              meta: "27 comments · 244 views",
+              isHistory: true,
+              comments: [
+                { author: "anon4", text: "original is up. no edit lol", time: "3 weeks ago" },
+                { author: "OP", text: "100% was headline flair. the post said possibility. also i'm not Noel.", time: "3 weeks ago", isAuthor: true },
+              ],
+            },
+          ],
+        },
+        denialReplies: {
+          mina: ["why does every cap post become Mina?? i'm just some anon", "bring proof i went. not me lol"],
+          juno: ["test the counter-case before guessing the author.", "that was based on the available data, and Juno did not write it."],
+          noel: ["similar tone doesn't mean same person lol", "everyone discussed that clip. stop summoning Noel."],
+        },
+      },
       level: {
         label: (level) => `Lv.${level}`,
         growthTitle: "Your friends leveled up",
@@ -682,7 +912,7 @@ const COPY = {
         short: { normal: "Normal", hard: "HARD" },
         descriptions: {
           normal: "Play at their current levels",
-          hard: "Treat their reads as 20 levels higher",
+          hard: "Three defenses, no quick drafts, and +20 AI levels",
         },
         current: (name) => `${name} mode selected · change anytime`,
       },
@@ -790,6 +1020,26 @@ const COPY = {
       chatAccuseLead: "Type a name and a reason. Quick drafts are optional and fully editable.",
       chatReplyTitle: "Answer the challenge yourself.",
       chatReplyLead: "Push your claim, return to the planted card, or ask everyone to check the records.",
+      hardTurn: (current, total) => `Long meeting · defense ${current}/${total}`,
+      hardReplyTitles: ["Answer the first challenge.", "Answer all three counterpoints.", "State your final position before the vote."],
+      hardReplyLeads: ["Remember your first target and the public facts.", "Changing targets or contradicting a fact raises suspicion.", "The vote starts immediately after this message."],
+      hardInterpreted: (target, claim, response) => `Game read · target ${target} · claim ${claim} · response ${response}`,
+      hardFinalSubmitted: "Final defense submitted. The vote begins now.",
+      hardPracticeChallenge: (personality, target, fact, changed, conflict, round) => {
+        if (personality === "record") {
+          if (conflict) return `hold on. the public record says “${fact},” and that doesn't match your claim.`;
+          if (changed) return `the record has a different first target. why did you switch to ${target}?`;
+          return `defense ${round} logged. give me one more record-based reason for ${target}.`;
+        }
+        if (personality === "skeptic") {
+          if (conflict) return `that claim cannot coexist with the public fact. address the counter-case first.`;
+          if (changed) return `if you're switching targets, show why the earlier hypothesis failed.`;
+          return `you still need one reason that rules out the alternative to ${target}.`;
+        }
+        if (changed) return `you started on someone else and now it's ${target}? that pivot is obvious.`;
+        if (conflict) return `you kept the same tone after the public fact contradicted you. explain that.`;
+        return `you've stayed on ${target}, but give me the evidence, not just the tone.`;
+      },
       chatRoomTitle: "Game room #041",
       chatTranscriptAria: "Mafia game room chat",
       chatSuggestions: "Quick drafts",

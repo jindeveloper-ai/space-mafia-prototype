@@ -7,7 +7,7 @@ import {
   fallbackResponse,
   normalizeInterpretation,
 } from "../chat-adapter.js";
-import { createGame, getCrew, getIncident, plantEvidence, startGame } from "../game-engine.js";
+import { applyHardLie, createGame, getCrew, getIncident, plantEvidence, startGame } from "../game-engine.js";
 
 function preparedState(locale = "ko") {
   return plantEvidence(startGame(createGame({ caseIndex: 0, subquestId: "redirect", locale })), "mina");
@@ -115,4 +115,35 @@ test("친구 채팅 payload는 선택한 캐릭터와 대화 차수를 전달한
 
   assert.equal(payload.friendId, "juno");
   assert.equal(payload.round.turn, 1);
+});
+
+test("하드 모드 방어는 대상·주장·대응을 구조화하고 원문 대신 턴 ID만 보낸다", () => {
+  let state = plantEvidence(startGame(createGame({ caseIndex: 0, difficultyMode: "hard" })), "mina");
+  state = applyHardLie(state, "noel", "machine");
+  const crew = getCrew("ko");
+  const interpretation = normalizeInterpretation(
+    "hard-response",
+    { targetId: "noel", claimId: "machine", responseId: "double-down" },
+    "노엘이 정화기 만진 거 맞고 22:10 로그부터 보자",
+    state,
+    crew,
+  );
+  assert.deepEqual(interpretation, {
+    targetId: "noel",
+    claimId: "machine",
+    responseId: "check-time",
+  });
+
+  const payload = buildChatPayload({
+    locale: "ko",
+    stage: "hard-response",
+    message: "노엘 지목 유지. 기록 확인하자",
+    state,
+    crew,
+    incident: getIncident("ko"),
+    transcript: [{ speakerId: "player", text: "노엘이 정화기를 만졌음" }],
+  });
+  assert.equal(payload.difficultyMode, "hard");
+  assert.deepEqual(payload.hardTurns, [{ targetId: "noel", claimId: "machine", responseId: null }]);
+  assert.ok(payload.hardTurns.every((turn) => !Object.hasOwn(turn, "message")));
 });

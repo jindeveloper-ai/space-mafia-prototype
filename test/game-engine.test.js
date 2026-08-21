@@ -7,6 +7,8 @@ import {
   INCIDENT,
   PLAYER_ID,
   SUBQUEST_IDS,
+  applyHardDefense,
+  applyHardLie,
   applyLie,
   applyResponse,
   createGame,
@@ -132,6 +134,85 @@ test("AI 레벨 구간이 높아질수록 승리 조합이 줄고 하드 모드�
   assert.ok(winsAt(2, "hard") < winsAt(2, "normal"));
   assert.equal(getDifficultyBand(2, "normal"), 1);
   assert.equal(getDifficultyBand(2, "hard"), 3);
+});
+
+test("하드 모드는 최초 지목 뒤 세 번 방어하고 구조화된 턴만 저장한다", () => {
+  let state = startGame(createGame({ caseIndex: 2, difficultyMode: "hard" }));
+  state = plantEvidence(state, "mina");
+  state = applyHardLie(state, "juno", "machine");
+  assert.equal(state.phase, "hard-defense-1");
+  assert.deepEqual(state.hardTurns, [{ targetId: "juno", claimId: "machine", responseId: null }]);
+
+  for (const [index, responseId] of ["double-down", "check-time", "double-down"].entries()) {
+    state = applyHardDefense(state, { targetId: "juno", claimId: "machine", responseId });
+    assert.equal(state.hardTurns.length, index + 2);
+  }
+  assert.equal(state.phase, "response");
+  assert.equal(state.responseId, "double-down");
+  assert.equal(state.leanHistory.afterResponse.length, 3);
+  assert.ok(state.hardTurns.every((turn) => Object.keys(turn).sort().join(",") === "claimId,responseId,targetId"));
+});
+
+test("하드 모드는 일관성 보너스를 한 번만 주고 대상 변경·사실 충돌을 중복 적립하지 않는다", () => {
+  let consistent = plantEvidence(startGame(createGame({ caseIndex: 2, difficultyMode: "hard" })), "mina");
+  consistent = applyHardLie(consistent, "noel", "changed");
+  consistent = applyHardDefense(consistent, { targetId: "noel", claimId: "changed", responseId: "double-down" });
+  const afterFirstConsistency = consistent.beliefs.mina.noel;
+  consistent = applyHardDefense(consistent, { targetId: "noel", claimId: "changed", responseId: "double-down" });
+  assert.equal(consistent.beliefs.mina.noel, afterFirstConsistency);
+  assert.equal(consistent.hardAppliedEffects.filter((id) => id === "consistent:noel:changed").length, 1);
+
+  let changed = plantEvidence(startGame(createGame({ caseIndex: 0, difficultyMode: "hard" })), "mina");
+  changed = applyHardLie(changed, "juno", "machine");
+  changed = applyHardDefense(changed, { targetId: "noel", claimId: "machine", responseId: "double-down" });
+  const afterChange = changed.beliefs.mina.player;
+  changed = applyHardDefense(changed, { targetId: "noel", claimId: "machine", responseId: "double-down" });
+  assert.equal(changed.beliefs.mina.player, afterChange);
+  assert.equal(changed.hardAppliedEffects.filter((id) => id.startsWith("target-change:")).length, 1);
+
+  let conflict = plantEvidence(startGame(createGame({ caseIndex: 0, difficultyMode: "hard" })), "juno");
+  conflict = applyHardLie(conflict, "mina", "seen");
+  assert.ok(conflict.hardAppliedEffects.includes("conflict:mina:seen"));
+  const afterConflict = conflict.beliefs.juno.player;
+  conflict = applyHardDefense(conflict, { targetId: "mina", claimId: "seen", responseId: "double-down" });
+  assert.ok(conflict.beliefs.juno.player >= afterConflict);
+  assert.equal(conflict.hardAppliedEffects.filter((id) => id === "conflict:mina:seen").length, 1);
+});
+
+test("하드 모드 초기 레벨 전략 표에는 승패·무승부가 있고 승률이 25~45%다", () => {
+  const outcomes = { win: 0, lose: 0, draw: 0 };
+  const responseIds = ["double-down", "return-evidence", "check-time"];
+  for (let caseIndex = 0; caseIndex < 6; caseIndex += 1) {
+    for (const frame of CREW) {
+      for (const accused of CREW) {
+        for (const claim of CLAIMS) {
+          for (const defenseTarget of CREW) {
+            for (const defenseClaim of CLAIMS) {
+              for (const responseId of responseIds) {
+                let state = plantEvidence(
+                  startGame(createGame({ caseIndex, difficultyMode: "hard" })),
+                  frame.id,
+                );
+                state = applyHardLie(state, accused.id, claim.id);
+                for (let turn = 0; turn < 3; turn += 1) {
+                  state = applyHardDefense(state, {
+                    targetId: defenseTarget.id,
+                    claimId: defenseClaim.id,
+                    responseId,
+                  });
+                }
+                outcomes[resolveVote(state).outcome] += 1;
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+  const total = outcomes.win + outcomes.lose + outcomes.draw;
+  const winRate = outcomes.win / total;
+  assert.ok(outcomes.win > 0 && outcomes.lose > 0 && outcomes.draw > 0);
+  assert.ok(winRate >= 0.25 && winRate <= 0.45, `hard win rate ${winRate}`);
 });
 
 test("반박자를 공격하는 선택 대신 사건 시각을 확인한다", () => {

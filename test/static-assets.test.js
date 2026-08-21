@@ -108,6 +108,30 @@ test("하드 모드는 빠른 초안을 숨기고 일반 모드는 기존 초안
   assert.match(gameSource, /\$\{chatSuggestions\(stage\)\}/);
 });
 
+test("캐릭터 프로필은 익명 게시글·흑역사와 세션 댓글을 연다", async () => {
+  const [gameSource, styles] = await Promise.all([
+    readProjectFile("game.js"),
+    readProjectFile("styles.css"),
+  ]);
+  const ko = getCopy("ko");
+  const en = getCopy("en");
+
+  assert.match(gameSource, /data-character-profile=/);
+  assert.match(gameSource, /function renderCharacterArchive/);
+  assert.match(gameSource, /class="archive-comment-form"/);
+  assert.match(gameSource, /archiveSessionComments/);
+  assert.match(gameSource, /denialReplies/);
+  assert.match(styles, /\.character-archive/);
+  assert.match(styles, /\.archive-comment\.is-author/);
+  for (const characterId of ["mina", "juno", "noel"]) {
+    assert.equal(ko.ui.characterArchive.posts[characterId].length, 2);
+    assert.equal(en.ui.characterArchive.posts[characterId].length, 2);
+    assert.ok(ko.ui.characterArchive.posts[characterId].some((post) => post.isHistory));
+    assert.ok(ko.ui.characterArchive.posts[characterId].every((post) => post.comments.some((comment) => comment.isAuthor)));
+    assert.equal(ko.ui.characterArchive.denialReplies[characterId].length, 2);
+  }
+});
+
 test("공개 배포는 Python API 프록시와 비밀 환경변수를 유지한다", async () => {
   const renderConfig = await readProjectFile("render.yaml");
   assert.match(renderConfig, /type: web/);
