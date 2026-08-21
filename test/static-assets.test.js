@@ -102,6 +102,21 @@ test("개인 채팅 이모티콘은 외부 이미지 없이 입력창에 삽입�
   assert.doesNotMatch(gameSource, /emoji[^\n]+https?:\/\//i);
 });
 
+test("하드 모드는 빠른 초안을 숨기고 일반 모드는 기존 초안을 유지한다", async () => {
+  const gameSource = await readProjectFile("game.js");
+  assert.match(gameSource, /function chatSuggestions\(stage\) \{\s*if \(state\.difficultyMode === "hard"\) return "";/);
+  assert.match(gameSource, /\$\{chatSuggestions\(stage\)\}/);
+});
+
+test("공개 배포는 Python API 프록시와 비밀 환경변수를 유지한다", async () => {
+  const renderConfig = await readProjectFile("render.yaml");
+  assert.match(renderConfig, /type: web/);
+  assert.match(renderConfig, /runtime: python/);
+  assert.match(renderConfig, /scripts\/serve\.py --bind 0\.0\.0\.0 --port \$PORT/);
+  assert.match(renderConfig, /key: OPENAI_API_KEY\s+sync: false/);
+  assert.doesNotMatch(renderConfig, /sk-[A-Za-z0-9_-]+/);
+});
+
 test("첫 화면·프로필·홈과 캐릭터 프로필 이미지는 브라우저 로컬 흐름으로 연결된다", async () => {
   const [gameSource, styles, ...images] = await Promise.all([
     readProjectFile("game.js"),

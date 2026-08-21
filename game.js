@@ -17,15 +17,15 @@ import {
   plantEvidence,
   resolveVote,
   startGame,
-} from "./game-engine.js?v=0.13.0";
-import { getCopy, normalizeLocale } from "./i18n.js?v=0.13.0";
+} from "./game-engine.js?v=0.13.1";
+import { getCopy, normalizeLocale } from "./i18n.js?v=0.13.1";
 import {
   buildChatPayload,
   fallbackAccusation,
   fallbackResponse,
   MAX_CHAT_LENGTH,
   normalizeInterpretation,
-} from "./chat-adapter.js?v=0.13.0";
+} from "./chat-adapter.js?v=0.13.1";
 import {
   acceptPersonalQuest,
   awardCrewLevels,
@@ -40,7 +40,7 @@ import {
   setEquippedJob,
   setDifficultyMode,
   settlePersonalQuest,
-} from "./progression.js?v=0.13.0";
+} from "./progression.js?v=0.13.1";
 
 const app = document.querySelector("#app");
 const assetVersion = new URL(import.meta.url).searchParams.get("v");
@@ -798,6 +798,8 @@ function strongestClaim(personId) {
 }
 
 function chatSuggestions(stage) {
+  if (state.difficultyMode === "hard") return "";
+
   const suggestions = stage === "accusation"
     ? crew.map((person) => {
       const claim = strongestClaim(person.id);
