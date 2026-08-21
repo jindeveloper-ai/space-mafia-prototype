@@ -1,0 +1,252 @@
+mars-account-control {
+  display: block;
+  min-width: 0;
+}
+
+.account-chip {
+  align-items: center;
+  background: var(--surface-container, #262329);
+  border: 1px solid var(--outline, #49454f);
+  border-radius: 999px;
+  color: var(--on-surface-variant, #cac4d0);
+  display: inline-flex;
+  font: inherit;
+  font-size: 0.72rem;
+  gap: 0.38rem;
+  max-width: 100%;
+  min-height: 32px;
+  overflow: hidden;
+  padding: 0.35rem 0.72rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.account-chip.is-signed-in span {
+  color: #a6e3a1;
+}
+
+.account-save-card {
+  align-items: center;
+  background: color-mix(in srgb, var(--primary, #c9b7ff) 12%, var(--surface-container, #262329));
+  border: 1px solid color-mix(in srgb, var(--primary, #c9b7ff) 38%, transparent);
+  border-radius: 20px;
+  display: grid;
+  gap: 0.8rem;
+  margin: 1rem 0;
+  padding: 1rem;
+}
+
+.account-save-card strong,
+.account-save-card p {
+  display: block;
+  margin: 0;
+}
+
+.account-save-card p {
+  color: var(--on-surface-variant, #cac4d0);
+  font-size: 0.78rem;
+  line-height: 1.45;
+  margin-top: 0.35rem;
+}
+
+.account-save-card button,
+.account-google {
+  background: var(--primary, #c9b7ff);
+  border: 0;
+  border-radius: 999px;
+  color: var(--on-primary, #211744);
+  font: inherit;
+  font-weight: 800;
+  min-height: 44px;
+  padding: 0.7rem 1rem;
+}
+
+.account-modal {
+  inset: 0;
+  position: fixed;
+  z-index: 120;
+}
+
+.account-modal__backdrop {
+  background: rgb(0 0 0 / 0.62);
+  border: 0;
+  inset: 0;
+  position: absolute;
+  width: 100%;
+}
+
+.account-sheet {
+  background: var(--surface, #121014);
+  border: 1px solid var(--outline, #49454f);
+  border-radius: 28px 28px 0 0;
+  bottom: 0;
+  box-sizing: border-box;
+  color: var(--on-surface, #e7e0ec);
+  left: 50%;
+  max-height: min(760px, 90dvh);
+  max-width: 430px;
+  overflow-y: auto;
+  padding: 1.25rem;
+  position: absolute;
+  transform: translateX(-50%);
+  width: 100%;
+}
+
+.account-sheet header {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+}
+
+.account-sheet header small {
+  color: var(--primary, #c9b7ff);
+  font-weight: 800;
+}
+
+.account-sheet h2 {
+  font-size: 1.25rem;
+  margin: 0.22rem 0 0;
+}
+
+.account-sheet header > button {
+  background: transparent;
+  border: 0;
+  color: inherit;
+  font-size: 1.7rem;
+  min-height: 44px;
+  min-width: 44px;
+}
+
+.account-identity {
+  align-items: center;
+  background: var(--surface-container, #262329);
+  border-radius: 18px;
+  display: flex;
+  gap: 0.75rem;
+  margin-top: 1rem;
+  padding: 0.85rem;
+}
+
+.account-identity > span {
+  align-items: center;
+  background: var(--primary-container, #4f378b);
+  border-radius: 50%;
+  display: inline-flex;
+  height: 42px;
+  justify-content: center;
+  width: 42px;
+}
+
+.account-identity strong,
+.account-identity small {
+  display: block;
+  max-width: 270px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.account-identity small,
+.account-sync-detail dd {
+  color: var(--on-surface-variant, #cac4d0);
+  font-size: 0.75rem;
+}
+
+.account-sync-detail {
+  margin: 0.8rem 0;
+}
+
+.account-sync-detail div {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+}
+
+.account-sync-detail dd {
+  margin: 0;
+}
+
+.account-action,
+.account-danger,
+.account-feedback,
+.account-chat-delete button {
+  background: transparent;
+  border: 1px solid var(--outline, #49454f);
+  border-radius: 14px;
+  color: inherit;
+  font: inherit;
+  min-height: 44px;
+  padding: 0.7rem 0.85rem;
+  text-align: left;
+  width: 100%;
+}
+
+.account-feedback {
+  box-sizing: border-box;
+  display: block;
+  margin-top: 0.8rem;
+  text-decoration: none;
+}
+
+.account-action + .account-action,
+.account-danger {
+  margin-top: 0.55rem;
+}
+
+.account-danger {
+  border-color: #a74743;
+  color: #ffb4ab;
+}
+
+.account-chat-delete {
+  border: 0;
+  margin: 1rem 0;
+  padding: 0;
+}
+
+.account-chat-delete legend {
+  font-size: 0.78rem;
+  font-weight: 800;
+  margin-bottom: 0.5rem;
+}
+
+.account-chat-delete button + button {
+  margin-top: 0.45rem;
+}
+
+.account-google {
+  align-items: center;
+  display: flex;
+  gap: 0.65rem;
+  justify-content: center;
+  margin-top: 1rem;
+  width: 100%;
+}
+
+.account-google span {
+  align-items: center;
+  background: white;
+  border-radius: 50%;
+  color: #4285f4;
+  display: inline-flex;
+  height: 24px;
+  justify-content: center;
+  width: 24px;
+}
+
+.account-unavailable {
+  background: var(--surface-container, #262329);
+  border-radius: 14px;
+  color: var(--on-surface-variant, #cac4d0);
+  font-size: 0.82rem;
+  line-height: 1.5;
+  padding: 0.85rem;
+}
+
+@media (min-width: 600px) {
+  .account-sheet {
+    border-radius: 28px;
+    bottom: 50%;
+    transform: translate(-50%, 50%);
+  }
+}

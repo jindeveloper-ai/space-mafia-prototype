@@ -150,6 +150,9 @@ export function buildChatPayload({ locale, stage, message, state, crew, incident
       subquestId: state.subquestId,
       turn: transcript.filter((item) => item.speakerId === "player").length,
     },
-    transcript: transcript.slice(-12).map(({ speakerId, text }) => ({ speakerId, text })),
+    transcript: transcript
+      .filter(({ text }) => typeof text === "string" && text.length > 0)
+      .slice(-12)
+      .map(({ speakerId, text }) => ({ speakerId, text })),
   };
 }

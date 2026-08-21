@@ -1058,32 +1058,14 @@ p {
   font-size: 0.65rem;
 }
 
-.archive-media.is-sticker > div {
-  display: grid;
-  width: min(100%, 180px);
-  min-height: 150px;
-  place-items: center;
+.archive-media.is-sticker > img {
+  width: 164px;
+  height: 164px;
   justify-self: center;
-  overflow: hidden;
   border: 1px solid var(--outline-variant);
   border-radius: 22px;
   background: var(--surface-container-high);
-}
-
-.archive-media.is-sticker img {
-  width: 112px;
-  height: 96px;
-  margin-top: 8px;
-  object-fit: cover;
-  object-position: top;
-  border-radius: 18px;
-}
-
-.archive-media.is-sticker strong {
-  padding: 8px 12px 12px;
-  color: var(--on-surface);
-  font-size: 0.88rem;
-  text-align: center;
+  object-fit: contain;
 }
 
 .archive-comments {
@@ -2119,6 +2101,73 @@ body:is(
   font-size: 0.8rem;
 }
 
+.habitat-map-card {
+  flex: 0 0 auto;
+  margin: 8px 14px;
+  overflow: hidden;
+  border: 1px solid var(--outline-variant);
+  border-radius: 14px;
+  background: var(--surface-container-low);
+}
+
+.habitat-map-card summary {
+  display: flex;
+  min-height: 42px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 9px 12px;
+  color: var(--on-surface);
+  cursor: pointer;
+  font-size: 0.76rem;
+}
+
+.habitat-map-card summary strong {
+  color: var(--primary);
+  font-size: 0.68rem;
+}
+
+.habitat-map-card figure {
+  padding: 0 9px 10px;
+}
+
+.habitat-map-card img {
+  display: block;
+  width: 100%;
+  border-radius: 10px;
+}
+
+.habitat-map-card figcaption,
+.chat-media-card figcaption {
+  margin-top: 6px;
+  color: var(--on-surface-variant);
+  font-size: 0.66rem;
+  line-height: 1.4;
+}
+
+.chat-media-card {
+  margin: 8px 14px;
+  padding: 8px;
+  border: 1px solid var(--outline-variant);
+  border-radius: 14px;
+  background: var(--surface-container-lowest);
+}
+
+.chat-media-card img {
+  display: block;
+  width: 100%;
+  max-height: 240px;
+  border-radius: 10px;
+  object-fit: cover;
+}
+
+.chat-sticker {
+  display: inline-block;
+  width: 128px;
+  max-width: 60%;
+  border-radius: 18px;
+}
+
 .chat-turn-banner > p {
   margin-top: 4px;
   color: var(--on-surface-variant);
@@ -2774,6 +2823,7 @@ body:is(
   display: grid;
   width: 280px;
   max-width: calc(100vw - 32px);
+  max-height: min(420px, 60dvh);
   grid-template-columns: repeat(6, minmax(40px, 1fr));
   gap: 2px;
   padding: 8px;
@@ -2781,6 +2831,15 @@ body:is(
   border-radius: 16px;
   background: var(--surface-container-lowest);
   box-shadow: 0 8px 24px rgb(29 25 43 / 16%);
+  overflow-y: auto;
+}
+
+.emoji-picker__divider {
+  grid-column: 1 / -1;
+  padding: 8px 4px 4px;
+  color: var(--on-surface-variant);
+  font-size: 0.68rem;
+  font-weight: 700;
 }
 
 .emoji-option {
@@ -2798,6 +2857,29 @@ body:is(
 .emoji-option:hover,
 .emoji-option:focus-visible {
   background: var(--surface-container-high);
+}
+
+.sticker-option {
+  display: grid;
+  min-height: 76px;
+  grid-column: span 2;
+  place-items: center;
+  padding: 2px;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.sticker-option:hover,
+.sticker-option:focus-visible {
+  background: var(--surface-container-high);
+}
+
+.sticker-option img {
+  width: 70px;
+  height: 70px;
+  object-fit: contain;
 }
 
 .composer-send {
@@ -3116,6 +3198,12 @@ body[data-phase="home"] .game-card {
   width: min(100%, 310px);
   min-height: 300px;
   place-self: center;
+  place-items: center;
+}
+
+.welcome-art picture {
+  display: grid;
+  width: 100%;
   place-items: center;
 }
 

@@ -19,10 +19,12 @@ from fastapi.responses import FileResponse, JSONResponse
 import uvicorn
 
 try:
+    from .account_api import register_account_routes
     from .multiplayer import AVATAR_IDS, RoomError, RoomManager
     from .multiplayer_ai import generate_ai_reply, interpret_message
     from .serve import MAX_BODY_BYTES, generate_chat, rate_limited, validate_payload
 except ImportError:  # Direct execution: python3 scripts/app.py
+    from account_api import register_account_routes
     from multiplayer import AVATAR_IDS, RoomError, RoomManager
     from multiplayer_ai import generate_ai_reply, interpret_message
     from serve import MAX_BODY_BYTES, generate_chat, rate_limited, validate_payload
@@ -190,6 +192,19 @@ async def security_headers(request: Request, call_next):
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["Referrer-Policy"] = "no-referrer"
     response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+    response.headers["Content-Security-Policy"] = (
+        "default-src 'self'; "
+        "base-uri 'self'; "
+        "connect-src 'self' https://*.supabase.co wss://*.supabase.co; "
+        "font-src 'self' data:; "
+        "frame-ancestors 'none'; "
+        "img-src 'self' data: blob:; "
+        "media-src 'self' blob:; "
+        "object-src 'none'; "
+        "script-src 'self'; "
+        "style-src 'self' 'unsafe-inline'"
+    )
     if request.url.path.startswith("/api/"):
         response.headers["Cache-Control"] = "no-store"
     return response
@@ -198,6 +213,9 @@ async def security_headers(request: Request, call_next):
 @app.get("/healthz")
 async def healthz():
     return {"status": "ok"}
+
+
+register_account_routes(app)
 
 
 @app.post("/api/chat")

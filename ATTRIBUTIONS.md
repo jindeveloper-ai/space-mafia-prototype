@@ -24,7 +24,14 @@ The following mascot and crew portraits were created specifically for this proje
 - `assets/images/juno.png`
 - `assets/images/noel.png`
 
-The short archive videos in `assets/video/` were created locally from those project-created portraits. They contain no third-party footage or audio.
+The contextual archive/game illustrations, localized habitat maps, animated reaction stickers, and animated welcome mascot under these paths were also created specifically for MARS.NET:
+
+- `assets/images/archive/`
+- `assets/images/game/`
+- `assets/images/stickers/`
+- `assets/images/mafia-astronaut-v2.gif`
+
+The short archive videos in `assets/video/archive/` were created locally from the project-created archive illustrations. They contain no third-party footage or audio. The GIF stickers and welcome animation were likewise assembled locally from project-created source artwork. No runtime image-generation service or third-party media CDN is used by these features.
 
 ## CC BY 4.0 references
 

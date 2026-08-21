@@ -13,3 +13,13 @@ services:
         sync: false
       - key: OPENAI_MODEL
         value: gpt-5.6-luna
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_PUBLISHABLE_KEY
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: SUPABASE_GOOGLE_ENABLED
+        value: "false"
+      - key: SUPABASE_APPLE_ENABLED
+        value: "false"

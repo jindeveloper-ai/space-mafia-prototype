@@ -11,8 +11,9 @@ async function readProjectFile(path) {
 }
 
 test("브라우저 에셋과 내부 모듈은 패키지 버전으로 캐시를 갱신한다", async () => {
-  const [indexHtml, gameSource, engineSource, packageSource] = await Promise.all([
+  const [indexHtml, bootstrapSource, gameSource, engineSource, packageSource] = await Promise.all([
     readProjectFile("index.html"),
+    readProjectFile("bootstrap.js"),
     readProjectFile("game.js"),
     readProjectFile("game-engine.js"),
     readProjectFile("package.json"),
@@ -22,7 +23,7 @@ test("브라우저 에셋과 내부 모듈은 패키지 버전으로 캐시를 �
   assert.ok(indexHtml.includes(`./styles.css?v=${version}`));
   assert.ok(indexHtml.includes(`./theme.js?v=${version}`));
   assert.ok(indexHtml.includes(`./sound.js?v=${version}`));
-  assert.ok(indexHtml.includes(`./game.js?v=${version}`));
+  assert.ok(bootstrapSource.includes(`./game.js?v=${version}`));
   assert.ok(gameSource.includes(`./game-engine.js?v=${version}`));
   assert.ok(gameSource.includes(`./i18n.js?v=${version}`));
   assert.ok(gameSource.includes(`./chat-adapter.js?v=${version}`));
@@ -120,10 +121,11 @@ test("하드 모드는 빠른 초안을 숨기고 일반 모드는 기존 초안
 });
 
 test("캐릭터 프로필은 익명 게시글·흑역사와 세션 댓글을 연다", async () => {
-  const [gameSource, styles, indexHtml] = await Promise.all([
+  const [gameSource, styles, indexHtml, bootstrapSource] = await Promise.all([
     readProjectFile("game.js"),
     readProjectFile("styles.css"),
     readProjectFile("index.html"),
+    readProjectFile("bootstrap.js"),
   ]);
   const ko = getCopy("ko");
   const en = getCopy("en");
@@ -155,9 +157,9 @@ test("캐릭터 프로필은 익명 게시글·흑역사와 세션 댓글을 연
   assert.match(styles, /\.character-profile__summary/);
   assert.match(styles, /\.archive-comment\.is-author/);
   assert.match(indexHtml, /id="file-protocol-notice"/);
-  assert.match(indexHtml, /window\.location\.protocol === "file:"/);
   assert.match(indexHtml, /scripts\/serve/);
-  assert.match(indexHtml, /document\.createElement\("script"\)/);
+  assert.match(bootstrapSource, /window\.location\.protocol === "file:"/);
+  assert.match(bootstrapSource, /import\("\.\/game\.js\?v=0\.16\.0"\)/);
   for (const characterId of ["mina", "juno", "noel"]) {
     assert.ok(ko.ui.characterArchive.posts[characterId].length >= 2);
     assert.equal(en.ui.characterArchive.posts[characterId].length, ko.ui.characterArchive.posts[characterId].length);
@@ -177,18 +179,46 @@ test("공개 배포는 Python API 프록시와 비밀 환경변수를 유지한�
   assert.doesNotMatch(renderConfig, /sk-[A-Za-z0-9_-]+/);
 });
 
+test("계정 UI와 Supabase 설정은 서버 중개와 RLS를 유지한다", async () => {
+  const [page, gameSource, accountSource, accountCore, serverSource, migration, renderConfig] = await Promise.all([
+    readProjectFile("index.html"),
+    readProjectFile("game.js"),
+    readProjectFile("account-client.js"),
+    readProjectFile("account-core.js"),
+    readProjectFile("scripts/account_api.py"),
+    readProjectFile("supabase/migrations/202608220001_accounts.sql"),
+    readProjectFile("render.yaml"),
+  ]);
+  assert.match(page, /account\.css\?v=0\.16\.0/);
+  assert.match(page, /bootstrap\.js\?v=0\.16\.0/);
+  assert.doesNotMatch(page, /<script>\s*if \(window\.location\.protocol/);
+  assert.match(gameSource, /<mars-account-control>/);
+  assert.match(gameSource, /<mars-account-save>/);
+  assert.match(accountSource, /code_challenge_method/);
+  assert.match(accountCore, /mars-net-guest-backup-v1/);
+  assert.match(accountSource, /su\.jin\.lee\.developer@gmail\.com/);
+  assert.match(serverSource, /PyJWKClient/);
+  assert.match(serverSource, /audience=os\.environ\.get/);
+  assert.match(migration, /enable row level security/);
+  assert.match(migration, /auth\.uid\(\).*user_id/s);
+  assert.match(renderConfig, /key: SUPABASE_SERVICE_ROLE_KEY\s+sync: false/);
+  assert.doesNotMatch(accountSource, /SUPABASE_SERVICE_ROLE_KEY/);
+});
+
 test("친구 모드는 서버 권한·실시간 채팅·한영 키 대칭을 유지한다", async () => {
-  const [homeSource, page, client, server, engine, styles] = await Promise.all([
+  const [homeSource, page, client, server, engine, styles, packageSource] = await Promise.all([
     readProjectFile("game.js"),
     readProjectFile("friend.html"),
     readProjectFile("friend-mode.js"),
     readProjectFile("scripts/app.py"),
     readProjectFile("scripts/multiplayer.py"),
     readProjectFile("friend-mode.css"),
+    readProjectFile("package.json"),
   ]);
+  const { version } = JSON.parse(packageSource);
 
   assert.match(homeSource, /data-action="open-multiplayer"/);
-  assert.match(page, /friend-mode\.js\?v=0\.15\.0/);
+  assert.ok(page.includes(`friend-mode.js?v=${version}`));
   assert.match(client, /sessionStorage/);
   assert.match(client, /new WebSocket/);
   assert.match(client, /expectedSeq/);
@@ -199,6 +229,37 @@ test("친구 모드는 서버 권한·실시간 채팅·한영 키 대칭을 유
   assert.match(styles, /width: min\(100%, 390px\)/);
   assert.deepEqual(getFriendTranslationKeys("ko"), getFriendTranslationKeys("en"));
   assert.doesNotMatch(`${page}\n${client}`, /OPENAI_API_KEY|api\.openai\.com/);
+});
+
+test("생성형 미디어는 상황·대화 상대와 함께 판정되고 로컬 GIF·KO/EN 구조도를 사용한다", async () => {
+  const [gameSource, adapterSource, styles, koMap, enMap, astronaut, ...stickers] = await Promise.all([
+    readProjectFile("game.js"),
+    readProjectFile("chat-adapter.js"),
+    readProjectFile("styles.css"),
+    readFile(new URL("assets/images/game/habitat-map-ko-v1.jpg", projectRoot)),
+    readFile(new URL("assets/images/game/habitat-map-en-v1.jpg", projectRoot)),
+    readFile(new URL("assets/images/mafia-astronaut-v2.gif", projectRoot)),
+    ...[
+      "mina-capture-v1.gif", "mina-deny-v1.gif", "mina-inspect-v1.gif",
+      "juno-skeptic-v1.gif", "juno-compare-v1.gif", "juno-nod-v1.gif",
+      "noel-caught-v1.gif", "noel-laugh-v1.gif", "noel-replay-v1.gif",
+    ].map((name) => readFile(new URL(`assets/images/stickers/${name}`, projectRoot))),
+  ]);
+
+  assert.match(gameSource, /const CONTEXT_MEDIA_RULES = \{/);
+  assert.match(gameSource, /contextMediaForMessage\(mode, message, personId/);
+  assert.match(gameSource, /shownContextMedia\.has\(key\)/);
+  assert.match(gameSource, /appendContextMedia\("game", message\)/);
+  assert.match(gameSource, /appendContextMedia\("friend", message, selectedFriendId\)/);
+  assert.match(gameSource, /habitat-map-\$\{locale\}-v1\.jpg/);
+  assert.match(gameSource, /data-action="send-friend-sticker"/);
+  assert.match(adapterSource, /filter\(\(\{ text \}\) => typeof text === "string"/);
+  assert.match(styles, /\.chat-media-card/);
+  assert.match(styles, /\.sticker-option/);
+  assert.ok(koMap.byteLength > 40_000 && enMap.byteLength > 40_000);
+  assert.equal(astronaut.subarray(0, 3).toString(), "GIF");
+  assert.ok(stickers.every((sticker) => sticker.subarray(0, 3).toString() === "GIF" && sticker.byteLength > 40_000));
+  assert.doesNotMatch(gameSource, /https?:\/\/[^"']+\.(?:png|jpe?g|gif|webp)/i);
 });
 
 test("첫 화면·프로필·홈과 캐릭터 프로필 이미지는 브라우저 로컬 흐름으로 연결된다", async () => {
