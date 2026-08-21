@@ -353,7 +353,7 @@ const COPY = {
         short: { normal: "일반", hard: "HARD" },
         descriptions: {
           normal: "현재 레벨 그대로 플레이",
-          hard: "빠른 초안 없이 3회 방어 · AI 추리 +20레벨",
+          hard: "약 6~7분 · 빠른 초안 없이 3회 방어 · AI 추리 +20레벨",
         },
         current: (name) => `현재 ${name} 모드 · 언제든 변경 가능`,
       },
@@ -912,7 +912,7 @@ const COPY = {
         short: { normal: "Normal", hard: "HARD" },
         descriptions: {
           normal: "Play at their current levels",
-          hard: "Three defenses, no quick drafts, and +20 AI levels",
+          hard: "About 6–7 min · three defenses, no quick drafts, and +20 AI levels",
         },
         current: (name) => `${name} mode selected · change anytime`,
       },

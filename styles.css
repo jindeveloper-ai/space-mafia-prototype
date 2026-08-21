@@ -1659,6 +1659,9 @@ body:is(
   [data-phase="meeting"],
   [data-phase="lie"],
   [data-phase="challenge"],
+  [data-phase="hard-defense-1"],
+  [data-phase="hard-defense-2"],
+  [data-phase="hard-final"],
   [data-phase="response"]
 ) {
   height: 100dvh;
@@ -1672,6 +1675,9 @@ body:is(
   [data-phase="meeting"],
   [data-phase="lie"],
   [data-phase="challenge"],
+  [data-phase="hard-defense-1"],
+  [data-phase="hard-defense-2"],
+  [data-phase="hard-final"],
   [data-phase="response"]
 ) .page-shell {
   display: grid;
@@ -1691,6 +1697,9 @@ body:is(
   [data-phase="meeting"],
   [data-phase="lie"],
   [data-phase="challenge"],
+  [data-phase="hard-defense-1"],
+  [data-phase="hard-defense-2"],
+  [data-phase="hard-final"],
   [data-phase="response"]
 ) .game-card {
   height: 100%;
@@ -1706,6 +1715,9 @@ body:is(
   [data-phase="meeting"],
   [data-phase="lie"],
   [data-phase="challenge"],
+  [data-phase="hard-defense-1"],
+  [data-phase="hard-defense-2"],
+  [data-phase="hard-final"],
   [data-phase="response"]
 ) footer {
   display: none;
@@ -1900,6 +1912,33 @@ body:is(
 
 .chat-context__body .subquest-card {
   margin-top: 10px;
+}
+
+.chat-context__facts {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.chat-context__facts .fact-card {
+  padding: 10px 12px;
+  border: 1px solid var(--outline-variant);
+}
+
+.chat-context__facts .fact-icon {
+  flex-basis: 36px;
+  width: 36px;
+  height: 36px;
+}
+
+.chat-context__facts .fact-card p {
+  font-size: 0.8rem;
+}
+
+.chat-turn-banner > p {
+  margin-top: 4px;
+  color: var(--on-surface-variant);
+  font-size: 0.7rem;
 }
 
 .game-room-view .chat-room {
@@ -2121,6 +2160,9 @@ body:is(
   [data-phase="meeting"],
   [data-phase="lie"],
   [data-phase="challenge"],
+  [data-phase="hard-defense-1"],
+  [data-phase="hard-defense-2"],
+  [data-phase="hard-final"],
   [data-phase="response"]
 ) .topbar {
   display: none;
@@ -2133,6 +2175,9 @@ body:is(
   [data-phase="meeting"],
   [data-phase="lie"],
   [data-phase="challenge"],
+  [data-phase="hard-defense-1"],
+  [data-phase="hard-defense-2"],
+  [data-phase="hard-final"],
   [data-phase="response"]
 ) .page-shell {
   grid-template-rows: minmax(0, 1fr);
@@ -3743,6 +3788,9 @@ body:is(
   [data-phase="meeting"],
   [data-phase="lie"],
   [data-phase="challenge"],
+  [data-phase="hard-defense-1"],
+  [data-phase="hard-defense-2"],
+  [data-phase="hard-final"],
   [data-phase="response"],
   [data-phase="result"],
   [data-phase="debrief"]
@@ -3780,6 +3828,9 @@ body[data-phase="home"] .game-card,
     [data-phase="meeting"],
     [data-phase="lie"],
     [data-phase="challenge"],
+    [data-phase="hard-defense-1"],
+    [data-phase="hard-defense-2"],
+    [data-phase="hard-final"],
     [data-phase="response"],
     [data-phase="result"],
     [data-phase="debrief"]

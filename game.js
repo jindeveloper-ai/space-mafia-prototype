@@ -19,15 +19,15 @@ import {
   plantEvidence,
   resolveVote,
   startGame,
-} from "./game-engine.js?v=0.14.1";
-import { getCopy, normalizeLocale } from "./i18n.js?v=0.14.1";
+} from "./game-engine.js?v=0.14.2";
+import { getCopy, normalizeLocale } from "./i18n.js?v=0.14.2";
 import {
   buildChatPayload,
   fallbackAccusation,
   fallbackResponse,
   MAX_CHAT_LENGTH,
   normalizeInterpretation,
-} from "./chat-adapter.js?v=0.14.1";
+} from "./chat-adapter.js?v=0.14.2";
 import {
   acceptPersonalQuest,
   awardCrewLevels,
@@ -42,7 +42,7 @@ import {
   setEquippedJob,
   setDifficultyMode,
   settlePersonalQuest,
-} from "./progression.js?v=0.14.1";
+} from "./progression.js?v=0.14.2";
 
 const app = document.querySelector("#app");
 const assetVersion = new URL(import.meta.url).searchParams.get("v");
@@ -409,6 +409,9 @@ function chatContext() {
       </summary>
       <div class="chat-context__body">
         ${incidentBoard(true)}
+        <div class="chat-context__facts" aria-label="${ui.publicFacts}">
+          ${crew.map((person) => factCard(person)).join("")}
+        </div>
         ${subquestCard()}
         ${renderActivePersonalQuest("game")}
       </div>

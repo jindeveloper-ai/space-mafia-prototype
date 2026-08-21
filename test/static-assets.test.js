@@ -103,9 +103,19 @@ test("개인 채팅 이모티콘은 외부 이미지 없이 입력창에 삽입�
 });
 
 test("하드 모드는 빠른 초안을 숨기고 일반 모드는 기존 초안을 유지한다", async () => {
-  const gameSource = await readProjectFile("game.js");
+  const [gameSource, styles] = await Promise.all([
+    readProjectFile("game.js"),
+    readProjectFile("styles.css"),
+  ]);
   assert.match(gameSource, /function chatSuggestions\(stage\) \{\s*if \(state\.difficultyMode === "hard"\) return "";/);
   assert.match(gameSource, /\$\{chatSuggestions\(stage\)\}/);
+  assert.match(gameSource, /"hard-defense-1": renderChat/);
+  assert.match(gameSource, /"hard-defense-2": renderChat/);
+  assert.match(gameSource, /"hard-final": renderChat/);
+  assert.match(gameSource, /class="chat-context__facts"/);
+  for (const phase of ["hard-defense-1", "hard-defense-2", "hard-final"]) {
+    assert.match(styles, new RegExp(`data-phase="${phase}"`));
+  }
 });
 
 test("캐릭터 프로필은 익명 게시글·흑역사와 세션 댓글을 연다", async () => {
