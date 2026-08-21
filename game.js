@@ -19,15 +19,15 @@ import {
   plantEvidence,
   resolveVote,
   startGame,
-} from "./game-engine.js?v=0.14.2";
-import { getCopy, normalizeLocale } from "./i18n.js?v=0.14.2";
+} from "./game-engine.js?v=0.14.3";
+import { getCopy, normalizeLocale } from "./i18n.js?v=0.14.3";
 import {
   buildChatPayload,
   fallbackAccusation,
   fallbackResponse,
   MAX_CHAT_LENGTH,
   normalizeInterpretation,
-} from "./chat-adapter.js?v=0.14.2";
+} from "./chat-adapter.js?v=0.14.3";
 import {
   acceptPersonalQuest,
   awardCrewLevels,
@@ -42,7 +42,7 @@ import {
   setEquippedJob,
   setDifficultyMode,
   settlePersonalQuest,
-} from "./progression.js?v=0.14.2";
+} from "./progression.js?v=0.14.3";
 
 const app = document.querySelector("#app");
 const assetVersion = new URL(import.meta.url).searchParams.get("v");
@@ -131,6 +131,8 @@ let lastClueAward = null;
 let lastLevelGrowth = null;
 let detectiveInspection = null;
 let openArchiveCharacterId = null;
+let openArchiveView = "profile";
+let archiveReturnFocusId = null;
 const archiveSessionComments = Object.create(null);
 
 const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
@@ -274,11 +276,22 @@ function subquestCard(mode = "active") {
   `;
 }
 
-function personAvatar(person, size = "normal", opensArchive = true) {
-  const archiveAttributes = opensArchive
-    ? `data-character-profile="${person.id}" title="${escapeHtml(ui.characterArchive.open(person.name))}"`
-    : "";
-  return `<span class="avatar avatar--${size} avatar--${person.id}" ${archiveAttributes} aria-hidden="true"><img src="${CREW_AVATARS[person.id]}" alt="" /></span>`;
+function personAvatar(person, size = "normal") {
+  return `<span class="avatar avatar--${size} avatar--${person.id}" aria-hidden="true"><img src="${CREW_AVATARS[person.id]}" alt="" /></span>`;
+}
+
+function characterProfileButton(person, size, origin) {
+  const triggerId = `character-profile-${origin}`;
+  return `
+    <button
+      id="${triggerId}"
+      class="avatar avatar--${size} avatar--${person.id} character-profile-trigger"
+      type="button"
+      data-character-profile="${person.id}"
+      aria-label="${escapeHtml(ui.characterArchive.open(person.name))}"
+      title="${escapeHtml(ui.characterArchive.open(person.name))}"
+    ><img src="${CREW_AVATARS[person.id]}" alt="" /></button>
+  `;
 }
 
 function crewLevelLabel(personId) {
@@ -297,21 +310,37 @@ function renderCharacterArchive() {
   const person = crewMember(openArchiveCharacterId);
   const posts = ui.characterArchive.posts[openArchiveCharacterId];
   if (!person || !posts) return "";
+  const [board, ...traitParts] = person.style.split(" · ");
+  const traits = traitParts.join(" · ");
+  const isPostsView = openArchiveView === "posts";
   return `
     <div class="character-archive" role="dialog" aria-modal="true" aria-labelledby="character-archive-title">
       <button class="character-archive__backdrop" type="button" data-action="close-character-archive" aria-label="${ui.characterArchive.close}"></button>
       <section class="character-archive__sheet">
+        ${isPostsView ? `<button class="character-archive__nav-back" type="button" data-action="back-character-profile">‹ ${ui.characterArchive.profileBack}</button>` : ""}
         <header>
-          ${personAvatar(person, "normal", false)}
+          ${personAvatar(person, "normal")}
           <div>
-            <span>${ui.characterArchive.eyebrow}</span>
-            <h2 id="character-archive-title">${ui.characterArchive.title(person.name)}</h2>
-            <small>${person.style}</small>
+            <span>${isPostsView ? ui.characterArchive.eyebrow : ui.characterArchive.profileEyebrow}</span>
+            <h2 id="character-archive-title">${isPostsView ? ui.characterArchive.title(person.name) : ui.characterArchive.profileTitle(person.name)}</h2>
+            <small>${isPostsView ? person.style : ui.online}</small>
           </div>
           <button type="button" data-action="close-character-archive" aria-label="${ui.characterArchive.close}">×</button>
         </header>
-        <p class="character-archive__lead">${ui.characterArchive.lead}</p>
-        <div class="character-archive__posts">
+        ${!isPostsView ? `
+          <div class="character-profile__summary">
+            <p>${escapeHtml(person.background)}</p>
+            <dl>
+              <div><dt>${ui.characterArchive.levelLabel}</dt><dd>${crewLevelLabel(person.id)}</dd></div>
+              <div><dt>${ui.characterArchive.affinityLabel}</dt><dd>${ui.affinity(progression.affinity[person.id])}</dd></div>
+              <div><dt>${ui.characterArchive.boardLabel}</dt><dd>${escapeHtml(board)}</dd></div>
+              <div><dt>${ui.characterArchive.traitsLabel}</dt><dd>${escapeHtml(traits)}</dd></div>
+            </dl>
+            <button class="character-profile__posts-button" type="button" data-action="view-character-posts">${ui.characterArchive.viewPosts(posts.length)}</button>
+          </div>
+        ` : `
+          <p class="character-archive__lead">${ui.characterArchive.lead}</p>
+          <div class="character-archive__posts">
           ${posts.map((post, postIndex) => {
             const threadKey = `${person.id}:${postIndex}`;
             const sessionComments = archiveSessionComments[threadKey] ?? [];
@@ -338,10 +367,20 @@ function renderCharacterArchive() {
               </section>
             </article>
           `;}).join("")}
-        </div>
+          </div>
+        `}
       </section>
     </div>
   `;
+}
+
+function closeCharacterArchive() {
+  const returnFocusId = archiveReturnFocusId;
+  openArchiveCharacterId = null;
+  openArchiveView = "profile";
+  archiveReturnFocusId = null;
+  render();
+  if (returnFocusId) document.getElementById(returnFocusId)?.focus();
 }
 
 function roomStatusLabel() {
@@ -467,12 +506,14 @@ function renderProfileSetup() {
 
 function homeHistoryRow(person, index) {
   return `
-    <button class="home-history-row ${index === 1 ? "is-featured" : ""}" type="button" data-action="choose-friend" data-id="${person.id}">
-      ${personAvatar(person, "small")}
-      <span><strong>${person.name} <small class="level-badge">${crewLevelLabel(person.id)}</small></strong><small>${ui.homeHistoryPreview[person.personality]}</small></span>
-      <time>${ui.homeHistoryTime[index]}</time>
-      <span aria-hidden="true">›</span>
-    </button>
+    <div class="home-history-row ${index === 1 ? "is-featured" : ""}">
+      ${characterProfileButton(person, "small", `home-${person.id}`)}
+      <button class="home-history-row__chat" type="button" data-action="choose-friend" data-id="${person.id}" aria-label="${ui.friendChatWith(person.name)}">
+        <span><strong>${person.name} <small class="level-badge">${crewLevelLabel(person.id)}</small></strong><small>${ui.homeHistoryPreview[person.personality]}</small></span>
+        <time>${ui.homeHistoryTime[index]}</time>
+        <span aria-hidden="true">›</span>
+      </button>
+    </div>
   `;
 }
 
@@ -615,7 +656,7 @@ function renderHome() {
       </div>
 
       <section class="home-history" aria-label="${ui.homeHistory}">
-        <div><h2>${ui.homeHistory}</h2><button type="button" data-action="open-friends">${ui.homeSeeAll}</button></div>
+        <div class="home-history__heading"><h2>${ui.homeHistory}</h2><button type="button" data-action="open-friends">${ui.homeSeeAll}</button></div>
         ${crew.map(homeHistoryRow).join("")}
       </section>
     </section>
@@ -649,7 +690,7 @@ function renderIntro() {
       <div class="member-list">
         ${crew.map((person) => `
           <div class="member-row">
-            ${personAvatar(person, "small")}
+            ${characterProfileButton(person, "small", `tutorial-${person.id}`)}
             <div><strong>${person.name} <span class="level-badge">${crewLevelLabel(person.id)}</span></strong><small>${person.style}</small></div>
             <span class="online-dot" aria-label="${ui.online}"></span>
           </div>
@@ -708,12 +749,14 @@ function renderFriendSelect() {
         ${renderJournal()}
         <div class="friend-list" role="list">
           ${crew.map((person) => `
-            <button class="friend-row" type="button" data-action="choose-friend" data-id="${person.id}" aria-label="${ui.friendChatWith(person.name)}">
-              ${personAvatar(person)}
-              <span><strong>${person.name} <small class="level-badge">${crewLevelLabel(person.id)}</small></strong><small>${person.style} · ${ui.affinity(progression.affinity[person.id])}</small></span>
-              <span class="online-dot" aria-label="${ui.online}"></span>
-              <span class="friend-row__arrow" aria-hidden="true">›</span>
-            </button>
+            <div class="friend-row" role="listitem">
+              ${characterProfileButton(person, "normal", `friend-list-${person.id}`)}
+              <button class="friend-row__chat" type="button" data-action="choose-friend" data-id="${person.id}" aria-label="${ui.friendChatWith(person.name)}">
+                <span><strong>${person.name} <small class="level-badge">${crewLevelLabel(person.id)}</small></strong><small>${person.style} · ${ui.affinity(progression.affinity[person.id])}</small></span>
+                <span class="online-dot" aria-label="${ui.online}"></span>
+                <span class="friend-row__arrow" aria-hidden="true">›</span>
+              </button>
+            </div>
           `).join("")}
         </div>
       </section>
@@ -887,14 +930,19 @@ function chatSuggestions(stage) {
   `;
 }
 
-function chatMessage(item) {
+function chatMessage(item, index) {
   if (item.speakerId === "system") {
     return `<p class="chat-event">${escapeHtml(item.text)}</p>`;
   }
   const person = item.speakerId === "player" ? null : crewMember(item.speakerId);
+  const avatar = !person
+    ? profileAvatar("small")
+    : state.phase === "friend-chat"
+      ? characterProfileButton(person, "small", `friend-message-${person.id}-${index}`)
+      : personAvatar(person, "small");
   return `
     <article class="chat-message ${item.speakerId === "player" ? "is-player" : ""}">
-      ${person ? personAvatar(person, "small") : profileAvatar("small")}
+      ${avatar}
       <div>
         <strong>${item.speakerId === "player" ? escapeHtml(playerProfile.name || ui.chatYou) : escapeHtml(person?.name ?? item.speakerId)}<small>${ui.chatNow}</small></strong>
         <p>${escapeHtml(item.text)}</p>
@@ -985,7 +1033,7 @@ function friendRoomBar(person) {
   return `
     <header class="game-room-bar friend-room-bar">
       <button class="room-back" type="button" data-action="back-friends" aria-label="${ui.friendChatBack}" ${chatPending ? "disabled" : ""}>‹</button>
-      ${personAvatar(person, "small")}
+      ${characterProfileButton(person, "small", `friend-header-${person.id}`)}
       <div class="game-room-bar__copy">
         <strong>${person.name}</strong>
         <small>${chatPending ? ui.chatTypingPerson(person.name) : friendStatusLabel()} · ${crewLevelLabel(person.id)} · ${ui.affinity(progression.affinity[person.id])}</small>
@@ -1636,6 +1684,8 @@ app.addEventListener("click", (event) => {
   const archiveAvatar = event.target.closest("[data-character-profile]");
   if (archiveAvatar) {
     openArchiveCharacterId = archiveAvatar.dataset.characterProfile;
+    openArchiveView = "profile";
+    archiveReturnFocusId = archiveAvatar.id || null;
     render();
     app.querySelector('.character-archive [data-action="close-character-archive"]')?.focus();
     return;
@@ -1645,8 +1695,19 @@ app.addEventListener("click", (event) => {
 
   const action = button.dataset.action;
   if (action === "close-character-archive") {
-    openArchiveCharacterId = null;
+    closeCharacterArchive();
+    return;
+  }
+  if (action === "view-character-posts") {
+    openArchiveView = "posts";
     render();
+    app.querySelector('[data-action="back-character-profile"]')?.focus();
+    return;
+  }
+  if (action === "back-character-profile") {
+    openArchiveView = "profile";
+    render();
+    app.querySelector('[data-action="view-character-posts"]')?.focus();
     return;
   }
   if (action === "insert-friend-emoji") {
@@ -1814,8 +1875,7 @@ app.addEventListener("change", async (event) => {
 
 app.addEventListener("keydown", (event) => {
   if (event.key === "Escape" && openArchiveCharacterId) {
-    openArchiveCharacterId = null;
-    render();
+    closeCharacterArchive();
     return;
   }
   const input = event.target.closest("#player-message");

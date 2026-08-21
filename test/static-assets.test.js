@@ -119,20 +119,38 @@ test("하드 모드는 빠른 초안을 숨기고 일반 모드는 기존 초안
 });
 
 test("캐릭터 프로필은 익명 게시글·흑역사와 세션 댓글을 연다", async () => {
-  const [gameSource, styles] = await Promise.all([
+  const [gameSource, styles, indexHtml] = await Promise.all([
     readProjectFile("game.js"),
     readProjectFile("styles.css"),
+    readProjectFile("index.html"),
   ]);
   const ko = getCopy("ko");
   const en = getCopy("en");
 
   assert.match(gameSource, /data-character-profile=/);
+  assert.match(gameSource, /function characterProfileButton/);
   assert.match(gameSource, /function renderCharacterArchive/);
+  assert.match(gameSource, /openArchiveView = "profile"/);
+  assert.match(gameSource, /data-action="view-character-posts"/);
+  assert.match(gameSource, /data-action="back-character-profile"/);
+  assert.match(gameSource, /function closeCharacterArchive/);
+  assert.match(gameSource, /document\.getElementById\(returnFocusId\)\?\.focus/);
+  assert.match(gameSource, /class="home-history-row /);
+  assert.match(gameSource, /class="home-history-row__chat"/);
+  assert.match(gameSource, /class="friend-row" role="listitem"/);
+  assert.match(gameSource, /class="friend-row__chat"/);
+  assert.doesNotMatch(gameSource, /<button class="home-history-row /);
+  assert.doesNotMatch(gameSource, /<button class="friend-row"/);
   assert.match(gameSource, /class="archive-comment-form"/);
   assert.match(gameSource, /archiveSessionComments/);
   assert.match(gameSource, /denialReplies/);
   assert.match(styles, /\.character-archive/);
+  assert.match(styles, /\.character-profile__summary/);
   assert.match(styles, /\.archive-comment\.is-author/);
+  assert.match(indexHtml, /id="file-protocol-notice"/);
+  assert.match(indexHtml, /window\.location\.protocol === "file:"/);
+  assert.match(indexHtml, /scripts\/serve/);
+  assert.match(indexHtml, /document\.createElement\("script"\)/);
   for (const characterId of ["mina", "juno", "noel"]) {
     assert.equal(ko.ui.characterArchive.posts[characterId].length, 2);
     assert.equal(en.ui.characterArchive.posts[characterId].length, 2);
