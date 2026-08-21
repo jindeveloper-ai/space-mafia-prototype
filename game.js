@@ -19,15 +19,15 @@ import {
   plantEvidence,
   resolveVote,
   startGame,
-} from "./game-engine.js?v=0.14.3";
-import { getCopy, normalizeLocale } from "./i18n.js?v=0.14.3";
+} from "./game-engine.js?v=0.15.0";
+import { getCopy, normalizeLocale } from "./i18n.js?v=0.15.0";
 import {
   buildChatPayload,
   fallbackAccusation,
   fallbackResponse,
   MAX_CHAT_LENGTH,
   normalizeInterpretation,
-} from "./chat-adapter.js?v=0.14.3";
+} from "./chat-adapter.js?v=0.15.0";
 import {
   acceptPersonalQuest,
   awardCrewLevels,
@@ -42,7 +42,7 @@ import {
   setEquippedJob,
   setDifficultyMode,
   settlePersonalQuest,
-} from "./progression.js?v=0.14.3";
+} from "./progression.js?v=0.15.0";
 
 const app = document.querySelector("#app");
 const assetVersion = new URL(import.meta.url).searchParams.get("v");
@@ -65,6 +65,12 @@ const CREW_AVATARS = {
   noel: "./assets/images/noel.png",
 };
 const PROFILE_STORAGE_KEY = "oxygen-room-profile";
+const ARCHIVE_VISIT_STORAGE_KEY = "mars-net-archive-visits-v1";
+const ARCHIVE_MEDIA_ASSETS = {
+  mina: { image: "./assets/images/mina.png", video: "./assets/video/mina-feed-clip.mp4" },
+  juno: { image: "./assets/images/juno.png", video: "./assets/video/juno-system-clip.mp4" },
+  noel: { image: "./assets/images/noel.png", video: "./assets/video/noel-stream-clip.mp4" },
+};
 const crew = getCrew(locale);
 const incident = getIncident(locale);
 const crewMember = (id) => getCrewMember(id, locale);
@@ -134,6 +140,7 @@ let openArchiveCharacterId = null;
 let openArchiveView = "profile";
 let archiveReturnFocusId = null;
 const archiveSessionComments = Object.create(null);
+const archivePendingReplies = Object.create(null);
 
 const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
 const wait = (milliseconds) => new Promise((resolve) => {
@@ -145,6 +152,29 @@ const escapeHtml = (value) => {
   element.textContent = String(value);
   return element.innerHTML;
 };
+
+function recordArchiveVisit() {
+  let dates = [];
+  try {
+    const stored = JSON.parse(window.localStorage.getItem(ARCHIVE_VISIT_STORAGE_KEY) ?? "null");
+    dates = Array.isArray(stored?.dates)
+      ? stored.dates.filter((date) => /^\d{4}-\d{2}-\d{2}$/.test(date))
+      : [];
+  } catch {
+    dates = [];
+  }
+  const today = currentDateKey();
+  if (!dates.includes(today)) dates.push(today);
+  dates = [...new Set(dates)].sort();
+  try {
+    window.localStorage.setItem(ARCHIVE_VISIT_STORAGE_KEY, JSON.stringify({ version: 1, dates }));
+  } catch {
+    // The archive remains available for this session when storage is blocked.
+  }
+  return dates;
+}
+
+const archiveVisitDates = recordArchiveVisit();
 
 function loadPlayerProfile() {
   try {
@@ -306,9 +336,66 @@ function roomAvatarStack() {
   `;
 }
 
+function generatedArchivePost(person, templateIndex, date = null) {
+  const templates = ui.characterArchive.dailyTemplates[person.id];
+  const template = templates[templateIndex % templates.length];
+  const board = person.style.split(" · ")[0];
+  const time = date ? ui.characterArchive.dailyTime(date) : ui.characterArchive.seedTimes[templateIndex];
+  return {
+    board,
+    time,
+    title: template.title,
+    body: template.body,
+    meta: ui.characterArchive.dailyMeta(templateIndex),
+    isHistory: templateIndex === 1,
+    comments: [
+      { author: ui.characterArchive.anonymous, text: template.comment, time },
+      { author: ui.characterArchive.author, text: template.reply, time, isAuthor: true },
+    ],
+  };
+}
+
+function archiveMediaFor(person, postIndex) {
+  const mediaType = ["image", "video", "sticker", null][postIndex % 4];
+  if (!mediaType) return null;
+  const assets = ARCHIVE_MEDIA_ASSETS[person.id];
+  return {
+    type: mediaType,
+    src: mediaType === "video" ? assets.video : assets.image,
+    poster: assets.image,
+    label: mediaType === "video"
+      ? ui.characterArchive.videoLabel(person.name)
+      : mediaType === "sticker"
+        ? ui.characterArchive.stickerLabel(person.name)
+        : ui.characterArchive.photoLabel(person.name),
+    stickerText: ui.characterArchive.stickerText[person.id][postIndex % ui.characterArchive.stickerText[person.id].length],
+  };
+}
+
+function archivePostsFor(person) {
+  const basePosts = ui.characterArchive.posts[person.id] ?? [];
+  const seedPosts = [0, 1, 2].map((index) => generatedArchivePost(person, index));
+  const dailyPosts = archiveVisitDates.map((date, index) => generatedArchivePost(person, index + 3, date));
+  return [...basePosts, ...seedPosts, ...dailyPosts].map((post, index) => ({
+    ...post,
+    media: archiveMediaFor(person, index),
+  }));
+}
+
+function renderArchiveMedia(media) {
+  if (!media) return "";
+  if (media.type === "video") {
+    return `<figure class="archive-media"><video controls playsinline preload="metadata" poster="${media.poster}" aria-label="${escapeHtml(media.label)}"><source src="${media.src}" type="video/mp4" /></video><figcaption>${escapeHtml(media.label)}</figcaption></figure>`;
+  }
+  if (media.type === "sticker") {
+    return `<figure class="archive-media is-sticker"><div><img src="${media.src}" alt="" /><strong>${escapeHtml(media.stickerText)}</strong></div><figcaption>${escapeHtml(media.label)}</figcaption></figure>`;
+  }
+  return `<figure class="archive-media"><img src="${media.src}" alt="${escapeHtml(media.label)}" loading="lazy" /><figcaption>${escapeHtml(media.label)}</figcaption></figure>`;
+}
+
 function renderCharacterArchive() {
   const person = crewMember(openArchiveCharacterId);
-  const posts = ui.characterArchive.posts[openArchiveCharacterId];
+  const posts = person ? archivePostsFor(person) : null;
   if (!person || !posts) return "";
   const [board, ...traitParts] = person.style.split(" · ");
   const traits = traitParts.join(" · ");
@@ -350,6 +437,7 @@ function renderCharacterArchive() {
               <small>${ui.characterArchive.anonymous} · ${escapeHtml(post.time)}</small>
               <h3>${escapeHtml(post.title)}</h3>
               <p>${escapeHtml(post.body)}</p>
+              ${renderArchiveMedia(post.media)}
               <footer>${escapeHtml(post.meta)}</footer>
               <section class="archive-comments" aria-label="${ui.characterArchive.comments}">
                 <strong>${ui.characterArchive.comments}</strong>
@@ -358,10 +446,11 @@ function renderCharacterArchive() {
                     <b>${escapeHtml(comment.author)}</b><span>${escapeHtml(comment.text)}</span><small>${escapeHtml(comment.time ?? ui.characterArchive.now)}</small>
                   </p>
                 `).join("")}
+                ${archivePendingReplies[threadKey] ? `<p class="archive-comment is-author is-typing"><b>${ui.characterArchive.author}</b><span>${ui.characterArchive.replyLoading}</span><small>${ui.characterArchive.now}</small></p>` : ""}
                 <form class="archive-comment-form" data-character-id="${person.id}" data-post-index="${postIndex}">
                   <label class="visually-hidden" for="archive-comment-${person.id}-${postIndex}">${ui.characterArchive.commentPlaceholder}</label>
-                  <input id="archive-comment-${person.id}-${postIndex}" name="comment" maxlength="120" placeholder="${ui.characterArchive.commentPlaceholder}" required />
-                  <button type="submit">${ui.characterArchive.commentSend}</button>
+                  <input id="archive-comment-${person.id}-${postIndex}" name="comment" maxlength="120" placeholder="${ui.characterArchive.commentPlaceholder}" ${archivePendingReplies[threadKey] ? "disabled" : ""} required />
+                  <button type="submit" ${archivePendingReplies[threadKey] ? "disabled" : ""}>${ui.characterArchive.commentSend}</button>
                 </form>
                 <small class="archive-comments__privacy">${ui.characterArchive.sessionOnly}</small>
               </section>
@@ -652,6 +741,9 @@ function renderHome() {
         </button>
         <button class="home-action" type="button" data-action="open-friends">
           <span>${ui.homeChatEyebrow}</span><strong>${ui.homeChatTitle}</strong><small>${ui.homeChatLead}</small><b aria-hidden="true">↗</b>
+        </button>
+        <button class="home-action is-multiplayer" type="button" data-action="open-multiplayer">
+          <span>${ui.homeMultiplayerEyebrow}</span><strong>${ui.homeMultiplayerTitle}</strong><small>${ui.homeMultiplayerLead}</small><b aria-hidden="true">↗</b>
         </button>
       </div>
 
@@ -1748,6 +1840,7 @@ app.addEventListener("click", (event) => {
     state = startGame(nextState);
   }
   if (action === "open-friends") state = { ...state, phase: "friend-select" };
+  if (action === "open-multiplayer") window.location.assign(`./friend.html?lang=${locale}`);
   if (action === "back-home") state = { ...state, phase: "home" };
   if (action === "back-friends") {
     selectedFriendId = null;
@@ -1817,16 +1910,33 @@ app.addEventListener("submit", (event) => {
     const characterId = archiveForm.dataset.characterId;
     const postIndex = Number(archiveForm.dataset.postIndex);
     const comment = String(new FormData(archiveForm).get("comment") ?? "").trim().slice(0, 120);
-    const denial = ui.characterArchive.denialReplies[characterId]?.[postIndex];
-    if (!comment || !denial) return;
+    const person = crewMember(characterId);
+    if (!comment || !person) return;
     const threadKey = `${characterId}:${postIndex}`;
     archiveSessionComments[threadKey] = [
       ...(archiveSessionComments[threadKey] ?? []),
       { author: ui.characterArchive.youAnonymous, text: comment, time: ui.characterArchive.now },
-      { author: ui.characterArchive.author, text: denial, time: ui.characterArchive.now, isAuthor: true },
     ];
+    archivePendingReplies[threadKey] = true;
     render();
-    app.querySelector(`#archive-comment-${characterId}-${postIndex}`)?.focus();
+    const normalizedComment = comment.toLocaleLowerCase(locale);
+    const mentionsCharacter = normalizedComment.includes(person.name.toLocaleLowerCase(locale))
+      || normalizedComment.includes(person.id);
+    const replyOptions = mentionsCharacter
+      ? ui.characterArchive.denialReplies[characterId]
+      : ui.characterArchive.genericReplies[characterId];
+    const reply = replyOptions[postIndex % replyOptions.length];
+    window.setTimeout(() => {
+      archiveSessionComments[threadKey] = [
+        ...(archiveSessionComments[threadKey] ?? []),
+        { author: ui.characterArchive.author, text: reply, time: ui.characterArchive.now, isAuthor: true },
+      ];
+      delete archivePendingReplies[threadKey];
+      if (openArchiveCharacterId === characterId && openArchiveView === "posts") {
+        render();
+        app.querySelector(`#archive-comment-${characterId}-${postIndex}`)?.focus();
+      }
+    }, reducedMotion.matches ? 0 : 900 + ((postIndex % 3) * 180));
     return;
   }
   const profileForm = event.target.closest(".profile-form");

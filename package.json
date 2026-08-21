@@ -1,9 +1,9 @@
 {
   "name": "space-mafia-prototype",
   "private": true,
-  "version": "0.14.3",
+  "version": "0.15.0",
   "type": "module",
   "scripts": {
-    "test": "node --test"
+    "test": "node --test && python3 -m unittest discover -s test_python -v"
   }
 }

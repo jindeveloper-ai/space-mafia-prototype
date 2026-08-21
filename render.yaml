@@ -4,9 +4,9 @@ services:
     runtime: python
     plan: free
     branch: codex/progression-v0.12.6
-    buildCommand: python3 -m compileall -q scripts
-    startCommand: python3 scripts/serve.py --bind 0.0.0.0 --port $PORT --quiet
-    healthCheckPath: /
+    buildCommand: pip install -r requirements.txt && python3 -m compileall -q scripts
+    startCommand: python3 scripts/app.py --bind 0.0.0.0 --port $PORT --quiet
+    healthCheckPath: /healthz
     autoDeployTrigger: commit
     envVars:
       - key: OPENAI_API_KEY

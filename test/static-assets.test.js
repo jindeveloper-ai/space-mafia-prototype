@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { getCopy } from "../i18n.js";
+import { getFriendTranslationKeys } from "../friend-i18n.js";
 
 const projectRoot = new URL("../", import.meta.url);
 
@@ -144,6 +145,12 @@ test("캐릭터 프로필은 익명 게시글·흑역사와 세션 댓글을 연
   assert.match(gameSource, /class="archive-comment-form"/);
   assert.match(gameSource, /archiveSessionComments/);
   assert.match(gameSource, /denialReplies/);
+  assert.match(gameSource, /function archivePostsFor/);
+  assert.match(gameSource, /archiveVisitDates\.map/);
+  assert.match(gameSource, /function renderArchiveMedia/);
+  assert.match(gameSource, /archivePendingReplies/);
+  assert.match(gameSource, /mentionsCharacter/);
+  assert.match(gameSource, /genericReplies/);
   assert.match(styles, /\.character-archive/);
   assert.match(styles, /\.character-profile__summary/);
   assert.match(styles, /\.archive-comment\.is-author/);
@@ -152,8 +159,8 @@ test("캐릭터 프로필은 익명 게시글·흑역사와 세션 댓글을 연
   assert.match(indexHtml, /scripts\/serve/);
   assert.match(indexHtml, /document\.createElement\("script"\)/);
   for (const characterId of ["mina", "juno", "noel"]) {
-    assert.equal(ko.ui.characterArchive.posts[characterId].length, 2);
-    assert.equal(en.ui.characterArchive.posts[characterId].length, 2);
+    assert.ok(ko.ui.characterArchive.posts[characterId].length >= 2);
+    assert.equal(en.ui.characterArchive.posts[characterId].length, ko.ui.characterArchive.posts[characterId].length);
     assert.ok(ko.ui.characterArchive.posts[characterId].some((post) => post.isHistory));
     assert.ok(ko.ui.characterArchive.posts[characterId].every((post) => post.comments.some((comment) => comment.isAuthor)));
     assert.equal(ko.ui.characterArchive.denialReplies[characterId].length, 2);
@@ -164,9 +171,34 @@ test("공개 배포는 Python API 프록시와 비밀 환경변수를 유지한�
   const renderConfig = await readProjectFile("render.yaml");
   assert.match(renderConfig, /type: web/);
   assert.match(renderConfig, /runtime: python/);
-  assert.match(renderConfig, /scripts\/serve\.py --bind 0\.0\.0\.0 --port \$PORT/);
+  assert.match(renderConfig, /python3 scripts\/app\.py --bind 0\.0\.0\.0 --port \$PORT --quiet/);
+  assert.match(renderConfig, /healthCheckPath: \/healthz/);
   assert.match(renderConfig, /key: OPENAI_API_KEY\s+sync: false/);
   assert.doesNotMatch(renderConfig, /sk-[A-Za-z0-9_-]+/);
+});
+
+test("친구 모드는 서버 권한·실시간 채팅·한영 키 대칭을 유지한다", async () => {
+  const [homeSource, page, client, server, engine, styles] = await Promise.all([
+    readProjectFile("game.js"),
+    readProjectFile("friend.html"),
+    readProjectFile("friend-mode.js"),
+    readProjectFile("scripts/app.py"),
+    readProjectFile("scripts/multiplayer.py"),
+    readProjectFile("friend-mode.css"),
+  ]);
+
+  assert.match(homeSource, /data-action="open-multiplayer"/);
+  assert.match(page, /friend-mode\.js\?v=0\.15\.0/);
+  assert.match(client, /sessionStorage/);
+  assert.match(client, /new WebSocket/);
+  assert.match(client, /expectedSeq/);
+  assert.match(server, /@app\.websocket\("\/ws\/rooms\/\{code\}"\)/);
+  assert.match(server, /ws_max_size=32_768/);
+  assert.match(engine, /secrets\.token_urlsafe/);
+  assert.match(engine, /validated_public_evidence/);
+  assert.match(styles, /width: min\(100%, 390px\)/);
+  assert.deepEqual(getFriendTranslationKeys("ko"), getFriendTranslationKeys("en"));
+  assert.doesNotMatch(`${page}\n${client}`, /OPENAI_API_KEY|api\.openai\.com/);
 });
 
 test("첫 화면·프로필·홈과 캐릭터 프로필 이미지는 브라우저 로컬 흐름으로 연결된다", async () => {

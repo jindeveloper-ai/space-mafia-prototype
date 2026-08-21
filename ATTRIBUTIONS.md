@@ -24,6 +24,8 @@ The following mascot and crew portraits were created specifically for this proje
 - `assets/images/juno.png`
 - `assets/images/noel.png`
 
+The short archive videos in `assets/video/` were created locally from those project-created portraits. They contain no third-party footage or audio.
+
 ## CC BY 4.0 references
 
 - **Chat AI Bot Complete Designs | ChatGPT** by StarrySia — [Figma Community source](https://www.figma.com/community/file/1393434471248075066/chat-ai-bot-complete-designschatgpt), licensed under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/). Referenced for mobile chat-room hierarchy, avatar-led conversation, light/dark parity, and a persistent composer. Adapted into an original multi-character Mafia chat layout.

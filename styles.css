@@ -1037,6 +1037,55 @@ p {
   line-height: 1.55;
 }
 
+.archive-media {
+  display: grid;
+  gap: 6px;
+  margin: 12px 0;
+}
+
+.archive-media > img,
+.archive-media > video {
+  display: block;
+  width: 100%;
+  max-height: 220px;
+  border-radius: 14px;
+  background: var(--surface-container-highest);
+  object-fit: cover;
+}
+
+.archive-media figcaption {
+  color: var(--on-surface-variant);
+  font-size: 0.65rem;
+}
+
+.archive-media.is-sticker > div {
+  display: grid;
+  width: min(100%, 180px);
+  min-height: 150px;
+  place-items: center;
+  justify-self: center;
+  overflow: hidden;
+  border: 1px solid var(--outline-variant);
+  border-radius: 22px;
+  background: var(--surface-container-high);
+}
+
+.archive-media.is-sticker img {
+  width: 112px;
+  height: 96px;
+  margin-top: 8px;
+  object-fit: cover;
+  object-position: top;
+  border-radius: 18px;
+}
+
+.archive-media.is-sticker strong {
+  padding: 8px 12px 12px;
+  color: var(--on-surface);
+  font-size: 0.88rem;
+  text-align: center;
+}
+
 .archive-comments {
   display: grid;
   gap: 8px;
@@ -1063,6 +1112,20 @@ p {
 
 .archive-comment.is-author {
   background: color-mix(in srgb, var(--primary-container) 66%, var(--surface-container-high));
+}
+
+.archive-comment.is-typing span {
+  color: var(--on-surface-variant);
+  font-style: italic;
+}
+
+.archive-comment.is-typing span::after {
+  content: " ● ● ●";
+  animation: archive-typing 1.1s ease-in-out infinite;
+}
+
+@keyframes archive-typing {
+  50% { opacity: 0.35; }
 }
 
 .archive-comment b {
@@ -3342,6 +3405,12 @@ body[data-phase="home"] .game-card {
   background: #560fab;
 }
 
+.home-action.is-multiplayer {
+  min-height: 112px;
+  grid-column: 1 / -1;
+  background: #292929;
+}
+
 .home-action > span {
   color: rgb(255 255 255 / 62%);
   font-size: 0.7rem;
@@ -4028,4 +4097,72 @@ body[data-phase="home"] .game-card,
   text-overflow: clip;
   white-space: normal;
   overflow-wrap: anywhere;
+}
+
+/* The app frame is always 390px even on desktop; keep its header and content container-safe. */
+html,
+body {
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
+.page-shell {
+  max-width: 100vw;
+}
+
+.page-shell .topbar {
+  min-width: 0;
+  gap: 5px;
+  padding-right: max(8px, env(safe-area-inset-right));
+  padding-left: max(8px, env(safe-area-inset-left));
+  overflow: hidden;
+}
+
+.page-shell .brand {
+  width: 44px;
+  flex: 0 0 44px;
+  justify-content: center;
+}
+
+.page-shell .brand-name,
+.page-shell .theme-text {
+  display: none;
+}
+
+.page-shell .topbar-tools {
+  min-width: 0;
+  gap: 5px;
+}
+
+.page-shell .audio-controls {
+  padding-right: 5px;
+}
+
+.page-shell .audio-controls input[type="range"] {
+  width: 48px;
+}
+
+.page-shell .theme-toggle {
+  width: 44px;
+  min-width: 44px;
+  padding: 0;
+}
+
+.game-card,
+.game-card > *,
+.community-post,
+.room-preview,
+.room-preview__header > div,
+.character-archive__sheet {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.room-preview__header {
+  gap: 8px;
+}
+
+.room-preview__header small {
+  flex: 0 0 auto;
+  white-space: nowrap;
 }

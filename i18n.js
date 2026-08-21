@@ -194,6 +194,9 @@ const COPY = {
       homeChatEyebrow: "언제든 대화",
       homeChatTitle: "친구와 개인 채팅",
       homeChatLead: "게임 밖 이야기도 괜찮아요",
+      homeMultiplayerEyebrow: "2명 실시간",
+      homeMultiplayerTitle: "친구와 플레이",
+      homeMultiplayerLead: "코드를 공유해 같은 방에서 추리하세요",
       homeHistory: "최근 대화",
       homeSeeAll: "모두 보기",
       homeHistoryPreview: {
@@ -263,6 +266,35 @@ const COPY = {
         commentSend: "등록",
         sessionOnly: "내 댓글은 현재 세션에만 표시됩니다.",
         now: "방금",
+        replyLoading: "입력 중…",
+        seedTimes: ["일주일 전", "두 달 전", "세 달 전"],
+        dailyTime: (date) => `${date} 접속 기록`,
+        dailyMeta: (index) => `댓글 ${4 + (index % 11)} · 조회 ${38 + (index * 17)}`,
+        photoLabel: (name) => `${name}와 연결된 익명 게시물 사진`,
+        videoLabel: (name) => `${name}와 연결된 익명 게시물 짧은 영상`,
+        stickerLabel: (name) => `${name} 성향의 MARS.NET 반응 이모티콘`,
+        stickerText: {
+          mina: ["캡처 있음", "아님 말고", "사진 가져와"],
+          juno: ["근거 부족", "반례 있음", "일단 보류"],
+          noel: ["반응 봤음", "말투 바뀌", "클립 다시 봄"],
+        },
+        dailyTemplates: {
+          mina: [
+            { title: "새 지구 중계 캡처 원본 있는 사람", body: "화질 깨진 짤 말고 원본으로 보고 싶음. 표정 바뀌는 순간 저장해 둔 사람?", comment: "이정도 집착이면 미나 각", reply: "원본 찾는 사람 많음;; 신상 추리 금지" },
+            { title: "나 진짜 이번 굿즈는 안 살 거임", body: "자리도 차지하고 배송도 느림. 누가 영업해도 안 삼.", comment: "그러고 오늘 인증샷 올라온 건 뭐지", reply: "선물받은 거일 수도 있지 알고 말해" },
+            { title: "화성 돔 공연 시야 정리해 둠", body: "구역별로 보이는 각도 다름. 틀린 거 있으면 캡처로 알려줘.", comment: "정리 폼 너무 미나 같음", reply: "다들 이정도는 정리함 아무튼 아님" },
+          ],
+          juno: [
+            { title: "돔 내부 온도 알람, 결론부터 내지 마셈", body: "알람 발생과 실제 고장은 다른 사건임. 센서 원본 기록부터 비교해야 함.", comment: "말투가 딱 주노네", reply: "말투 분류보다 데이터 확인이 먼저임" },
+            { title: "어제 재시작으로 해결됨. 원인 확정", body: "같은 오류 재현 안 됨. 일단 캐시 문제로 봐도 될 듯.", comment: "다음 날 다시 터졌던데요", reply: "당시 관찰 기준으로 쓴 거임. 저자 특정은 금지" },
+            { title: "안전장치 교체 전에 반례 하나만 보자", body: "고장 가설이 맞다면 다른 구역 로그도 같이 튀어야 함. 아니면 별개 문제임.", comment: "주노 아니면 누가 이렇게 써", reply: "반례 보는 사람은 많음. 내용만 보자" },
+          ],
+          noel: [
+            { title: "어제 지구 중계 방송 채팅 돌아선 순간", body: "진행자가 대답 반 박자 늦게 하니까 채팅 온도 바로 바뀌. 클립보다 반응 순서가 핵심임.", comment: "이건 노엘 폭이 너무 좁은데", reply: "반응 보는 사람 많아 바로 누구 찍지 마ㅋㅋ" },
+            { title: "이 클립 진짜 편집 맞음 반박 안 받음", body: "호흡 끊기는 타이밍이 너무 깔끔함. 원본 나와도 자신 있음.", comment: "원본 나왔는데 편집 아니었음", reply: "제목은 좀 세게 쓴 거고 본문은 가능성이라고 했음" },
+            { title: "방송인이 괜찮다고 할 때 방금 눈 피한 거 봤냐", body: "말은 같은데 반응이 앞이랑 다름. 이런 건 뒤에서 보면 더 티 남.", comment: "노엘 또 사람 반응만 봤지", reply: "누구나 보이는 거임 노엘 소환 연습 자제" },
+          ],
+        },
         posts: {
           mina: [
             {
@@ -347,6 +379,11 @@ const COPY = {
           mina: ["왜 다들 미나 찾음;; 그냥 캡처 보는 익명인데", "공연 갔다는 증거부터 가져오셈. 난 아님ㅋㅋ"],
           juno: ["작성자 추정보다 내용 반례부터 보는 게 맞음.", "당시 데이터 기준 얘기였고, 아무튼 주노는 아님."],
           noel: ["말투 비슷하다고 같은 사람은 아니지ㅋㅋ", "그 클립 얘기는 다들 했음. 노엘 소환 금지."],
+        },
+        genericReplies: {
+          mina: ["그 건 나도 좀 궁금했음. 원본 있으면 추가해줘.", "ㅇㅇ 그 부분은 인정. 근데 사진은 더 보자.", "이건 취향 차이일 수도 있음ㅋㅋ"],
+          juno: ["그 가능성은 있음. 반대 사례도 같이 보면 될 듯.", "내용 기준으로는 합리적인 지적임.", "원본 기록 있으면 업데이트해줘."],
+          noel: ["그 반응 나도 봤음ㅋㅋ 타이밍이 묘하더라.", "그렇게 보면 말 되네. 다시 보니 반응이 먼저였음.", "원본 클립 나오면 판단 바뀌 수도 있지."],
         },
       },
       level: {
@@ -761,6 +798,9 @@ const COPY = {
       homeChatEyebrow: "Anytime",
       homeChatTitle: "Chat with a friend",
       homeChatLead: "Game talk or everyday talk",
+      homeMultiplayerEyebrow: "2-player live",
+      homeMultiplayerTitle: "Play with a friend",
+      homeMultiplayerLead: "Share a code and deduce together in one room",
       homeHistory: "Recent chats",
       homeSeeAll: "See all",
       homeHistoryPreview: {
@@ -830,6 +870,35 @@ const COPY = {
         commentSend: "Post",
         sessionOnly: "Your comments only remain in this session.",
         now: "now",
+        replyLoading: "typing…",
+        seedTimes: ["1 week ago", "2 months ago", "3 months ago"],
+        dailyTime: (date) => `${date} visit log`,
+        dailyMeta: (index) => `${4 + (index % 11)} comments · ${38 + (index * 17)} views`,
+        photoLabel: (name) => `Anonymous post photo linked to ${name}`,
+        videoLabel: (name) => `Short anonymous post video linked to ${name}`,
+        stickerLabel: (name) => `Original MARS.NET reaction sticker in ${name}'s style`,
+        stickerText: {
+          mina: ["got receipts", "prove it then", "drop the pic"],
+          juno: ["weak evidence", "counter-case", "holding judgment"],
+          noel: ["saw that", "tone changed", "rewatched clip"],
+        },
+        dailyTemplates: {
+          mina: [
+            { title: "anyone have the original Earth-feed caps?", body: "not the crunchy repost. i want the frame where the expression changes.", comment: "this filing habit is so Mina", reply: "lots of people save caps. stop identity hunting" },
+            { title: "not buying this merch drop. for real", body: "takes space and dome delivery is slow. nobody can talk me into it.", comment: "whose purchase proof appeared today then", reply: "could have been a gift. check facts first" },
+            { title: "mapped the sight lines for the Mars dome show", body: "every block gets a different angle. bring a screenshot if one is wrong.", comment: "this spreadsheet looks extremely Mina", reply: "anyone can organize seats. not Mina" },
+          ],
+          juno: [
+            { title: "do not jump from habitat alert to system failure", body: "an alert and a confirmed fault are different facts. compare the raw sensor log first.", comment: "this reads exactly like Juno", reply: "test the claim instead of profiling the writer" },
+            { title: "restart fixed it yesterday. cause confirmed", body: "could not reproduce the error, so a cache issue is the best current explanation.", comment: "it failed again the next day", reply: "the post reflected the data then. author identity is irrelevant" },
+            { title: "test one counter-case before replacing the safety unit", body: "if the failure theory is right, the other zone logs should spike too.", comment: "who writes this besides Juno", reply: "many people test counter-cases. stay on the evidence" },
+          ],
+          noel: [
+            { title: "the exact second Earth-feed chat turned", body: "the host answered half a beat late and the whole chat changed. reaction order matters more than the clip.", comment: "this narrows the writer to Noel", reply: "lots of people watch reactions lol" },
+            { title: "this clip is edited, no debate", body: "the breath cut is too clean. i'll own it if the raw feed proves me wrong.", comment: "raw feed says no edit", reply: "headline was strong; body said possibility" },
+            { title: "did you see the eye shift after they said it was fine", body: "same words, different reaction. it is easier to see on the second watch.", comment: "Noel watched reactions again", reply: "anyone could see that. stop summoning Noel" },
+          ],
+        },
         posts: {
           mina: [
             {
@@ -914,6 +983,11 @@ const COPY = {
           mina: ["why does every cap post become Mina?? i'm just some anon", "bring proof i went. not me lol"],
           juno: ["test the counter-case before guessing the author.", "that was based on the available data, and Juno did not write it."],
           noel: ["similar tone doesn't mean same person lol", "everyone discussed that clip. stop summoning Noel."],
+        },
+        genericReplies: {
+          mina: ["i wondered about that too. add the original if you have it.", "fair point. still want another screenshot though.", "might just be a taste difference lol"],
+          juno: ["possible. compare the counter-case as well.", "that is a reasonable point on the content.", "update the thread if you have the raw log."],
+          noel: ["i saw that reaction too lol. timing was odd.", "that read makes sense. the reaction did come first.", "the raw clip could still change the call."],
         },
       },
       level: {

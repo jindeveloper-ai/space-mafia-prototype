@@ -31,6 +31,7 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
         with:
           python-version: "3.13"
+      - run: python -m pip install -r requirements.txt
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
         with:
           node-version: "24"
@@ -91,6 +92,14 @@ jobs:
           else
             echo "security=false" >> "$GITHUB_OUTPUT"
           fi
+      - name: Scan dependencies with OSV
+        if: steps.scope.outputs.dependencies == 'true'
+        uses: google/osv-scanner-action/osv-scanner-action@40a8940a65eab1544a6af759e43d936201a131a2
+        with:
+          scan-args: |-
+            --include-git-root
+            --recursive
+            ./
       - name: Set up Python for Semgrep
         if: steps.scope.outputs.security == 'true'
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97

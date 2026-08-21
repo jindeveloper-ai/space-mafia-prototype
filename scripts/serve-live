@@ -14,4 +14,9 @@ export OPENAI_API_KEY
 unset api_key_value
 
 script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
-exec python3 "$script_dir/serve.py" "$@"
+project_dir=$(CDPATH= cd -- "$script_dir/.." && pwd)
+python_bin="python3"
+if [ -x "$project_dir/.venv/bin/python" ]; then
+  python_bin="$project_dir/.venv/bin/python"
+fi
+exec "$python_bin" "$script_dir/app.py" "$@"
