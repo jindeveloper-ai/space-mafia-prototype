@@ -1,6 +1,6 @@
 (() => {
-  const STORAGE_KEY = "oxygen-room-sound";
-  const SOUND_STATE_VERSION = 2;
+  const STORAGE_KEY = "mars-net-sound-v3";
+  const SOUND_STATE_VERSION = 3;
   const tracks = {
     lobby: new Audio("./assets/audio/lobby-detectives-among-us.mp3"),
     game: new Audio("./assets/audio/game-sneaky-film-noir.mp3"),
@@ -14,10 +14,7 @@
   }
 
   let muted = Boolean(stored.muted);
-  const storedVolume = Number.isFinite(stored.volume) ? Math.min(0.6, Math.max(0, stored.volume)) : 0.3;
-  let volume = stored.version !== SOUND_STATE_VERSION && Math.abs(storedVolume - 0.24) < 0.001
-    ? 0.3
-    : storedVolume;
+  let volume = Number.isFinite(stored.volume) ? Math.min(0.6, Math.max(0, stored.volume)) : 0.3;
   let scene = "lobby";
   let hasStarted = false;
   let labels = {
@@ -30,6 +27,7 @@
   Object.values(tracks).forEach((track) => {
     track.loop = true;
     track.preload = "auto";
+    track.playsInline = true;
     track.volume = volume;
   });
 
@@ -138,6 +136,10 @@
   window.oxygenRoomSound = {
     setScene,
     refresh: renderControls,
+    start() {
+      if (muted) return Promise.resolve(false);
+      return playCurrent();
+    },
     setLabels(nextLabels) {
       labels = { ...labels, ...nextLabels };
       renderControls();

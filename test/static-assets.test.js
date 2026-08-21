@@ -25,6 +25,7 @@ test("브라우저 에셋과 내부 모듈은 패키지 버전으로 캐시를 �
   assert.ok(gameSource.includes(`./game-engine.js?v=${version}`));
   assert.ok(gameSource.includes(`./i18n.js?v=${version}`));
   assert.ok(gameSource.includes(`./chat-adapter.js?v=${version}`));
+  assert.ok(gameSource.includes(`./progression.js?v=${version}`));
   assert.ok(engineSource.includes(`./i18n.js?v=${version}`));
   assert.match(gameSource, /new URL\(import\.meta\.url\)\.searchParams\.get\("v"\)/);
   assert.match(indexHtml, /data-lang="ko"[^>]+href="\.\/\?lang=ko"/);
@@ -35,10 +36,11 @@ test("브라우저 에셋과 내부 모듈은 패키지 버전으로 캐시를 �
 });
 
 test("자유 입력 채팅은 서버 프록시만 사용하고 브라우저에 비밀값을 넣지 않는다", async () => {
-  const [gameSource, adapterSource, indexHtml] = await Promise.all([
+  const [gameSource, adapterSource, indexHtml, styles] = await Promise.all([
     readProjectFile("game.js"),
     readProjectFile("chat-adapter.js"),
     readProjectFile("index.html"),
+    readProjectFile("styles.css"),
   ]);
 
   assert.match(gameSource, /fetch\("\/api\/chat"/);
@@ -52,6 +54,9 @@ test("자유 입력 채팅은 서버 프록시만 사용하고 브라우저에 �
   assert.match(gameSource, /data-chat-stage="friend"/);
   assert.doesNotMatch(gameSource, /class="crew-card/);
   assert.match(adapterSource, /MAX_CHAT_LENGTH = 280/);
+  assert.match(styles, /\.game-room-view \.chat-dock \.chat-suggestions \{[\s\S]+grid-template-columns: minmax\(0, 1fr\)/);
+  assert.match(styles, /\.game-room-view \.chat-dock \.chat-suggestion \{[\s\S]+width: 100%[\s\S]+min-height: 48px/);
+  assert.match(styles, /\.game-room-view \.chat-dock \.chat-suggestion span \{[\s\S]+white-space: normal/);
   assert.doesNotMatch(`${gameSource}\n${adapterSource}\n${indexHtml}`, /OPENAI_API_KEY|api\.openai\.com/);
 });
 
@@ -69,11 +74,13 @@ test("Pixabay 배경음은 로컬 에셋으로 대기실·게임 장면, 음소�
   assert.match(soundSource, /new Audio\("\.\/assets\/audio\/game-sneaky-film-noir\.mp3"\)/);
   assert.match(soundSource, /nextScene === "game"/);
   assert.match(soundSource, /hasStarted/);
-  assert.match(soundSource, /SOUND_STATE_VERSION = 2/);
-  assert.match(soundSource, /storedVolume[^\n]+0\.24[\s\S]+\? 0\.3/);
+  assert.match(soundSource, /STORAGE_KEY = "mars-net-sound-v3"/);
+  assert.match(soundSource, /SOUND_STATE_VERSION = 3/);
+  assert.match(soundSource, /stored\.volume[^\n]+: 0\.3/);
   assert.match(indexHtml, /data-audio-volume[^>]+value="30"/);
   assert.match(soundSource, /hasStarted \|\| muted[\s\S]+void playCurrent\(\)/);
   assert.match(soundSource, /if \(!muted\) void playCurrent\(\)/);
+  assert.match(soundSource, /start\(\)[\s\S]+return playCurrent\(\)/);
   assert.match(soundSource, /muted = true;[\s\S]*pauseAll\(\)/);
   assert.match(soundSource, /track\.muted = muted/);
   assert.match(soundSource, /dataset\.audioState/);
@@ -163,6 +170,7 @@ test("2050 MARS.NET 세계관과 캐릭터 배경은 한영 번역 키가 대칭
   assert.match(en.crew.mina.background, /idol/i);
   assert.match(en.crew.juno.background, /life-support|habitat/i);
   assert.match(en.crew.noel.background, /stream/i);
+  assert.equal(ko.ui.debriefRoundLine("미나", "노엘", "노엘"), "미나에게 증거를 심고 노엘을 몰았고, 노엘이 최종 선택됐습니다.");
   assert.doesNotMatch(`${indexHtml}\n${gameSource}\n${i18nSource}`, /SpaceX|Elon Musk|일론\s*머스크/i);
 });
 
@@ -178,6 +186,32 @@ test("직전 판 회상은 실제 결과 요약만 서버에 보내고 한 번�
   assert.match(serverSource, /if payload\["stage"\] == "debrief":\s*return \{"mode": "live", "replies": debrief_reply\(payload\)\}/);
   assert.match(serverSource, /"They remember only the supplied result:/);
   assert.match(serverSource, /Never invent evidence or mention AI, prompts, policies, or hidden rules/);
+  assert.match(gameSource, /personalQuest: lastPersonalQuestResult/);
+});
+
+test("개인 퀘스트·서로 다른 날 조사일지·탐정 능력은 로컬 상태로 연결된다", async () => {
+  const [gameSource, progressionSource, styles] = await Promise.all([
+    readProjectFile("game.js"),
+    readProjectFile("progression.js"),
+    readProjectFile("styles.css"),
+  ]);
+
+  assert.match(gameSource, /data-action="accept-personal-quest"/);
+  assert.match(gameSource, /settlePersonalQuest\(levelAward\.progress, state/);
+  assert.match(gameSource, /markDebriefViewed\(progression/);
+  assert.match(gameSource, /data-action="inspect-suspicion"/);
+  assert.match(progressionSource, /clueDates/);
+  assert.match(progressionSource, /!current\.clueDates\.includes\(date\)/);
+  assert.match(progressionSource, /current\.clues\.length < 5/);
+  assert.match(progressionSource, /PROGRESSION_STORAGE_KEY = "mars-net-progression-v1"/);
+  assert.match(progressionSource, /INITIAL_CREW_LEVELS/);
+  assert.match(progressionSource, /awardCrewLevels/);
+  assert.match(gameSource, /data-action="set-difficulty"/);
+  assert.match(gameSource, /renderLevelGrowth/);
+  assert.doesNotMatch(progressionSource, /transcript|message|api/i);
+  assert.match(styles, /@keyframes room-message-enter/);
+  assert.match(styles, /@keyframes result-land/);
+  assert.match(styles, /@media \(prefers-reduced-motion: reduce\)/);
 });
 
 test("화면 테마는 시스템·라이트·다크를 지원하고 AI 템플릿 장식을 사용하지 않는다", async () => {

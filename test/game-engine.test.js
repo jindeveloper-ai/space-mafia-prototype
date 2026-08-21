@@ -16,6 +16,7 @@ import {
   getCrew,
   getCurrentLeans,
   getDisplayName,
+  getDifficultyBand,
   getIncident,
   getMeetingStatements,
   getResponseOptions,
@@ -30,15 +31,25 @@ import {
 
 const RESPONSE_IDS = ["double-down", "return-evidence", "check-time"];
 
-function play({ caseIndex, frameId, accusedId, claimId, responseId, locale = "ko", subquestId }) {
-  let state = startGame(createGame({ caseIndex, locale, subquestId }));
+function play({
+  caseIndex,
+  frameId,
+  accusedId,
+  claimId,
+  responseId,
+  locale = "ko",
+  subquestId,
+  crewLevels,
+  difficultyMode,
+}) {
+  let state = startGame(createGame({ caseIndex, locale, subquestId, crewLevels, difficultyMode }));
   state = plantEvidence(state, frameId);
   state = applyLie(state, accusedId, claimId);
   state = applyResponse(state, responseId);
   return resolveVote(state);
 }
 
-function strategyMatrix() {
+function strategyMatrix(options = {}) {
   const results = [];
   for (let caseIndex = 0; caseIndex < 6; caseIndex += 1) {
     for (const frame of CREW) {
@@ -57,6 +68,7 @@ function strategyMatrix() {
                 accusedId: accused.id,
                 claimId: claim.id,
                 responseId,
+                ...options,
               }),
             });
           }
@@ -92,7 +104,34 @@ test("서로 다른 단서 두 개가 이어지면 강한 의심으로 표시된
   assert.equal(minaLean.candidateId, "juno");
   assert.ok(minaLean.clueCount >= 2);
   assert.equal(minaLean.confidence, "strong");
-  assert.match(minaLean.reason, /출입카드.*산소실 공구/);
+  assert.match(minaLean.reason, /출입카드/);
+  assert.match(minaLean.reason, /산소실 공구/);
+});
+
+test("약한 초기 의심은 연결된 자유 채팅으로 실제 표가 이동해야 승리한다", () => {
+  let state = startGame(createGame({ caseIndex: 0 }));
+  state = plantEvidence(state, "mina");
+  const before = getCurrentLeans(state);
+  assert.ok(before.filter((lean) => lean.candidateId === PLAYER_ID).length >= 2);
+
+  state = applyLie(state, "juno", "seen");
+  state = resolveVote(applyResponse(state, "double-down"));
+  assert.equal(state.outcome, "win");
+  assert.equal(state.selectedId, "juno");
+  assert.ok(state.voteShiftCount >= 2);
+});
+
+test("AI 레벨 구간이 높아질수록 승리 조합이 줄고 하드 모드는 +20 레벨로 판정한다", () => {
+  const winsAt = (level, difficultyMode = "normal") => strategyMatrix({
+    crewLevels: { mina: level, juno: level, noel: level },
+    difficultyMode,
+  }).filter((item) => item.result.outcome === "win").length;
+  const bandWins = [1, 11, 21, 31, 41].map((level) => winsAt(level));
+  assert.deepEqual([...bandWins].sort((a, b) => b - a), bandWins);
+  assert.ok(new Set(bandWins).size >= 4);
+  assert.ok(winsAt(2, "hard") < winsAt(2, "normal"));
+  assert.equal(getDifficultyBand(2, "normal"), 1);
+  assert.equal(getDifficultyBand(2, "hard"), 3);
 });
 
 test("반박자를 공격하는 선택 대신 사건 시각을 확인한다", () => {

@@ -1,8 +1,10 @@
-import { getCopy, normalizeLocale, withJosa } from "./i18n.js?v=0.12.2";
+import { getCopy, normalizeLocale, withJosa } from "./i18n.js?v=0.13.0";
 
 export { withJosa };
 
 export const PLAYER_ID = "player";
+export const INITIAL_CREW_LEVELS = Object.freeze({ mina: 2, juno: 4, noel: 3 });
+export const DIFFICULTY_MODES = Object.freeze(["normal", "hard"]);
 
 const CREW_BASE = [
   { id: "mina", icon: "📋", personality: "record" },
@@ -65,8 +67,9 @@ const CASE_ASSIGNMENTS = [
   ["contradiction", "access", "alibi"],
 ];
 
-const EVIDENCE_WEIGHTS = { record: 24, skeptic: 14, behavior: 18 };
-const CONNECTED_CLUE_BONUS = 24;
+const EVIDENCE_WEIGHTS = { record: 8, skeptic: 5, behavior: 7 };
+const CONNECTED_CLUE_BONUS = 18;
+const HARD_MODE_LEVEL_BONUS = 20;
 const CLAIM_MULTIPLIERS = {
   record: { seen: 1.15, machine: 1.1, changed: 0.7 },
   skeptic: { seen: 0.75, machine: 0.7, changed: 0.8 },
@@ -75,6 +78,18 @@ const CLAIM_MULTIPLIERS = {
 
 export function getCrewMember(id, locale = "ko") {
   return getCrew(locale).find((member) => member.id === id) ?? null;
+}
+
+export function normalizeCrewLevels(raw = {}) {
+  return Object.fromEntries(Object.entries(INITIAL_CREW_LEVELS).map(([id, initialLevel]) => [
+    id,
+    Number.isFinite(raw?.[id]) ? Math.min(50, Math.max(1, Math.floor(raw[id]))) : initialLevel,
+  ]));
+}
+
+export function getDifficultyBand(level, difficultyMode = "normal") {
+  const effectiveLevel = Math.min(50, Math.max(1, Number(level) || 1) + (difficultyMode === "hard" ? HARD_MODE_LEVEL_BONUS : 0));
+  return Math.ceil(effectiveLevel / 10);
 }
 
 export function getDisplayName(id, locale = "ko") {
@@ -113,14 +128,18 @@ function createFacts(caseIndex, locale) {
   );
 }
 
-function createBeliefs() {
+function createBeliefs(crewLevels, difficultyMode) {
   return Object.fromEntries(
     CREW.map((voter) => [
       voter.id,
       Object.fromEntries(
         [PLAYER_ID, ...CREW.map((member) => member.id)].map((candidateId) => [
           candidateId,
-          candidateId === voter.id ? -999 : candidateId === PLAYER_ID ? 18 : 10,
+          candidateId === voter.id
+            ? -999
+            : candidateId === PLAYER_ID
+              ? 25 + ((getDifficultyBand(crewLevels[voter.id], difficultyMode) - 1) * 2)
+              : 10,
         ]),
       ),
     ]),
@@ -150,6 +169,11 @@ export function createGame(options = {}) {
   const subquestId = SUBQUEST_IDS.includes(options.subquestId)
     ? options.subquestId
     : SUBQUEST_IDS[Math.floor(Math.random() * SUBQUEST_IDS.length)];
+  const crewLevels = normalizeCrewLevels(options.crewLevels);
+  const difficultyMode = DIFFICULTY_MODES.includes(options.difficultyMode) ? options.difficultyMode : "normal";
+  const roundId = typeof options.roundId === "string" && options.roundId.trim()
+    ? options.roundId.trim().slice(0, 100)
+    : null;
 
   const state = {
     phase: "intro",
@@ -157,6 +181,9 @@ export function createGame(options = {}) {
     caseIndex,
     subquestId,
     subquestCompleted: null,
+    roundId,
+    crewLevels,
+    difficultyMode,
     facts: createFacts(caseIndex, locale),
     targetId: null,
     accusedId: null,
@@ -167,7 +194,7 @@ export function createGame(options = {}) {
     challengeText: null,
     responseId: null,
     responseText: null,
-    beliefs: createBeliefs(),
+    beliefs: createBeliefs(crewLevels, difficultyMode),
     reasonLog: createReasonLog(),
     leanHistory: {
       afterEvidence: [],
@@ -311,6 +338,16 @@ function claimMultiplier(voter, claimId) {
   return CLAIM_MULTIPLIERS[voter.personality][claimId];
 }
 
+function voterDifficultyBand(state, voterId) {
+  return getDifficultyBand(state.crewLevels?.[voterId], state.difficultyMode);
+}
+
+function scaleClaimImpactForDifficulty(state, voterId, impact) {
+  const bandOffset = voterDifficultyBand(state, voterId) - 1;
+  const factor = impact >= 0 ? 1 - (bandOffset * 0.07) : 1 + (bandOffset * 0.1);
+  return Math.round(impact * factor);
+}
+
 function chooseChallenger(accusedId, impact) {
   if (impact < 0) return accusedId;
   if (accusedId !== "juno") return "juno";
@@ -362,7 +399,8 @@ export function applyLie(state, accusedId, claimId) {
       continue;
     }
 
-    const scaledImpact = Math.round(impact * claimMultiplier(voter, claimId));
+    const personalityImpact = Math.round(impact * claimMultiplier(voter, claimId));
+    const scaledImpact = scaleClaimImpactForDifficulty(next, voter.id, personalityImpact);
     if (scaledImpact >= 0) {
       adjustBelief(
         next,
@@ -435,12 +473,13 @@ export function applyResponse(state, responseId) {
 
   if (responseId === "double-down") {
     for (const voter of CREW) {
+      const bandOffset = voterDifficultyBand(state, voter.id) - 1;
       if (state.lieImpact >= 12 && voter.id !== state.accusedId) {
-        adjustBelief(next, voter.id, state.accusedId, 9, reasons.maintainedClaim, `claim:${state.claimId}`);
+        adjustBelief(next, voter.id, state.accusedId, Math.max(4, 9 - bandOffset), reasons.maintainedClaim, `claim:${state.claimId}`);
       } else if (state.lieImpact < 0) {
-        adjustBelief(next, voter.id, PLAYER_ID, 15, reasons.ignoredFact, "behavior:ignored-fact");
+        adjustBelief(next, voter.id, PLAYER_ID, 15 + (bandOffset * 2), reasons.ignoredFact, "behavior:ignored-fact");
       } else {
-        adjustBelief(next, voter.id, PLAYER_ID, 5, reasons.overconfidence, "behavior:overconfidence");
+        adjustBelief(next, voter.id, PLAYER_ID, 5 + bandOffset, reasons.overconfidence, "behavior:overconfidence");
       }
     }
     if (state.accusedId !== "juno") {
@@ -450,12 +489,14 @@ export function applyResponse(state, responseId) {
 
   if (responseId === "return-evidence") {
     for (const voter of CREW) {
+      const bandOffset = voterDifficultyBand(state, voter.id) - 1;
       if (voter.id === state.targetId) {
         adjustBelief(next, voter.id, PLAYER_ID, 9, reasons.reusedFrame, "knowledge:framed");
         continue;
       }
-      const weight = voter.personality === "record" ? 10 : voter.personality === "skeptic" ? 4 : 7;
-      adjustBelief(next, voter.id, state.targetId, weight, reasons.returnedCard, "evidence:card");
+      const baseWeight = voter.personality === "record" ? 10 : voter.personality === "skeptic" ? 4 : 7;
+      const weight = Math.max(2, baseWeight - bandOffset);
+      adjustBelief(next, voter.id, state.targetId, weight, reasons.returnedCard, "response:return-evidence");
       if (state.accusedId !== state.targetId) {
         const changePenalty = voter.personality === "behavior" ? 10 : 5;
         adjustBelief(next, voter.id, PLAYER_ID, changePenalty, reasons.changedTarget, "behavior:changed-target");
@@ -468,12 +509,13 @@ export function applyResponse(state, responseId) {
   if (responseId === "check-time") {
     const accusedFact = state.facts[state.accusedId];
     for (const voter of CREW) {
+      const bandOffset = voterDifficultyBand(state, voter.id) - 1;
       if (accusedFact.id === "contradiction") {
-        adjustBelief(next, voter.id, state.accusedId, 10, reasons.timeContradiction, "fact:contradiction");
+        adjustBelief(next, voter.id, state.accusedId, Math.max(5, 10 - bandOffset), reasons.timeContradiction, "fact:contradiction");
       } else if (accusedFact.id === "alibi") {
-        adjustBelief(next, voter.id, PLAYER_ID, 12, reasons.alibiClears, "timeline:clears-accused");
+        adjustBelief(next, voter.id, PLAYER_ID, 12 + (bandOffset * 2), reasons.alibiClears, "timeline:clears-accused");
       } else {
-        adjustBelief(next, voter.id, PLAYER_ID, 4, reasons.noTimeConflict, "timeline:no-conflict");
+        adjustBelief(next, voter.id, PLAYER_ID, 4 + bandOffset, reasons.noTimeConflict, "timeline:no-conflict");
       }
     }
   }
@@ -492,13 +534,18 @@ function candidateEvidence(state, voterId, candidateId) {
 }
 
 function rankedCandidates(state, voterId) {
+  const hasConnectedClaim = (candidateId) => {
+    const evidence = candidateEvidence(state, voterId, candidateId);
+    return evidence.some((item) => (item.clueId.startsWith("claim:") && item.clueId !== "claim:contradicted") || item.clueId === "response:return-evidence")
+      && evidence.some((item) => item.clueId.startsWith("fact:") || item.clueId.startsWith("evidence:"));
+  };
   return [PLAYER_ID, ...CREW.map((member) => member.id)]
     .filter((candidateId) => candidateId !== voterId)
     .sort((a, b) => {
       const aClues = candidateEvidence(state, voterId, a).length;
       const bClues = candidateEvidence(state, voterId, b).length;
-      const aScore = state.beliefs[voterId][a] + (aClues >= 2 ? CONNECTED_CLUE_BONUS : 0);
-      const bScore = state.beliefs[voterId][b] + (bClues >= 2 ? CONNECTED_CLUE_BONUS : 0);
+      const aScore = state.beliefs[voterId][a] + (aClues >= 2 && hasConnectedClaim(a) ? CONNECTED_CLUE_BONUS : 0);
+      const bScore = state.beliefs[voterId][b] + (bClues >= 2 && hasConnectedClaim(b) ? CONNECTED_CLUE_BONUS : 0);
       return bScore - aScore;
     });
 }

@@ -55,6 +55,24 @@ test("모델 판정값이 잘못돼도 허용된 엔진 ID로 정규화한다", 
     crew,
   );
   assert.deepEqual(explicit, { accusedId: "noel", claimId: "machine" });
+
+  const multiPerson = normalizeInterpretation(
+    "accusation",
+    { accusedId: "mina", claimId: "changed" },
+    "미나가 공구 갖고 있었고 카드도 미나 사물함에서 나옴, 노엘이 시간 헷갈림",
+    state,
+    crew,
+  );
+  assert.deepEqual(multiPerson, { accusedId: "noel", claimId: "changed" });
+
+  const semanticResponse = normalizeInterpretation(
+    "response",
+    { responseId: "double-down" },
+    "22:10 화성표준시 출입기록 원본부터 까자. 22:10 기록이 미나를 가리킴",
+    state,
+    crew,
+  );
+  assert.deepEqual(semanticResponse, { responseId: "check-time" });
 });
 
 test("서버 payload는 공개 상태와 최근 대화 12개만 포함한다", () => {
