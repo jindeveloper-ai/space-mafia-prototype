@@ -45,6 +45,7 @@ test("개발 서버는 HTML을 갱신하고 버전 에셋만 장기 캐시한다
     assert.match(documentResponse.headers.get("cache-control"), /no-store/);
     assert.equal(assetResponse.status, 200);
     assert.match(assetResponse.headers.get("cache-control"), /immutable/);
+    await Promise.all([documentResponse.arrayBuffer(), assetResponse.arrayBuffer()]);
   } finally {
     server.kill("SIGTERM");
     if (server.exitCode === null) await once(server, "exit");
