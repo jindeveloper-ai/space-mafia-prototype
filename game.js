@@ -19,15 +19,15 @@ import {
   plantEvidence,
   resolveVote,
   startGame,
-} from "./game-engine.js?v=0.18.7";
-import { getCopy, normalizeLocale } from "./i18n.js?v=0.18.7";
+} from "./game-engine.js?v=0.18.8";
+import { getCopy, normalizeLocale } from "./i18n.js?v=0.18.8";
 import {
   buildChatPayload,
   fallbackAccusation,
   fallbackResponse,
   MAX_CHAT_LENGTH,
   normalizeInterpretation,
-} from "./chat-adapter.js?v=0.18.7";
+} from "./chat-adapter.js?v=0.18.8";
 import {
   acceptPersonalQuest,
   awardCrewLevels,
@@ -42,16 +42,16 @@ import {
   setEquippedJob,
   setDifficultyMode,
   settlePersonalQuest,
-} from "./progression.js?v=0.18.7";
-import { accountController, createMutationId } from "./account-client.js?v=0.18.7";
-import { createVoiceCallController } from "./voice-call.js?v=0.18.7";
+} from "./progression.js?v=0.18.8";
+import { accountController, createMutationId } from "./account-client.js?v=0.18.8";
+import { createVoiceCallController } from "./voice-call.js?v=0.18.8";
 import {
   beginVoiceTurnFinalization,
   createVoiceTurn,
   expireVoiceTurn,
   recordVoiceTurnCandidate,
   voiceTurnSecondsLeft,
-} from "./voice-turn.js?v=0.18.7";
+} from "./voice-turn.js?v=0.18.8";
 
 const app = document.querySelector("#app");
 const assetVersion = new URL(import.meta.url).searchParams.get("v");
@@ -63,7 +63,6 @@ const injectedTestDate = ["127.0.0.1", "localhost"].includes(window.location.hos
   ? requestedTestDate
   : null;
 const currentDateKey = () => injectedTestDate ?? localDateKey();
-const VOICE_INPUT_SIGNAL_LEVEL = 0.03;
 const newRoundId = () => globalThis.crypto?.randomUUID?.()
   ?? `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 const copy = getCopy(locale);
@@ -337,7 +336,6 @@ function createRoundVoiceController() {
       const indicator = app.querySelector("[data-voice-input-indicator]");
       if (!indicator) return;
       indicator.style.setProperty("--voice-input-level", level.toFixed(3));
-      indicator.dataset.signal = level >= VOICE_INPUT_SIGNAL_LEVEL ? "active" : "idle";
       indicator.dataset.meterBackend = meter.backend ?? "unknown";
       if (meter.error) indicator.dataset.meterError = meter.error;
       else delete indicator.dataset.meterError;
@@ -1309,7 +1307,7 @@ function renderVoiceCall() {
           : voice.state === "listening"
             ? "listening"
             : "connecting";
-  const inputSignal = inputState === "speaking" || voiceInputLevel >= VOICE_INPUT_SIGNAL_LEVEL ? "active" : "idle";
+  const inputSignal = inputState === "speaking" ? "active" : "idle";
   return `
     <div class="voice-call-view" data-voice-state="${voice.state}">
       <header class="voice-call-header">

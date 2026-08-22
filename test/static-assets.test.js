@@ -108,6 +108,8 @@ test("보이스콜 모드는 Figma 통화 구조·접근성·안전한 임시 �
   assert.match(gameSource, /data-voice-turn-clock/);
   assert.match(gameSource, /data-voice-input-indicator/);
   assert.match(gameSource, /ui\.voice\.inputStatus\[inputState\]/);
+  assert.match(gameSource, /const inputSignal = inputState === "speaking" \? "active" : "idle"/);
+  assert.doesNotMatch(gameSource, /indicator\.dataset\.signal = level/);
   assert.match(voiceStyles, /\.voice-turn-timer/);
   assert.match(voiceStyles, /\.voice-input-indicator/);
   assert.match(voiceStyles, /--voice-input-level/);
