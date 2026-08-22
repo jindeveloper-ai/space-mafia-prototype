@@ -4280,7 +4280,7 @@ body {
   white-space: nowrap;
 }
 
-/* v0.18.4 — low-latency 40-second voice exchanges with adaptive silence detection. */
+/* v0.18.5 — low-latency 40-second voice exchanges with adaptive silence detection. */
 .game-room-view.is-setup {
   overflow-y: auto;
   overscroll-behavior: contain;

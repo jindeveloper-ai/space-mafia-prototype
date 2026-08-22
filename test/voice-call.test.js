@@ -373,7 +373,7 @@ test("서버 감지가 늦으면 브라우저 음량 감지가 버튼 없이 발
 
 test("주변 소음이 고정 임계값보다 커도 적응형 무음 판정이 발화를 바로 확정한다", async () => {
   let timestamp = 0;
-  let sampleLevel = 0.004;
+  let sampleLevel = 0;
   const frames = [];
   class AdaptiveVadAudioContext extends FakeAudioContext {
     createAnalyser() {
@@ -405,8 +405,10 @@ test("주변 소음이 고정 임계값보다 커도 적응형 무음 판정이 
     frames.shift()?.();
   };
 
-  runFrame(0, 0.004);
-  for (let index = 0; index < 10; index += 1) runFrame(30, 0.004);
+  runFrame(0, 0);
+  for (let index = 0; index < 8; index += 1) runFrame(30, 0);
+  for (let index = 0; index < 6; index += 1) runFrame(30, 0.004);
+  assert.equal(harness.controller.snapshot().state, "listening");
   runFrame(20, 0.03);
   runFrame(20, 0.03);
   assert.equal(harness.controller.snapshot().state, "player_speaking");

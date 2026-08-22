@@ -6,7 +6,7 @@ import {
   estimateVoiceCost,
   recordSessionEnded,
   recordSessionStarted,
-} from "./voice-call-core.js?v=0.18.4";
+} from "./voice-call-core.js?v=0.18.5";
 
 const REALTIME_CALLS_URL = "https://api.openai.com/v1/realtime/calls";
 const SPEAKER_STYLE = {
@@ -14,8 +14,8 @@ const SPEAKER_STYLE = {
   juno: "Use a calm, measured rhythm and make the reasoning easy to follow.",
   noel: "Use a natural, lightly playful rhythm with an observant edge.",
 };
-const LOCAL_VAD_START_LEVEL = 0.006;
-const LOCAL_VAD_STOP_LEVEL = 0.003;
+const LOCAL_VAD_START_LEVEL = 0.02;
+const LOCAL_VAD_STOP_LEVEL = 0.008;
 const LOCAL_VAD_START_MS = 160;
 const LOCAL_VAD_STOP_MS = 480;
 const LOCAL_VAD_CALIBRATION_MS = 280;

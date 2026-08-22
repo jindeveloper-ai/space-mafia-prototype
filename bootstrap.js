@@ -21,5 +21,5 @@ if (window.location.protocol === "file:") {
   notice.querySelector("[data-file-notice-link]").textContent = copy.link;
   notice.querySelector("[data-file-notice-link]").href = `http://127.0.0.1:4173/?lang=${language}`;
 } else {
-  void import("./game.js?v=0.18.4");
+  void import("./game.js?v=0.18.5");
 }
