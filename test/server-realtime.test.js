@@ -76,7 +76,7 @@ test("Realtime 시크릿은 동일 출처·짧은 수명·서버 전용 영구 �
     OPENAI_API_KEY: "server-only-test-key",
     OPENAI_REALTIME_API_BASE: upstream.baseUrl,
     OPENAI_REALTIME_MODEL: "gpt-realtime-2.1-mini",
-    OPENAI_TRANSCRIBE_MODEL: "gpt-transcribe",
+    OPENAI_TRANSCRIBE_MODEL: "gpt-live-transcribe",
     OPENAI_SAFETY_SALT: "test-salt",
   });
   try {

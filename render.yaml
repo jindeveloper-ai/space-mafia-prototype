@@ -15,8 +15,6 @@ services:
         value: gpt-5.6-luna
       - key: OPENAI_REALTIME_MODEL
         value: gpt-realtime-2.1-mini
-      - key: OPENAI_TRANSCRIBE_MODEL
-        value: gpt-transcribe
       - key: SUPABASE_URL
         sync: false
       - key: SUPABASE_PUBLISHABLE_KEY

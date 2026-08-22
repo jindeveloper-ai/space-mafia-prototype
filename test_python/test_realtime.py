@@ -25,6 +25,11 @@ class RealtimeConfigTests(unittest.TestCase):
             },
         )
 
+    def test_incompatible_legacy_transcription_model_falls_back_to_server_vad_model(self):
+        with patch.dict(os.environ, {"OPENAI_TRANSCRIBE_MODEL": "gpt-live-transcribe"}, clear=False):
+            session = _session_config("transcription", "ko", None)
+        self.assertEqual(session["audio"]["input"]["transcription"]["model"], "gpt-transcribe")
+
     def test_each_character_has_a_fixed_distinct_output_voice(self):
         mina = _session_config("speech", "ko", "mina")
         juno = _session_config("speech", "ko", "juno")

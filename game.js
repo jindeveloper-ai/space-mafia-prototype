@@ -19,15 +19,15 @@ import {
   plantEvidence,
   resolveVote,
   startGame,
-} from "./game-engine.js?v=0.17.4";
-import { getCopy, normalizeLocale } from "./i18n.js?v=0.17.4";
+} from "./game-engine.js?v=0.17.5";
+import { getCopy, normalizeLocale } from "./i18n.js?v=0.17.5";
 import {
   buildChatPayload,
   fallbackAccusation,
   fallbackResponse,
   MAX_CHAT_LENGTH,
   normalizeInterpretation,
-} from "./chat-adapter.js?v=0.17.4";
+} from "./chat-adapter.js?v=0.17.5";
 import {
   acceptPersonalQuest,
   awardCrewLevels,
@@ -42,9 +42,9 @@ import {
   setEquippedJob,
   setDifficultyMode,
   settlePersonalQuest,
-} from "./progression.js?v=0.17.4";
-import { accountController, createMutationId } from "./account-client.js?v=0.17.4";
-import { createVoiceCallController } from "./voice-call.js?v=0.17.4";
+} from "./progression.js?v=0.17.5";
+import { accountController, createMutationId } from "./account-client.js?v=0.17.5";
+import { createVoiceCallController } from "./voice-call.js?v=0.17.5";
 
 const app = document.querySelector("#app");
 const assetVersion = new URL(import.meta.url).searchParams.get("v");

@@ -59,7 +59,10 @@ def safety_identifier(client_ip: str) -> str:
 
 def _session_config(purpose: str, locale: str, speaker_id: str | None) -> dict:
     realtime_model = os.environ.get("OPENAI_REALTIME_MODEL", "gpt-realtime-2.1-mini")
-    transcription_model = os.environ.get("OPENAI_TRANSCRIBE_MODEL", "gpt-transcribe")
+    # Automatic hands-free turns require a transcription model that accepts
+    # server_vad. Do not let a stale deployment variable restore the previous
+    # incompatible model.
+    transcription_model = "gpt-transcribe"
     if purpose == "transcription":
         language = "ko" if locale == "ko" else "en"
         return {
@@ -142,5 +145,5 @@ def create_client_secret(purpose: str, locale: str, speaker_id: str | None, clie
         "expiresAt": value.get("expires_at"),
         "purpose": purpose,
         "speakerId": speaker_id,
-        "model": session.get("model", os.environ.get("OPENAI_TRANSCRIBE_MODEL", "gpt-transcribe")),
+        "model": session.get("model", "gpt-transcribe"),
     }
