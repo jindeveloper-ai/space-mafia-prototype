@@ -61,6 +61,8 @@ class RealtimeConfigTests(unittest.TestCase):
         self.assertIn("natural Korean banmal", session["instructions"])
         self.assertIn("RELATIONSHIP_DAYS=4", session["instructions"])
         self.assertIn("familiar phone friends", session["instructions"])
+        self.assertIn("caller is on Earth", session["instructions"])
+        self.assertIn("Never call them a Mars resident", session["instructions"])
         self.assertIn("어제 경기 기억나?", session["instructions"])
         self.assertNotIn("api_key", session)
 

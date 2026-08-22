@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { createFriendCallController } from "../friend-call.js";
+import { createFriendCallController, friendCallOpeningLine } from "../friend-call.js";
 
 class FakeTarget {
   constructor() { this.listeners = new Map(); }
@@ -90,6 +90,8 @@ test("개인 보이스톡은 한 Realtime 세션에서 전화 인사와 연속 �
   const channel = FakePeerConnection.instances[0].channel;
   assert.equal(channel.sent[0].type, "response.create");
   assert.match(channel.sent[0].response.instructions, /여보세요\?/);
+  assert.match(channel.sent[0].response.instructions, /Earth-based player/);
+  assert.doesNotMatch(channel.sent[0].response.instructions, /add one brief/);
 
   channel.emit("message", { data: JSON.stringify({ type: "input_audio_buffer.speech_started" }) });
   assert.equal(harness.controller.snapshot().phase, "player_speaking");
@@ -100,6 +102,14 @@ test("개인 보이스톡은 한 Realtime 세션에서 전화 인사와 연속 �
 
   assert.equal(harness.controller.sendText("어제 판 얘기해줘"), true);
   assert.deepEqual(channel.sent.slice(-2).map((item) => item.type), ["conversation.item.create", "response.create"]);
+});
+
+test("첫 인사는 캐릭터·통화일수별 반말로 고정되고 지구 친구의 역할을 뒤집지 않는다", () => {
+  assert.equal(friendCallOpeningLine("mina", "ko", 0), "여보세요? 어... 받았어. 전화는 처음이라 좀 어색하네ㅋㅋ");
+  assert.match(friendCallOpeningLine("juno", "ko", 4), /^여보세요\? 오, 타이밍 괜찮네\./);
+  assert.match(friendCallOpeningLine("noel", "ko", 9), /왜 이제 걸었냐/);
+  assert.doesNotMatch(friendCallOpeningLine("mina", "ko", 9), /요[.?!]?$/);
+  assert.match(friendCallOpeningLine("mina", "en", 0), /^Hello\?/);
 });
 
 test("통화 시간은 연결 뒤에만 차감되고 종료·음소거가 안전하게 정리된다", async () => {

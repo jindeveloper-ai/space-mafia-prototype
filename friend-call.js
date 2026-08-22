@@ -1,7 +1,62 @@
-import { createCallAudioEffectsController } from "./call-audio-effects.js?v=0.20.2";
+import { createCallAudioEffectsController } from "./call-audio-effects.js?v=0.20.3";
 
 const REALTIME_CALLS_URL = "https://api.openai.com/v1/realtime/calls";
 const ANSWER_DELAY_MS = Object.freeze({ mina: 1_800, juno: 2_700, noel: 2_200 });
+const OPENING_LINES = Object.freeze({
+  ko: Object.freeze({
+    mina: Object.freeze([
+      "여보세요? 어... 받았어. 전화는 처음이라 좀 어색하네ㅋㅋ",
+      "여보세요? 어, 또 전화했네ㅋㅋ 뭐 하고 있었음?",
+      "여보세요? 야, 타이밍 좋네ㅋㅋ 뭐 하다 걸었어?",
+      "여보세요? 야 드디어 왔네ㅋㅋ 오늘은 뭔 얘기부터 할 건데?",
+    ]),
+    juno: Object.freeze([
+      "여보세요? 어... 연결됐네. 전화는 처음이라 살짝 어색하긴 하다.",
+      "여보세요? 어, 또 걸었네. 무슨 얘기부터 할까?",
+      "여보세요? 오, 타이밍 괜찮네. 오늘은 뭐부터 얘기할래?",
+      "여보세요? 왔네. 오늘도 할 말 생겨서 건 거지?",
+    ]),
+    noel: Object.freeze([
+      "여보세요? 오... 진짜 전화했네ㅋㅋ 처음이라 좀 신기하다.",
+      "여보세요? 오, 또 왔네ㅋㅋ 뭐 하다 걸었어?",
+      "여보세요? 야 딱 심심했는데ㅋㅋ 오늘 무슨 일 있었어?",
+      "여보세요? 야 왜 이제 걸었냐ㅋㅋ 오늘 얘깃거리 뭐임?",
+    ]),
+  }),
+  en: Object.freeze({
+    mina: Object.freeze([
+      "Hello? Oh... you actually called. First voice call, so this is kinda awkward, lol.",
+      "Hello? Hey, calling again? What were you up to?",
+      "Hello? Nice timing. What were you doing before this?",
+      "Hello? Finally, you're here. What are we talking about first?",
+    ]),
+    juno: Object.freeze([
+      "Hello? Okay... we're connected. First call, so this feels a little weird.",
+      "Hello? You called again. Where do you want to start?",
+      "Hello? Good timing. What do you want to unpack today?",
+      "Hello? There you are. You called because something happened, right?",
+    ]),
+    noel: Object.freeze([
+      "Hello? Oh... you really called, lol. First time, so this is kinda funny.",
+      "Hello? Hey, you're back. What were you doing?",
+      "Hello? Perfect timing, I was getting bored. What happened today?",
+      "Hello? Took you long enough, lol. What's today's story?",
+    ]),
+  }),
+});
+
+function openingTier(relationshipDays) {
+  if (relationshipDays <= 0) return 0;
+  if (relationshipDays <= 2) return 1;
+  if (relationshipDays <= 6) return 2;
+  return 3;
+}
+
+export function friendCallOpeningLine(characterId, locale = "ko", relationshipDays = 0) {
+  const safeLocale = locale === "en" ? "en" : "ko";
+  const safeCharacterId = ["mina", "juno", "noel"].includes(characterId) ? characterId : "mina";
+  return OPENING_LINES[safeLocale][safeCharacterId][openingTier(Number(relationshipDays) || 0)];
+}
 
 function addListener(target, type, handler, options) {
   target?.addEventListener?.(type, handler, options);
@@ -41,6 +96,7 @@ export function createFriendCallController(options = {}) {
   const setRepeating = options.setRepeating ?? globalThis.setInterval.bind(globalThis);
   const clearRepeating = options.clearRepeating ?? globalThis.clearInterval.bind(globalThis);
   const now = options.now ?? Date.now;
+  const relationshipDays = Math.max(0, Math.min(30, Number(options.relationshipDays) || 0));
   const audioEffects = options.audioEffectsController ?? createCallAudioEffectsController({
     AudioContextClass,
     enabled: options.callEffectsEnabled,
@@ -289,12 +345,12 @@ export function createFriendCallController(options = {}) {
       audioEffects.setActive(true);
       setPhase("answered");
       startQuotaClock();
-      const exactHello = locale === "ko" ? "여보세요?" : "Hello?";
+      const openingLine = friendCallOpeningLine(characterId, locale, relationshipDays);
       sendEvent(connection.channel, {
         type: "response.create",
         response: {
           output_modalities: ["audio"],
-          instructions: `The call just connected. Start with exactly '${exactHello}', add one brief persona-fitting reaction, then wait for your Earth friend.`,
+          instructions: `Read exactly this line once, add nothing, then wait for the Earth-based player: ${JSON.stringify(openingLine)}`,
         },
       });
       return true;

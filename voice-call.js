@@ -6,8 +6,8 @@ import {
   estimateVoiceCost,
   recordSessionEnded,
   recordSessionStarted,
-} from "./voice-call-core.js?v=0.20.2";
-import { createCallAudioEffectsController } from "./call-audio-effects.js?v=0.20.2";
+} from "./voice-call-core.js?v=0.20.3";
+import { createCallAudioEffectsController } from "./call-audio-effects.js?v=0.20.3";
 
 const REALTIME_CALLS_URL = "https://api.openai.com/v1/realtime/calls";
 const SPEAKER_STYLE = {
