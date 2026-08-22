@@ -264,17 +264,16 @@ test("Luna 구조화 판정 뒤 세 캐릭터의 이어지는 토론을 한 번�
       const parsed = JSON.parse(body);
       requests.push(parsed);
       const schemaName = parsed.text.format.name;
-      const output = schemaName === "mafia_accusation"
-        ? { accusedId: "noel", claimId: "machine" }
-        : schemaName === "mafia_group_replies"
-          ? {
-              replies: ["mina", "juno", "noel"].map((speakerId) => ({
-                speakerId,
-                message: `${speakerId} connected reply`,
-                intent: "observe",
-                suspectId: "noel",
-              })),
-            }
+      const output = schemaName === "mafia_game_turn"
+        ? {
+            interpretation: { accusedId: "noel", claimId: "machine" },
+            replies: ["mina", "juno", "noel"].map((speakerId) => ({
+              speakerId,
+              message: `${speakerId} connected reply`,
+              intent: "observe",
+              suspectId: "noel",
+            })),
+          }
         : {
             message: `${schemaName} reply`,
             intent: "observe",
@@ -306,12 +305,12 @@ test("Luna 구조화 판정 뒤 세 캐릭터의 이어지는 토론을 한 번�
     assert.equal(result.mode, "live");
     assert.deepEqual(result.interpretation, { accusedId: "noel", claimId: "machine" });
     assert.deepEqual(result.replies.map((reply) => reply.speakerId).sort(), ["juno", "mina", "noel"]);
-    assert.equal(requests.length, 2);
+    assert.equal(requests.length, 1);
     assert.ok(requests.every((item) => item.model === "gpt-5.6-luna" && item.store === false));
     assert.ok(requests.every((item) => item.text.format.type === "json_schema"));
     assert.deepEqual(
       requests.map((item) => item.text.format.name).sort(),
-      ["mafia_accusation", "mafia_group_replies"],
+      ["mafia_game_turn"],
     );
   } finally {
     await stopProcess(server);
@@ -336,15 +335,23 @@ test("음성 자유발화는 구조화된 ID와 신뢰도를 반환하고 낮은
           content: [{
             type: "output_text",
             text: JSON.stringify({
-              accusedId: "noel",
-              claimId: "changed",
-              mentionedFactId: "contradiction",
-              certainty: "medium",
-              deflection: false,
-              recordCheck: false,
-              confidence: 0.41,
-              targetExplicit: true,
-              claimExplicit: false,
+              interpretation: {
+                accusedId: "noel",
+                claimId: "changed",
+                mentionedFactId: "contradiction",
+                certainty: "medium",
+                deflection: false,
+                recordCheck: false,
+                confidence: 0.41,
+                targetExplicit: true,
+                claimExplicit: false,
+              },
+              replies: ["mina", "juno", "noel"].map((speakerId) => ({
+                speakerId,
+                message: `${speakerId} reply`,
+                intent: "observe",
+                suspectId: "noel",
+              })),
             }),
           }],
         }],
@@ -378,7 +385,7 @@ test("음성 자유발화는 구조화된 ID와 신뢰도를 반환하고 낮은
     assert.equal(result.interpretation.accusedId, "noel");
     assert.equal(result.interpretation.mentionedFactId, "contradiction");
     assert.equal(requests.length, 1, "되묻기는 캐릭터 답변 API 세 건을 추가하지 않습니다.");
-    const schema = requests[0].text.format.schema;
+    const schema = requests[0].text.format.schema.properties.interpretation;
     assert.ok(["mentionedFactId", "certainty", "deflection", "recordCheck", "confidence", "targetExplicit", "claimExplicit"]
       .every((field) => schema.required.includes(field)));
 
@@ -397,7 +404,7 @@ test("음성 자유발화는 구조화된 ID와 신뢰도를 반환하고 낮은
   }
 });
 
-test("일반 한 판은 4회, 하드 긴 회의는 최대 7회만 모델을 호출한다", async () => {
+test("일반 한 판은 2회, 하드 긴 회의는 최대 4회만 모델을 호출한다", async () => {
   const requests = [];
   const upstream = http.createServer((request, response) => {
     let body = "";
@@ -407,21 +414,24 @@ test("일반 한 판은 4회, 하드 긴 회의는 최대 7회만 모델을 호�
       const parsed = JSON.parse(body);
       requests.push(parsed.text.format.name);
       const schemaName = parsed.text.format.name;
-      const output = schemaName === "mafia_accusation"
+      const interpretationProperties = parsed.text.format.schema.properties.interpretation?.properties ?? {};
+      const combinedInterpretation = "accusedId" in interpretationProperties
         ? { accusedId: "noel", claimId: "machine" }
-        : schemaName === "mafia_response"
-          ? { responseId: "check-time" }
-          : schemaName === "mafia_hard_defense"
-            ? { targetId: "noel", claimId: "machine", responseId: "check-time" }
-            : schemaName === "mafia_group_replies"
-              ? {
-                  replies: ["mina", "juno", "noel"].map((speakerId) => ({
-                    speakerId,
-                    message: `${speakerId} connected reply`,
-                    intent: "observe",
-                    suspectId: "noel",
-                  })),
-                }
+        : "targetId" in interpretationProperties
+          ? { targetId: "noel", claimId: "machine", responseId: "check-time" }
+          : { responseId: "check-time" };
+      const output = schemaName === "mafia_game_turn"
+        ? {
+            interpretation: combinedInterpretation,
+            replies: ["mina", "juno", "noel"].map((speakerId) => ({
+              speakerId,
+              message: `${speakerId} connected reply`,
+              intent: "observe",
+              suspectId: "noel",
+            })),
+          }
+        : schemaName === "mafia_hard_defense"
+          ? { targetId: "noel", claimId: "machine", responseId: "check-time" }
             : { message: `${schemaName} reply`, intent: "observe", suspectId: "noel" };
       response.writeHead(200, { "Content-Type": "application/json" });
       response.end(JSON.stringify({
@@ -445,7 +455,7 @@ test("일반 한 판은 4회, 하드 긴 회의는 최대 7회만 모델을 호�
   try {
     await post(chatPayload("accusation"));
     await post(chatPayload("response"));
-    assert.equal(requests.length, 4);
+    assert.equal(requests.length, 2);
 
     requests.length = 0;
     const hardAccusation = chatPayload("accusation");
@@ -455,11 +465,11 @@ test("일반 한 판은 4회, 하드 긴 회의는 최대 7회만 모델을 호�
     await post(chatPayload("hard-response"));
     const finalResponse = await post(chatPayload("hard-final"));
     const finalData = await finalResponse.json();
-    assert.equal(requests.length, 7);
+    assert.equal(requests.length, 4);
     assert.deepEqual(finalData.replies, []);
     assert.deepEqual(
       requests.filter((name) => name === "mafia_hard_defense").length,
-      3,
+      1,
     );
   } finally {
     await stopProcess(server);
