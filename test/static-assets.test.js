@@ -227,6 +227,10 @@ test("캐릭터 프로필은 익명 게시글·흑역사와 세션 댓글을 연
   assert.match(gameSource, /openArchiveView = "profile"/);
   assert.match(gameSource, /data-action="view-character-posts"/);
   assert.match(gameSource, /data-action="back-character-profile"/);
+  assert.match(gameSource, /data-action="profile-message-character"/);
+  assert.match(gameSource, /data-action="profile-call-character"/);
+  assert.match(gameSource, /openFriendChat\(button\.dataset\.id\)/);
+  assert.match(gameSource, /return void beginFriendCall\(\)/);
   assert.match(gameSource, /function closeCharacterArchive/);
   assert.match(gameSource, /document\.getElementById\(returnFocusId\)\?\.focus/);
   assert.match(gameSource, /class="home-history-row /);
@@ -246,6 +250,9 @@ test("캐릭터 프로필은 익명 게시글·흑역사와 세션 댓글을 연
   assert.match(gameSource, /genericReplies/);
   assert.match(styles, /\.character-archive/);
   assert.match(styles, /\.character-profile__summary/);
+  assert.match(styles, /\.character-profile__actions/);
+  assert.equal(typeof ko.ui.characterArchive.messageAria, "function");
+  assert.equal(typeof en.ui.characterArchive.callAria, "function");
   assert.match(styles, /\.archive-comment\.is-author/);
   assert.match(indexHtml, /id="file-protocol-notice"/);
   assert.match(indexHtml, /scripts\/serve/);

@@ -19,15 +19,15 @@ import {
   plantEvidence,
   resolveVote,
   startGame,
-} from "./game-engine.js?v=0.19.0";
-import { getCopy, normalizeLocale } from "./i18n.js?v=0.19.0";
+} from "./game-engine.js?v=0.19.1";
+import { getCopy, normalizeLocale } from "./i18n.js?v=0.19.1";
 import {
   buildChatPayload,
   fallbackAccusation,
   fallbackResponse,
   MAX_CHAT_LENGTH,
   normalizeInterpretation,
-} from "./chat-adapter.js?v=0.19.0";
+} from "./chat-adapter.js?v=0.19.1";
 import {
   acceptPersonalQuest,
   awardCrewLevels,
@@ -44,17 +44,17 @@ import {
   setEquippedJob,
   setDifficultyMode,
   settlePersonalQuest,
-} from "./progression.js?v=0.19.0";
-import { accountController, createMutationId } from "./account-client.js?v=0.19.0";
-import { createVoiceCallController } from "./voice-call.js?v=0.19.0";
-import { createFriendCallController } from "./friend-call.js?v=0.19.0";
+} from "./progression.js?v=0.19.1";
+import { accountController, createMutationId } from "./account-client.js?v=0.19.1";
+import { createVoiceCallController } from "./voice-call.js?v=0.19.1";
+import { createFriendCallController } from "./friend-call.js?v=0.19.1";
 import {
   beginVoiceTurnFinalization,
   createVoiceTurn,
   expireVoiceTurn,
   recordVoiceTurnCandidate,
   voiceTurnSecondsLeft,
-} from "./voice-turn.js?v=0.19.0";
+} from "./voice-turn.js?v=0.19.1";
 
 const app = document.querySelector("#app");
 const assetVersion = new URL(import.meta.url).searchParams.get("v");
@@ -887,6 +887,16 @@ function renderCharacterArchive() {
               <div><dt>${ui.characterArchive.boardLabel}</dt><dd>${escapeHtml(board)}</dd></div>
               <div><dt>${ui.characterArchive.traitsLabel}</dt><dd>${escapeHtml(traits)}</dd></div>
             </dl>
+            <div class="character-profile__actions" aria-label="${escapeHtml(ui.characterArchive.contactActions)}">
+              <button class="character-profile__action" type="button" data-action="profile-message-character" data-id="${person.id}" aria-label="${escapeHtml(ui.characterArchive.messageAria(person.name))}">
+                <svg aria-hidden="true" viewBox="0 0 24 24" fill="none"><path d="M5 6.5h14v9H9l-4 3v-12Z" /></svg>
+                <span>${ui.characterArchive.message}</span>
+              </button>
+              <button class="character-profile__action" type="button" data-action="profile-call-character" data-id="${person.id}" aria-label="${escapeHtml(ui.characterArchive.callAria(person.name))}">
+                <svg aria-hidden="true" viewBox="0 0 24 24" fill="none"><path d="M7.2 4.5 10 8l-1.8 2.1a15.4 15.4 0 0 0 5.7 5.7L16 14l3.5 2.8-1.2 2.7c-.3.7-1 1.1-1.8 1-6.7-.8-12.2-6.3-13-13-.1-.8.3-1.5 1-1.8l2.7-1.2Z" /></svg>
+                <span>${ui.characterArchive.call}</span>
+              </button>
+            </div>
             <button class="character-profile__posts-button" type="button" data-action="view-character-posts">${ui.characterArchive.viewPosts(posts.length)}</button>
           </div>
         ` : `
@@ -2855,6 +2865,19 @@ app.addEventListener("click", (event) => {
     render();
     app.querySelector('[data-action="view-character-posts"]')?.focus();
     return;
+  }
+  if (action === "profile-message-character") {
+    openArchiveCharacterId = null;
+    openArchiveView = "profile";
+    archiveReturnFocusId = null;
+    openFriendChat(button.dataset.id);
+  }
+  if (action === "profile-call-character") {
+    openArchiveCharacterId = null;
+    openArchiveView = "profile";
+    archiveReturnFocusId = null;
+    selectedFriendId = button.dataset.id;
+    return void beginFriendCall();
   }
   if (action === "insert-friend-emoji") {
     const input = app.querySelector("#player-message");
