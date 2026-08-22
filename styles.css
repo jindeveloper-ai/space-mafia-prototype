@@ -4280,7 +4280,7 @@ body {
   white-space: nowrap;
 }
 
-/* v0.17.1 — fixed 390px frame, long-chat usability, and voice-call mode. */
+/* v0.17.2 — fixed 390px frame, long-chat usability, voice-call mode, and public authentication policies. */
 .game-room-view.is-setup {
   overflow-y: auto;
   overscroll-behavior: contain;

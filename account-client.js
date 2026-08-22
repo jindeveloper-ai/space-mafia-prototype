@@ -11,8 +11,8 @@ import {
   PROGRESSION_STORAGE_KEY,
   sanitizeChats,
   sanitizeMatches,
-} from "./account-core.js?v=0.17.1";
-import { createProgression } from "./progression.js?v=0.17.1";
+} from "./account-core.js?v=0.17.2";
+import { createProgression } from "./progression.js?v=0.17.2";
 
 const AUTH_SESSION_KEY = "mars-net-auth-session-v1";
 const AUTH_TRANSACTION_KEY = "mars-net-auth-transaction-v1";
@@ -42,6 +42,8 @@ const COPY = {
     authLead: "로그인해서 기록을 이어가거나, 게스트로 바로 시작하세요.",
     authLoading: "계정 연결 상태를 확인하는 중…",
     guestNote: "가입 없이 바로 시작할 수 있어요. 진행 기록은 이 기기에 저장됩니다.",
+    privacyPolicy: "개인정보처리방침",
+    termsOfService: "이용약관",
     emailLoginTitle: "이메일로 로그인",
     emailSignupTitle: "MARS.NET 계정 만들기",
     emailResetTitle: "비밀번호 재설정",
@@ -103,6 +105,8 @@ const COPY = {
     authLead: "Sign in to continue your record, or jump in as a guest.",
     authLoading: "Checking your account…",
     guestNote: "No account needed. Your progress will stay on this device.",
+    privacyPolicy: "Privacy",
+    termsOfService: "Terms",
     emailLoginTitle: "Sign in with email",
     emailSignupTitle: "Create a MARS.NET account",
     emailResetTitle: "Reset your password",
@@ -982,6 +986,11 @@ class AccountController extends EventTarget {
             <span class="auth-divider" aria-hidden="true"></span>
             <button class="auth-primary" type="button" data-auth-action="guest" ${this.pending ? "disabled" : ""}>${text.guestAction}</button>
             <small>${text.guestNote}</small>
+            <nav class="auth-legal" aria-label="${text.privacyPolicy} · ${text.termsOfService}">
+              <a href="./privacy.html" target="_blank" rel="noopener">${text.privacyPolicy}</a>
+              <span aria-hidden="true">·</span>
+              <a href="./terms.html" target="_blank" rel="noopener">${text.termsOfService}</a>
+            </nav>
           </div>
           ${!controller.auth.config.enabled ? `<p class="account-unavailable">${text.unavailable}</p>` : ""}
         ` : this.emailForm(view);

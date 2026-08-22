@@ -7,7 +7,7 @@ import {
   estimateVoiceCost,
   recordSessionEnded,
   recordSessionStarted,
-} from "./voice-call-core.js?v=0.17.1";
+} from "./voice-call-core.js?v=0.17.2";
 
 const REALTIME_CALLS_URL = "https://api.openai.com/v1/realtime/calls";
 const SPEAKER_STYLE = {

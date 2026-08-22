@@ -493,3 +493,21 @@ test("라이트·다크 핵심 색상 역할쌍은 작은 글자 기준 대비�
     }
   }
 });
+
+test("로그인 화면에서 공개 개인정보처리방침과 이용약관으로 이동할 수 있다", async () => {
+  const [accountSource, privacyHtml, termsHtml] = await Promise.all([
+    readProjectFile("account-client.js"),
+    readProjectFile("privacy.html"),
+    readProjectFile("terms.html"),
+  ]);
+
+  assert.match(accountSource, /href="\.\/privacy\.html"/);
+  assert.match(accountSource, /href="\.\/terms\.html"/);
+  assert.match(accountSource, /rel="noopener"/);
+  assert.match(privacyHtml, /<h1>개인정보처리방침<\/h1>/);
+  assert.match(privacyHtml, /<h1>Privacy Policy<\/h1>/);
+  assert.match(privacyHtml, /su\.jin\.lee\.developer@gmail\.com/);
+  assert.match(termsHtml, /<h1>이용약관<\/h1>/);
+  assert.match(termsHtml, /<h1>Terms of Service<\/h1>/);
+  assert.match(termsHtml, /su\.jin\.lee\.developer@gmail\.com/);
+});

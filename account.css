@@ -170,6 +170,28 @@ mars-auth-gate {
   text-align: center;
 }
 
+.auth-legal {
+  align-items: center;
+  color: rgb(255 255 255 / 38%);
+  display: flex;
+  font-size: 0.7rem;
+  gap: 8px;
+  justify-content: center;
+}
+
+.auth-legal a {
+  color: rgb(255 255 255 / 58%);
+  min-height: 32px;
+  padding: 7px 2px;
+  text-decoration: none;
+}
+
+.auth-legal a:hover,
+.auth-legal a:focus-visible {
+  color: #c9b7ff;
+  text-decoration: underline;
+}
+
 .auth-back {
   background: #292929;
   border: 0;
