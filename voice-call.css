@@ -261,6 +261,24 @@ body[data-play-mode="voice"]:is(
   transition: opacity 320ms ease, transform 320ms cubic-bezier(.2, .8, .2, 1);
 }
 
+.voice-active-avatar.is-speaker-switching {
+  animation: voice-speaker-handoff 420ms cubic-bezier(.2, .8, .2, 1) both;
+}
+
+.voice-secondary-avatar.is-returning {
+  animation: voice-speaker-return 360ms cubic-bezier(.2, .8, .2, 1) both;
+}
+
+@keyframes voice-speaker-handoff {
+  from { opacity: 0.35; transform: translateY(14px) scale(0.88); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes voice-speaker-return {
+  from { opacity: 1; transform: translateY(18px) scale(1.2); }
+  to { opacity: 0.46; transform: translateY(0) scale(0.9); }
+}
+
 .voice-active-avatar .avatar {
   width: clamp(188px, 55vw, 220px);
   height: clamp(188px, 55vw, 220px);
@@ -274,7 +292,7 @@ body[data-play-mode="voice"]:is(
   object-fit: cover;
 }
 
-.voice-active-avatar[data-emotion="heated"] {
+.voice-active-avatar[data-emotion="heated"] .avatar {
   animation: voice-heated-pulse 620ms ease-in-out infinite alternate;
 }
 

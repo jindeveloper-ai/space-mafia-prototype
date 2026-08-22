@@ -434,32 +434,48 @@ test("미나·주노·노엘은 실제 오디오 이벤트에 맞춰 한 명씩 
   assert.equal(FakePeerConnection.instances.every((peer) => peer.closed), true);
 });
 
-test("격한 토론은 세 AI 음성을 시차를 두고 겹쳐 재생한다", { concurrency: false }, async () => {
+test("response.done 뒤에도 실제 오디오 종료 전에는 긴 대사를 끊지 않는다", { concurrency: false }, async () => {
   const harness = createHarness();
   await harness.controller.connect();
-  const grouped = harness.controller.speakGroup([
-    { speakerId: "mina", text: "그 기록부터 다시 봐", emotion: "heated" },
-    { speakerId: "juno", text: "반례가 아직 남아 있음", emotion: "skeptical" },
-    { speakerId: "noel", text: "둘 다 방금 말 달라졌는데", emotion: "amused" },
-  ], { staggerMs: 0 });
-  await new Promise((resolve) => setTimeout(resolve, 5));
-  await waitFor(() => FakePeerConnection.instances.length === 4, "overlapping output sessions");
-  const outputPeers = FakePeerConnection.instances.slice(1);
+  let settled = false;
+  const speech = harness.controller.speak("mina", "3초보다 긴 대사도 끝까지 재생되어야 합니다.");
+  speech.finally(() => { settled = true; });
+  await waitFor(() => FakePeerConnection.instances.length === 2, "Mina output session");
+  const outputPeer = FakePeerConnection.instances[1];
   await waitFor(
-    () => outputPeers.every((peer) => peer.channel.sent.some((event) => event.type === "response.create")),
-    "overlapping response requests",
+    () => outputPeer.channel.sent.some((event) => event.type === "response.create"),
+    "Mina response request",
   );
-  outputPeers.forEach((peer, index) => {
-    peer.ontrack({ streams: [{ id: `overlap-${index}` }] });
+  outputPeer.ontrack({ streams: [{ id: "long-line-stream" }] });
+  emitRealtime(outputPeer, { type: "output_audio_buffer.started" });
+  emitRealtime(outputPeer, { type: "response.done", response: { status: "completed" } });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(settled, false);
+  emitRealtime(outputPeer, { type: "output_audio_buffer.stopped" });
+  assert.deepEqual(await speech, { completed: true, reason: "completed", transcript: "" });
+  harness.controller.end();
+});
+
+test("AI 답변은 겹치지 않고 앞 화자가 끝난 뒤 다음 화자로 넘어간다", { concurrency: false }, async () => {
+  const harness = createHarness();
+  await harness.controller.connect();
+  const speeches = [
+    harness.controller.speak("mina", "그 기록부터 다시 봐", { emotion: "heated" }),
+    harness.controller.speak("juno", "반례가 아직 남아 있음", { emotion: "skeptical" }),
+    harness.controller.speak("noel", "둘 다 방금 말 달라졌는데", { emotion: "amused" }),
+  ];
+  for (const [index, speakerId] of ["mina", "juno", "noel"].entries()) {
+    await waitFor(() => FakePeerConnection.instances.length === index + 2, `${speakerId} output session`);
+    assert.equal(FakePeerConnection.instances.length, index + 2);
+    const peer = FakePeerConnection.instances[index + 1];
+    peer.ontrack({ streams: [{ id: `${speakerId}-sequential` }] });
     emitRealtime(peer, { type: "output_audio_buffer.started" });
-  });
-  assert.deepEqual(harness.controller.snapshot().activeSpeakerIds.sort(), ["juno", "mina", "noel"]);
-  assert.equal(harness.controller.snapshot().activeEmotion, "amused");
-  outputPeers.forEach((peer) => emitRealtime(peer, { type: "output_audio_buffer.stopped" }));
-  assert.equal((await grouped).every((result) => result.completed), true);
-  assert.equal(harness.controller.snapshot().state, "listening");
+    assert.deepEqual(harness.controller.snapshot().activeSpeakerIds, [speakerId]);
+    emitRealtime(peer, { type: "output_audio_buffer.stopped" });
+    assert.equal((await speeches[index]).completed, true);
+  }
   const final = harness.controller.end();
-  assert.equal(final.metrics.maxConcurrentSessions, 4);
+  assert.equal(final.metrics.maxConcurrentSessions, 2);
 });
 
 test("플레이어가 끼어들면 현재 AI 음성이 즉시 중단되고 뒤 발화도 취소된다", { concurrency: false }, async () => {

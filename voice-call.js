@@ -6,7 +6,7 @@ import {
   estimateVoiceCost,
   recordSessionEnded,
   recordSessionStarted,
-} from "./voice-call-core.js?v=0.17.9";
+} from "./voice-call-core.js?v=0.17.10";
 
 const REALTIME_CALLS_URL = "https://api.openai.com/v1/realtime/calls";
 const SPEAKER_STYLE = {
@@ -14,8 +14,8 @@ const SPEAKER_STYLE = {
   juno: "Use a calm, measured rhythm and make the reasoning easy to follow.",
   noel: "Use a natural, lightly playful rhythm with an observant edge.",
 };
-const LOCAL_VAD_START_LEVEL = 0.035;
-const LOCAL_VAD_STOP_LEVEL = 0.018;
+const LOCAL_VAD_START_LEVEL = 0.016;
+const LOCAL_VAD_STOP_LEVEL = 0.009;
 const LOCAL_VAD_START_MS = 180;
 const LOCAL_VAD_STOP_MS = 720;
 const RECOVERABLE_TRANSCRIPTION_ERRORS = new Set([
@@ -414,10 +414,9 @@ export function createVoiceCallController(options = {}) {
             const completed = event.response?.status === "completed";
             if (!completed) finishOutput(output, false, event.response?.status ?? "failed");
             else if (!output.started) finishOutput(output, true);
-            else {
-              if (output.finishTimer) clearTimer?.(output.finishTimer);
-              output.finishTimer = setTimer?.(() => finishOutput(output, true), 3_000);
-            }
+            // Generation completing does not mean remote playback completed.
+            // Wait for the buffer/audio completion signal instead of cutting
+            // long lines after an arbitrary three-second grace period.
           }
           if (event.type === "output_audio_buffer.stopped") finishOutput(output, true);
           if (event.type === "error") finishOutput(output, false, "voice_output_failed");
@@ -435,6 +434,7 @@ export function createVoiceCallController(options = {}) {
       output.resolve = resolveOutput;
       activeOutputs.set(output.id, output);
       addListener(connection.audio, "playing", () => beginPlayback(remoteStream));
+      addListener(connection.audio, "ended", () => finishOutput(output, true));
       addListener(connection.audio, "error", () => finishOutput(output, false, "audio_playback_failed"));
       const instruction = [
         SPEAKER_STYLE[item.speakerId],
@@ -671,25 +671,6 @@ export function createVoiceCallController(options = {}) {
     return speakerQueue.enqueue({ speakerId, text: String(text).trim(), emotion: options.emotion ?? "neutral" });
   }
 
-  async function speakGroup(items, { staggerMs = 1_050 } = {}) {
-    const epoch = outputEpoch;
-    const jobs = [];
-    for (const [index, item] of items.entries()) {
-      if (index > 0) await new Promise((resolve) => setTimer?.(resolve, staggerMs));
-      if (disposed || epoch !== outputEpoch) break;
-      jobs.push(playSpeech({
-        speakerId: item.speakerId,
-        text: String(item.text ?? "").trim(),
-        emotion: item.emotion ?? "neutral",
-      }, epoch));
-    }
-    const results = await Promise.all(jobs);
-    if (!disposed && transcriptionConnection && !activeOutputs.size && stateMachine.state !== "player_speaking") {
-      stateMachine.transition("listening");
-    }
-    return results;
-  }
-
   function end({ fallback = false } = {}) {
     if (disposed) return snapshot();
     disposed = true;
@@ -717,7 +698,6 @@ export function createVoiceCallController(options = {}) {
     connect,
     reconnect,
     speak,
-    speakGroup,
     interruptSpeech,
     toggleTalking,
     setMuted,

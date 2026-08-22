@@ -59,10 +59,9 @@ def safety_identifier(client_ip: str) -> str:
 
 def _session_config(purpose: str, locale: str, speaker_id: str | None) -> dict:
     realtime_model = os.environ.get("OPENAI_REALTIME_MODEL", "gpt-realtime-2.1-mini")
-    # Automatic hands-free turns require a transcription model that accepts
-    # server_vad. Do not let a stale deployment variable restore the previous
-    # incompatible model.
-    transcription_model = "gpt-transcribe"
+    # Browser microphone transcription runs over WebRTC. Keep this on the live
+    # model even if a stale deployment variable names the committed-turn model.
+    transcription_model = "gpt-live-transcribe"
     if purpose == "transcription":
         language = "ko" if locale == "ko" else "en"
         return {
@@ -74,19 +73,12 @@ def _session_config(purpose: str, locale: str, speaker_id: str | None) -> dict:
                         "prompt": "A four-player social deduction game in the Mars settlement MARS.NET.",
                         "keywords": list(TRANSCRIPTION_KEYWORDS),
                         "languages": [language],
+                        "delay": "low",
                     },
-                    # Server VAD is the authoritative turn detector. Browser
-                    # audio metering is visual-only because local thresholds
-                    # vary too much across microphones and browsers.
-                    "turn_detection": {
-                        "type": "server_vad",
-                        # A lower threshold helps laptop microphones and quiet
-                        # speakers. Client-side level detection is a backup,
-                        # so normal server turns remain authoritative.
-                        "threshold": 0.18,
-                        "prefix_padding_ms": 600,
-                        "silence_duration_ms": 650,
-                    },
+                    # gpt-live-transcribe does not accept server VAD in a
+                    # transcription session. The browser commits turns using
+                    # its microphone level detector; manual controls remain a
+                    # fallback for noisy or restricted environments.
                 }
             },
         }
@@ -148,5 +140,6 @@ def create_client_secret(purpose: str, locale: str, speaker_id: str | None, clie
         "expiresAt": value.get("expires_at"),
         "purpose": purpose,
         "speakerId": speaker_id,
-        "model": session.get("model", "gpt-transcribe"),
+        "model": session.get("model")
+        or session.get("audio", {}).get("input", {}).get("transcription", {}).get("model"),
     }

@@ -19,15 +19,15 @@ import {
   plantEvidence,
   resolveVote,
   startGame,
-} from "./game-engine.js?v=0.17.9";
-import { getCopy, normalizeLocale } from "./i18n.js?v=0.17.9";
+} from "./game-engine.js?v=0.17.10";
+import { getCopy, normalizeLocale } from "./i18n.js?v=0.17.10";
 import {
   buildChatPayload,
   fallbackAccusation,
   fallbackResponse,
   MAX_CHAT_LENGTH,
   normalizeInterpretation,
-} from "./chat-adapter.js?v=0.17.9";
+} from "./chat-adapter.js?v=0.17.10";
 import {
   acceptPersonalQuest,
   awardCrewLevels,
@@ -42,9 +42,9 @@ import {
   setEquippedJob,
   setDifficultyMode,
   settlePersonalQuest,
-} from "./progression.js?v=0.17.9";
-import { accountController, createMutationId } from "./account-client.js?v=0.17.9";
-import { createVoiceCallController } from "./voice-call.js?v=0.17.9";
+} from "./progression.js?v=0.17.10";
+import { accountController, createMutationId } from "./account-client.js?v=0.17.10";
+import { createVoiceCallController } from "./voice-call.js?v=0.17.10";
 
 const app = document.querySelector("#app");
 const assetVersion = new URL(import.meta.url).searchParams.get("v");
@@ -199,6 +199,7 @@ soundController?.setLabels({
   mute: ui.audioMute,
   unmute: ui.audioUnmute,
   volume: ui.audioVolume,
+  autoMuted: ui.audioVoiceMuted,
 });
 
 let progression = loadProgression();
@@ -1198,10 +1199,10 @@ function renderVoiceCall() {
   };
   const speakerId = voice.activeSpeakerId ?? voice.lastSpeakerId ?? "mina";
   const speaker = crewMember(speakerId);
-  const speakingNames = (voice.activeSpeakerIds ?? []).map((id) => crewMember(id)?.name).filter(Boolean);
-  const status = speakingNames.length > 1
-    ? ui.voice.speakingTogether(speakingNames)
-    : voice.activeSpeakerId
+  const previousSpeakerId = renderedVoiceSpeakerId;
+  const speakerChanged = Boolean(voice.activeSpeakerId && voice.activeSpeakerId !== previousSpeakerId);
+  if (voice.activeSpeakerId) renderedVoiceSpeakerId = voice.activeSpeakerId;
+  const status = voice.activeSpeakerId
       ? ui.voice.speaking(speaker.name)
       : ui.voice.status[voice.state] ?? ui.voice.status.processing;
   const secondaryCrew = crew.filter((person) => person.id !== speakerId);
@@ -1217,9 +1218,9 @@ function renderVoiceCall() {
 
       <section class="voice-stage" aria-label="${status}">
         <div class="voice-secondary-avatars" aria-hidden="true">
-          ${secondaryCrew.map((person) => `<span class="voice-secondary-avatar">${personAvatar(person, "normal")}</span>`).join("")}
+          ${secondaryCrew.map((person) => `<span class="voice-secondary-avatar ${speakerChanged && person.id === previousSpeakerId ? "is-returning" : ""}">${personAvatar(person, "normal")}</span>`).join("")}
         </div>
-        <div class="voice-active-avatar" data-speaker="${speakerId}" data-emotion="${voice.activeEmotion ?? "neutral"}">
+        <div class="voice-active-avatar ${speakerChanged ? "is-speaker-switching" : ""}" data-speaker="${speakerId}" data-emotion="${voice.activeEmotion ?? "neutral"}">
           ${voiceAvatar(speaker, voice.activeEmotion)}
           <span>${speaker.name}</span>
         </div>
@@ -2086,22 +2087,6 @@ async function revealReplies(replies, stage) {
     ...reply,
     emotion: voiceEmotionForReply(reply, stage),
   }));
-  if (playMode === "voice" && voiceController && ordered.length > 1) {
-    typingSpeakerId = ordered[0].speakerId;
-    render();
-    try {
-      const staggerMs = stage.startsWith("hard") ? 650 : 1_050;
-      await voiceController.speakGroup(ordered, { staggerMs });
-      ordered.forEach(({ emotion, ...reply }) => chatLog.push(reply));
-    } catch {
-      voiceController?.end({ fallback: true });
-      voiceFallbackNotice = ui.voice.fallbackNotice;
-      chatNotice = ui.voice.fallbackNotice;
-    }
-    typingSpeakerId = null;
-    render();
-    return;
-  }
   for (const reply of ordered) {
     typingSpeakerId = reply.speakerId;
     render();
@@ -2317,6 +2302,7 @@ async function handleFriendSubmit(rawMessage) {
 }
 
 let renderedPhase = null;
+let renderedVoiceSpeakerId = null;
 
 function render() {
   const views = {
@@ -2342,6 +2328,9 @@ function render() {
   const phaseChanged = renderedPhase !== state.phase;
   document.body.dataset.phase = state.phase;
   document.body.dataset.playMode = playMode;
+  const voiceCallActive = playMode === "voice"
+    && (state.phase === "voice-consent" || voiceConsentBusy || Boolean(voiceController));
+  soundController?.setSuppressed?.(voiceCallActive);
   app.dataset.phase = state.phase;
   app.innerHTML = `${views[state.phase]()}${renderCharacterArchive()}`;
   if (phaseChanged) {

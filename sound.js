@@ -18,11 +18,13 @@
   let scene = "lobby";
   let hasStarted = false;
   let ducking = false;
+  let suppressed = false;
   let labels = {
     start: "Play background music",
     mute: "Mute background music",
     unmute: "Turn on background music",
     volume: "Background music volume",
+    autoMuted: "Background music muted during voice call",
   };
 
   Object.values(tracks).forEach((track) => {
@@ -51,27 +53,35 @@
   }
 
   function applyVolume() {
+    const silent = muted || suppressed;
     Object.values(tracks).forEach((track) => {
-      track.volume = muted ? 0 : volume * (ducking ? 0.22 : 1);
-      track.muted = muted;
+      track.volume = silent ? 0 : volume * (ducking ? 0.22 : 1);
+      track.muted = silent;
     });
   }
 
   function renderControls() {
     document.querySelectorAll("[data-audio-toggle]").forEach((button) => {
-      button.querySelector("span").textContent = !hasStarted ? "▶" : muted ? "♪̸" : "♪";
-      button.setAttribute("aria-label", !hasStarted ? labels.start : muted ? labels.unmute : labels.mute);
-      button.setAttribute("aria-pressed", String(hasStarted && !muted));
-      button.dataset.audioState = !hasStarted ? "waiting" : muted ? "muted" : "playing";
+      button.querySelector("span").textContent = suppressed ? "♪̸" : !hasStarted ? "▶" : muted ? "♪̸" : "♪";
+      button.setAttribute("aria-label", suppressed ? labels.autoMuted : !hasStarted ? labels.start : muted ? labels.unmute : labels.mute);
+      button.setAttribute("aria-pressed", String(hasStarted && !muted && !suppressed));
+      button.dataset.audioState = suppressed ? "suppressed" : !hasStarted ? "waiting" : muted ? "muted" : "playing";
+      button.disabled = suppressed;
     });
     document.querySelectorAll("[data-audio-volume]").forEach((input) => {
       input.value = String(Math.round(volume * 100));
       input.setAttribute("aria-label", labels.volume);
-      input.disabled = muted;
+      input.disabled = muted || suppressed;
     });
   }
 
   async function playCurrent() {
+    if (suppressed) {
+      pauseAll();
+      applyVolume();
+      renderControls();
+      return false;
+    }
     const track = currentTrack();
     pauseAll(track);
     applyVolume();
@@ -92,7 +102,7 @@
     const previous = currentTrack();
     scene = normalized;
     previous.pause();
-    if (hasStarted && !muted) playCurrent();
+    if (hasStarted && !muted && !suppressed) playCurrent();
   }
 
   document.addEventListener("click", async (event) => {
@@ -148,6 +158,22 @@
     setDucking(nextDucking) {
       ducking = Boolean(nextDucking);
       applyVolume();
+    },
+    setSuppressed(nextSuppressed) {
+      const normalized = Boolean(nextSuppressed);
+      if (suppressed === normalized) return;
+      suppressed = normalized;
+      if (suppressed) {
+        pauseAll();
+        applyVolume();
+        renderControls();
+        return;
+      }
+      if (hasStarted && !muted) void playCurrent();
+      else {
+        applyVolume();
+        renderControls();
+      }
     },
   };
 

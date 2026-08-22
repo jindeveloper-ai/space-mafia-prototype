@@ -79,7 +79,7 @@ test("보이스콜 모드는 Figma 통화 구조·접근성·안전한 임시 �
   assert.match(gameSource, /data-action="start"[\s\S]+?\$\{ui\.voice\.playText\}/);
   assert.match(gameSource, /data-action="start-voice"[\s\S]+?\$\{ui\.voice\.playVoice\}/);
   assert.match(gameSource, /function renderVoiceConsent/);
-  assert.match(gameSource, /class="voice-active-avatar"/);
+  assert.match(gameSource, /class="voice-active-avatar/);
   assert.match(gameSource, /class="voice-secondary-avatars"/);
   assert.match(gameSource, /data-action="voice-toggle-mute"/);
   assert.match(gameSource, /data-action="voice-toggle-talk"/);
@@ -88,7 +88,7 @@ test("보이스콜 모드는 Figma 통화 구조·접근성·안전한 임시 �
   assert.match(gameSource, /data-action="voice-end"/);
   assert.match(gameSource, /data-input-mode="voice-text"/);
   assert.match(gameSource, /VOICE_EXPRESSION_STICKERS/);
-  assert.match(gameSource, /voiceController\.speakGroup/);
+  assert.doesNotMatch(`${gameSource}\n${voiceSource}`, /speakGroup/);
   assert.match(voiceSource, /mediaDevices\.getUserMedia/);
   assert.match(voiceSource, /track\.enabled = !muted/);
   assert.match(voiceSource, /\/api\/realtime\/client-secret/);
@@ -103,12 +103,16 @@ test("보이스콜 모드는 Figma 통화 구조·접근성·안전한 임시 �
   assert.doesNotMatch(gameSource, /onFallback\(\) \{\s*playMode = "text"/);
   assert.match(voiceSource, /type: "response\.cancel"/);
   assert.match(voiceSource, /type: "output_audio_buffer\.clear"/);
+  assert.match(voiceSource, /addListener\(connection\.audio, "ended"/);
+  assert.doesNotMatch(voiceSource, /3_000/);
   assert.match(coreSource, /completedIds\.has\(utteranceId\)/);
   assert.match(voiceStyles, /width: clamp\(188px, 55vw, 220px\)/);
   assert.match(voiceStyles, /transition:[^;]*320ms/);
   assert.match(voiceStyles, /@media \(prefers-reduced-motion: reduce\)/);
   assert.match(indexHtml, /voice-call\.css/);
   assert.match(soundSource, /setDucking/);
+  assert.match(soundSource, /setSuppressed/);
+  assert.match(gameSource, /setSuppressed\?\.\(voiceCallActive\)/);
   assert.doesNotMatch(`${gameSource}\n${voiceSource}\n${coreSource}\n${indexHtml}`, /OPENAI_API_KEY|sk-[A-Za-z0-9_-]{20,}/);
   const openAiUrls = [...voiceSource.matchAll(/https:\/\/api\.openai\.com[^"'`\s]*/g)].map((match) => match[0]);
   assert.deepEqual(openAiUrls, ["https://api.openai.com/v1/realtime/calls"]);
@@ -136,7 +140,7 @@ test("Pixabay 배경음은 로컬 에셋으로 대기실·게임 장면, 음소�
   assert.match(soundSource, /if \(!muted\) void playCurrent\(\)/);
   assert.match(soundSource, /start\(\)[\s\S]+return playCurrent\(\)/);
   assert.match(soundSource, /muted = true;[\s\S]*pauseAll\(\)/);
-  assert.match(soundSource, /track\.muted = muted/);
+  assert.match(soundSource, /track\.muted = silent/);
   assert.match(soundSource, /dataset\.audioState/);
   assert.doesNotMatch(soundSource, /https?:\/\//);
   assert.ok(lobbyTrack.byteLength > 100_000);
