@@ -4280,7 +4280,7 @@ body {
   white-space: nowrap;
 }
 
-/* v0.17.6 — server-side automatic voice detection and reliable hands-free turns. */
+/* v0.17.7 — server-side automatic voice detection and reliable hands-free turns. */
 .game-room-view.is-setup {
   overflow-y: auto;
   overscroll-behavior: contain;
