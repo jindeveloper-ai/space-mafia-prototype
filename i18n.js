@@ -321,7 +321,7 @@ const COPY = {
         unmute: "음소거 해제",
         textFallback: "음성 대신 채팅 입력",
         textPlaceholder: "잘 안 들리면 채팅으로 보내기",
-        privacy: "음성 원문은 저장하지 않습니다. 통화 시간만 계정에 기록됩니다.",
+        privacy: "음성 원문은 저장하지 않습니다. 통화 시간만 이 기기 또는 계정에 기록됩니다.",
         limitReached: "오늘 이 친구와 통화할 수 있는 5분을 모두 사용했어요.",
         status: {
           idle: "전화 준비 중…",
@@ -351,6 +351,7 @@ const COPY = {
           friend_call_unsupported: "이 브라우저에서는 보이스톡을 사용할 수 없어요.",
           friend_call_secret_failed: "보이스톡 연결 정보를 받지 못했어요.",
           friend_call_daily_limit: "오늘 이 친구와 통화할 수 있는 5분을 모두 사용했어요.",
+          guest_friend_call_daily_limit: "게스트 통화 연결 한도를 사용했어요. 내일 다시 시도해 주세요.",
           friend_call_negotiation_failed: "통화 서버에 연결하지 못했어요. 잠시 뒤 다시 시도해 주세요.",
           friend_call_channel_timeout: "통화 연결 시간이 초과됐어요.",
           friend_call_channel_failed: "통화 데이터 채널을 열지 못했어요.",
@@ -1082,7 +1083,7 @@ const COPY = {
         unmute: "Unmute",
         textFallback: "Type instead of speaking",
         textPlaceholder: "Type if the mic misses you",
-        privacy: "Raw voice is not stored. Only call duration is saved to your account.",
+        privacy: "Raw voice is not stored. Only call duration is saved on this device or to your account.",
         limitReached: "You have used today's five minutes with this friend.",
         status: {
           idle: "Getting the call ready…",
@@ -1112,6 +1113,7 @@ const COPY = {
           friend_call_unsupported: "Voice calls are not supported in this browser.",
           friend_call_secret_failed: "Could not obtain voice-call connection details.",
           friend_call_daily_limit: "You have used today's five minutes with this friend.",
+          guest_friend_call_daily_limit: "You have used today's guest connection allowance. Try again tomorrow.",
           friend_call_negotiation_failed: "Could not reach the call server. Try again shortly.",
           friend_call_channel_timeout: "The call took too long to connect.",
           friend_call_channel_failed: "The call data channel could not open.",

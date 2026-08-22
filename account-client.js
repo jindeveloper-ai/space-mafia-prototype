@@ -11,8 +11,8 @@ import {
   PROGRESSION_STORAGE_KEY,
   sanitizeChats,
   sanitizeMatches,
-} from "./account-core.js?v=0.20.0";
-import { createProgression } from "./progression.js?v=0.20.0";
+} from "./account-core.js?v=0.20.1";
+import { createProgression } from "./progression.js?v=0.20.1";
 
 const AUTH_SESSION_KEY = "mars-net-auth-session-v1";
 const AUTH_TRANSACTION_KEY = "mars-net-auth-transaction-v1";
@@ -550,12 +550,16 @@ class AccountController extends EventTarget {
     return { "Content-Type": "application/json", Authorization: `Bearer ${this.auth.session?.accessToken ?? ""}` };
   }
 
-  async api(path, options = {}) {
+  async api(path, options = {}, { optionalAuth = false } = {}) {
     const token = await this.auth.accessToken();
-    if (!token) throw new Error("authentication_required");
+    if (!token && !optionalAuth) throw new Error("authentication_required");
     const response = await fetch(path, {
       ...options,
-      headers: { ...(options.body ? { "Content-Type": "application/json" } : {}), Authorization: `Bearer ${token}`, ...options.headers },
+      headers: {
+        ...(options.body ? { "Content-Type": "application/json" } : {}),
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...options.headers,
+      },
     });
     const data = await response.json().catch(() => ({}));
     if (!response.ok) {

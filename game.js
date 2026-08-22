@@ -19,15 +19,15 @@ import {
   plantEvidence,
   resolveVote,
   startGame,
-} from "./game-engine.js?v=0.20.0";
-import { getCopy, normalizeLocale } from "./i18n.js?v=0.20.0";
+} from "./game-engine.js?v=0.20.1";
+import { getCopy, normalizeLocale } from "./i18n.js?v=0.20.1";
 import {
   buildChatPayload,
   fallbackAccusation,
   fallbackResponse,
   MAX_CHAT_LENGTH,
   normalizeInterpretation,
-} from "./chat-adapter.js?v=0.20.0";
+} from "./chat-adapter.js?v=0.20.1";
 import {
   acceptPersonalQuest,
   awardCrewLevels,
@@ -44,17 +44,17 @@ import {
   setEquippedJob,
   setDifficultyMode,
   settlePersonalQuest,
-} from "./progression.js?v=0.20.0";
-import { accountController, createMutationId } from "./account-client.js?v=0.20.0";
-import { createVoiceCallController } from "./voice-call.js?v=0.20.0";
-import { createFriendCallController } from "./friend-call.js?v=0.20.0";
+} from "./progression.js?v=0.20.1";
+import { accountController, createMutationId } from "./account-client.js?v=0.20.1";
+import { createVoiceCallController } from "./voice-call.js?v=0.20.1";
+import { createFriendCallController } from "./friend-call.js?v=0.20.1";
 import {
   beginVoiceTurnFinalization,
   createVoiceTurn,
   expireVoiceTurn,
   recordVoiceTurnCandidate,
   voiceTurnSecondsLeft,
-} from "./voice-turn.js?v=0.20.0";
+} from "./voice-turn.js?v=0.20.1";
 
 const app = document.querySelector("#app");
 const assetVersion = new URL(import.meta.url).searchParams.get("v");
@@ -450,10 +450,6 @@ async function beginVoiceGame() {
 
 async function beginFriendCall() {
   if (!selectedFriendId || friendCallController) return;
-  if (!accountController.signedIn) {
-    accountController.requireAuthentication("choice");
-    return;
-  }
   const remaining = friendCallSecondsRemaining(progression, selectedFriendId, currentDateKey());
   if (remaining <= 0) {
     chatNotice = ui.friendCall.limitReached;
@@ -464,16 +460,26 @@ async function beginFriendCall() {
   friendCallSnapshot = { characterId: personId, phase: "idle", remainingSeconds: remaining, muted: false };
   state = { ...state, phase: "friend-call" };
   render();
-  await accountController.enqueueState().catch(() => {});
+  if (accountController.signedIn) await accountController.enqueueState().catch(() => {});
   if (state.phase !== "friend-call" || selectedFriendId !== personId) return;
+  const localSnapshot = accountController.signedIn ? null : accountController.localSnapshot();
+  const guestContext = localSnapshot ? {
+    playerName: localSnapshot.profile?.name,
+    recentChat: localSnapshot.chats?.[personId]?.slice(-8) ?? [],
+    lastMatch: localSnapshot.matches?.[localSnapshot.matches.length - 1] ?? null,
+  } : null;
   const controller = createFriendCallController({
     characterId: personId,
     locale,
     remainingSeconds: remaining,
-    requestSecret: (payload) => accountController.api("/api/realtime/client-secret", {
-      method: "POST",
-      body: JSON.stringify(payload),
-    }),
+    requestSecret: (payload) => accountController.api(
+      "/api/realtime/client-secret",
+      {
+        method: "POST",
+        body: JSON.stringify({ ...payload, remainingSeconds: remaining, guestContext }),
+      },
+      { optionalAuth: true },
+    ),
     onUpdate(snapshot) {
       friendCallSnapshot = snapshot;
       if (state.phase === "friend-call") render();

@@ -36,6 +36,9 @@ test("브라우저 에셋과 내부 모듈은 패키지 버전으로 캐시를 �
   assert.ok(gameSource.includes(`./voice-turn.js?v=${version}`));
   assert.ok(voiceSource.includes(`./voice-call-core.js?v=${version}`));
   assert.match(friendCallSource, /purpose: "friend-call"/);
+  assert.match(gameSource, /remainingSeconds: remaining, guestContext/);
+  assert.match(gameSource, /optionalAuth: true/);
+  assert.doesNotMatch(gameSource, /if \(!accountController\.signedIn\) \{\s*accountController\.requireAuthentication/);
   assert.doesNotMatch(friendCallSource, /OPENAI_API_KEY|sk-[A-Za-z0-9_-]{20,}/);
   assert.ok(engineSource.includes(`./i18n.js?v=${version}`));
   assert.match(gameSource, /new URL\(import\.meta\.url\)\.searchParams\.get\("v"\)/);
@@ -298,6 +301,8 @@ test("계정 UI와 Supabase 설정은 서버 중개와 RLS를 유지한다", asy
   assert.match(accountSource, /signUpWithEmail\(email, password\)/);
   assert.match(accountSource, /requestPasswordReset\(email\)/);
   assert.match(accountSource, /mars-net-auth-entry-v1/);
+  assert.match(accountSource, /optionalAuth = false/);
+  assert.match(accountSource, /token \? \{ Authorization:/);
   assert.match(accountSource, /data-auth-action="google"/);
   assert.match(accountSource, /data-auth-action="guest"/);
   assert.doesNotMatch(accountSource, /signInWithApple|Continue with Apple|Apple로/);

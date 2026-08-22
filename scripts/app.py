@@ -40,7 +40,9 @@ JOIN_LIMIT_PER_MINUTE = 24
 VOICE_TRANSCRIPTION_LIMIT_PER_MINUTE = 4
 VOICE_SPEECH_LIMIT_PER_MINUTE = 24
 VOICE_FRIEND_CALL_LIMIT_PER_MINUTE = 6
+GUEST_FRIEND_CALL_ISSUE_LIMIT_PER_DAY = 3
 ABUSE_BUCKETS: dict[tuple[str, str], deque[float]] = defaultdict(deque)
+GUEST_FRIEND_CALL_ISSUES: dict[tuple[str, str, str], int] = defaultdict(int)
 ACCOUNT_BACKEND = SupabaseBackend()
 
 
@@ -278,26 +280,38 @@ async def realtime_client_secret(request: Request):
     if abuse_limited(f"voice:{purpose}", client_ip, limit):
         return JSONResponse({"error": "rate_limited"}, status_code=429)
     context = None
+    guest_call_key = None
     if purpose == "friend-call":
-        try:
-            user = await ACCOUNT_BACKEND.verify(request)
-            snapshot = await ACCOUNT_BACKEND.snapshot(user)
-        except AccountError as error:
-            return JSONResponse({"error": error.code}, status_code=error.status)
         offset = payload.get("timezoneOffsetMinutes", 0)
         if not isinstance(offset, int) or not -840 <= offset <= 840:
             return JSONResponse({"error": "invalid_request"}, status_code=400)
         date_key = (datetime.now(timezone.utc) - timedelta(minutes=offset)).date().isoformat()
-        usage = snapshot.get("progression", {}).get("friendCallUsage", {}).get(speaker_id) or {}
-        used_seconds = int(usage.get("seconds", 0)) if usage.get("date") == date_key else 0
-        remaining_seconds = max(0, 300 - min(300, max(0, used_seconds)))
+        if request.headers.get("authorization", "").startswith("Bearer "):
+            try:
+                user = await ACCOUNT_BACKEND.verify(request)
+                snapshot = await ACCOUNT_BACKEND.snapshot(user)
+            except AccountError as error:
+                return JSONResponse({"error": error.code}, status_code=error.status)
+            usage = snapshot.get("progression", {}).get("friendCallUsage", {}).get(speaker_id) or {}
+            used_seconds = int(usage.get("seconds", 0)) if usage.get("date") == date_key else 0
+            remaining_seconds = max(0, 300 - min(300, max(0, used_seconds)))
+            context = {
+                "playerName": snapshot.get("profile", {}).get("name"),
+                "recentChat": snapshot.get("chats", {}).get(speaker_id, [])[-8:],
+                "lastMatch": snapshot.get("matches", [])[-1] if snapshot.get("matches") else None,
+            }
+        else:
+            requested_remaining = payload.get("remainingSeconds")
+            if type(requested_remaining) is not int or not 1 <= requested_remaining <= 300:
+                return JSONResponse({"error": "invalid_request"}, status_code=400)
+            guest_call_key = (client_ip, speaker_id, date_key)
+            if GUEST_FRIEND_CALL_ISSUES[guest_call_key] >= GUEST_FRIEND_CALL_ISSUE_LIMIT_PER_DAY:
+                return JSONResponse({"error": "guest_friend_call_daily_limit", "remainingSeconds": 0}, status_code=429)
+            GUEST_FRIEND_CALL_ISSUES[guest_call_key] += 1
+            remaining_seconds = requested_remaining
+            context = payload.get("guestContext")
         if remaining_seconds <= 0:
             return JSONResponse({"error": "friend_call_daily_limit", "remainingSeconds": 0}, status_code=429)
-        context = {
-            "playerName": snapshot.get("profile", {}).get("name"),
-            "recentChat": snapshot.get("chats", {}).get(speaker_id, [])[-8:],
-            "lastMatch": snapshot.get("matches", [])[-1] if snapshot.get("matches") else None,
-        }
     try:
         result = await asyncio.to_thread(
             create_client_secret,
@@ -311,6 +325,8 @@ async def realtime_client_secret(request: Request):
             result.update({"remainingSeconds": remaining_seconds, "dateKey": date_key})
         return JSONResponse(result)
     except RealtimeError as error:
+        if guest_call_key is not None:
+            GUEST_FRIEND_CALL_ISSUES[guest_call_key] = max(0, GUEST_FRIEND_CALL_ISSUES[guest_call_key] - 1)
         return JSONResponse({"error": error.code}, status_code=error.status)
 
 

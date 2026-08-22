@@ -124,6 +124,52 @@ test("Realtime 시크릿은 동일 출처·짧은 수명·서버 전용 영구 �
   }
 });
 
+test("게스트 보이스톡은 로컬 잔여 시간과 제한된 문맥으로 연결되고 일일 재발급을 제한한다", async () => {
+  const upstream = await startRealtimeUpstream();
+  const app = await startApp({
+    OPENAI_API_KEY: "server-only-test-key",
+    OPENAI_REALTIME_API_BASE: upstream.baseUrl,
+  });
+  const payload = {
+    purpose: "friend-call",
+    locale: "ko",
+    speakerId: "mina",
+    timezoneOffsetMinutes: -540,
+    remainingSeconds: 240,
+    guestContext: {
+      playerName: "수진",
+      recentChat: [
+        { sender: "player", body: "지난 판 얘기 기억나?" },
+        { sender: "ignored", body: "이 항목은 제거되어야 함" },
+      ],
+      lastMatch: { outcome: "win", evidenceTargetId: "juno", stars: 2, private: "drop-me" },
+    },
+  };
+  try {
+    const first = await secretRequest(app.baseUrl, payload);
+    assert.equal(first.status, 200);
+    const firstBody = await first.json();
+    assert.equal(firstBody.remainingSeconds, 240);
+    assert.match(firstBody.dateKey, /^\d{4}-\d{2}-\d{2}$/);
+    assert.doesNotMatch(JSON.stringify(firstBody), /server-only-test-key|REFERENCE_CONTEXT|지난 판/);
+    const instructions = upstream.requests[0].body.session.instructions;
+    assert.match(instructions, /수진/);
+    assert.match(instructions, /지난 판 얘기 기억나/);
+    assert.doesNotMatch(instructions, /이 항목은 제거되어야 함|drop-me/);
+
+    assert.equal((await secretRequest(app.baseUrl, payload)).status, 200);
+    assert.equal((await secretRequest(app.baseUrl, payload)).status, 200);
+    const blocked = await secretRequest(app.baseUrl, payload);
+    assert.equal(blocked.status, 429);
+    assert.deepEqual(await blocked.json(), { error: "guest_friend_call_daily_limit", remainingSeconds: 0 });
+    assert.equal(upstream.requests.length, 3);
+  } finally {
+    await stopApp(app.child);
+    upstream.server.close();
+    await once(upstream.server, "close");
+  }
+});
+
 test("Realtime 엔드포인트는 키 없음·잘못된 화자·호출 상한을 안전하게 처리한다", async () => {
   const noKey = await startApp();
   try {
@@ -137,9 +183,10 @@ test("Realtime 엔드포인트는 키 없음·잘못된 화자·호출 상한을
       locale: "ko",
       speakerId: "mina",
       timezoneOffsetMinutes: -540,
+      remainingSeconds: 300,
     });
     assert.equal(unauthenticatedFriendCall.status, 503);
-    assert.deepEqual(await unauthenticatedFriendCall.json(), { error: "account_service_unavailable" });
+    assert.deepEqual(await unauthenticatedFriendCall.json(), { error: "voice_unavailable" });
   } finally {
     await stopApp(noKey.child);
   }
