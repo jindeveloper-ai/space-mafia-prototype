@@ -286,6 +286,35 @@ test("브라우저 자동 감지가 멈춰도 수동 말하기 버튼이 전사 
   harness.controller.end();
 });
 
+test("서버 VAD가 버튼 없이 발화 시작과 종료를 감지해 확정 자막을 처리한다", async () => {
+  const harness = createHarness();
+  assert.equal(await harness.controller.connect(), true);
+  const transcriptionPeer = FakePeerConnection.instances[0];
+
+  emitRealtime(transcriptionPeer, { type: "input_audio_buffer.speech_started" });
+  assert.equal(harness.controller.snapshot().state, "player_speaking");
+
+  emitRealtime(transcriptionPeer, { type: "input_audio_buffer.speech_stopped" });
+  assert.equal(harness.controller.snapshot().state, "processing");
+  assert.equal(
+    transcriptionPeer.channel.sent.some((event) => event.type === "input_audio_buffer.commit"),
+    false,
+  );
+
+  emitRealtime(transcriptionPeer, {
+    type: "conversation.item.input_audio_transcription.completed",
+    item_id: "auto-turn-1",
+    transcript: "노엘이 시간을 바꿔 말했어",
+  });
+  await harness.controller.whenTranscriptsIdle();
+  assert.deepEqual(harness.finalTranscripts, [{
+    id: "auto-turn-1",
+    text: "노엘이 시간을 바꿔 말했어",
+  }]);
+  assert.equal(harness.controller.snapshot().state, "listening");
+  harness.controller.end();
+});
+
 test("무음 발화는 처리 중에 갇히지 않고 다시 듣기 상태로 돌아간다", async () => {
   const harness = createHarness({ transcriptionTimeoutMs: 1 });
   await harness.controller.connect();

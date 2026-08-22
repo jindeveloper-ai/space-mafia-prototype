@@ -4,7 +4,6 @@ import assert from "node:assert/strict";
 import {
   VOICE_STATES,
   createFinalTranscriptGate,
-  createLocalVoiceActivityDetector,
   createSpeakerQueue,
   createVoiceMetrics,
   createVoiceStateMachine,
@@ -39,25 +38,6 @@ test("중간 자막은 판정하지 않고 확정 발화 ID는 한 번만 직렬
     { id: "utterance-1", text: "미나를 의심해" },
     { id: "utterance-2", text: "기록부터 확인하자" },
   ]);
-});
-
-test("로컬 음성 감지는 짧은 소음을 버리고 실제 발화 뒤에만 전사 버퍼를 확정한다", () => {
-  const detector = createLocalVoiceActivityDetector({
-    threshold: 0.1,
-    silenceMs: 700,
-    minimumSpeechMs: 180,
-  });
-
-  assert.deepEqual(detector.sample(0.2, 1_000), { type: "speech_started" });
-  assert.equal(detector.sample(0, 1_700)?.commit, false);
-
-  assert.deepEqual(detector.sample(0.2, 2_000), { type: "speech_started" });
-  assert.equal(detector.sample(0.25, 2_240), null);
-  assert.deepEqual(detector.sample(0, 2_940), {
-    type: "speech_stopped",
-    commit: true,
-    durationMs: 240,
-  });
 });
 
 test("캐릭터 발화 큐는 FIFO로 한 명씩 처리하고 대기 발화를 중단한다", async () => {

@@ -55,46 +55,6 @@ export function createFinalTranscriptGate(handler) {
   };
 }
 
-export function createLocalVoiceActivityDetector(options = {}) {
-  const threshold = options.threshold ?? 0.08;
-  const silenceMs = options.silenceMs ?? 750;
-  const minimumSpeechMs = options.minimumSpeechMs ?? 180;
-  let active = false;
-  let startedAt = 0;
-  let lastVoiceAt = 0;
-
-  function sample(level, now) {
-    const timestamp = Number(now) || 0;
-    if (Number(level) >= threshold) {
-      lastVoiceAt = timestamp;
-      if (active) return null;
-      active = true;
-      startedAt = timestamp;
-      return { type: "speech_started" };
-    }
-    if (!active || timestamp - lastVoiceAt < silenceMs) return null;
-    const durationMs = Math.max(0, lastVoiceAt - startedAt);
-    active = false;
-    startedAt = 0;
-    lastVoiceAt = 0;
-    return { type: "speech_stopped", commit: durationMs >= minimumSpeechMs, durationMs };
-  }
-
-  function reset() {
-    active = false;
-    startedAt = 0;
-    lastVoiceAt = 0;
-  }
-
-  return {
-    sample,
-    reset,
-    get active() {
-      return active;
-    },
-  };
-}
-
 export function createSpeakerQueue(worker, callbacks = {}) {
   const queue = [];
   let active = null;

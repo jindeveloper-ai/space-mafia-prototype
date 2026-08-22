@@ -59,7 +59,7 @@ def safety_identifier(client_ip: str) -> str:
 
 def _session_config(purpose: str, locale: str, speaker_id: str | None) -> dict:
     realtime_model = os.environ.get("OPENAI_REALTIME_MODEL", "gpt-realtime-2.1-mini")
-    transcription_model = os.environ.get("OPENAI_TRANSCRIBE_MODEL", "gpt-live-transcribe")
+    transcription_model = os.environ.get("OPENAI_TRANSCRIBE_MODEL", "gpt-transcribe")
     if purpose == "transcription":
         language = "ko" if locale == "ko" else "en"
         return {
@@ -71,11 +71,16 @@ def _session_config(purpose: str, locale: str, speaker_id: str | None) -> dict:
                         "prompt": "A four-player social deduction game in the Mars settlement MARS.NET.",
                         "keywords": list(TRANSCRIPTION_KEYWORDS),
                         "languages": [language],
-                        "delay": "low",
                     },
-                    # gpt-live-transcribe rejects server/semantic VAD. The
-                    # browser commits turns after local silence detection.
-                    "turn_detection": None,
+                    # Server VAD is the authoritative turn detector. Browser
+                    # audio metering is visual-only because local thresholds
+                    # vary too much across microphones and browsers.
+                    "turn_detection": {
+                        "type": "server_vad",
+                        "threshold": 0.3,
+                        "prefix_padding_ms": 500,
+                        "silence_duration_ms": 700,
+                    },
                 }
             },
         }
@@ -137,5 +142,5 @@ def create_client_secret(purpose: str, locale: str, speaker_id: str | None, clie
         "expiresAt": value.get("expires_at"),
         "purpose": purpose,
         "speakerId": speaker_id,
-        "model": session.get("model", os.environ.get("OPENAI_TRANSCRIBE_MODEL", "gpt-live-transcribe")),
+        "model": session.get("model", os.environ.get("OPENAI_TRANSCRIBE_MODEL", "gpt-transcribe")),
     }

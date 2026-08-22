@@ -76,7 +76,7 @@ test("Realtime 시크릿은 동일 출처·짧은 수명·서버 전용 영구 �
     OPENAI_API_KEY: "server-only-test-key",
     OPENAI_REALTIME_API_BASE: upstream.baseUrl,
     OPENAI_REALTIME_MODEL: "gpt-realtime-2.1-mini",
-    OPENAI_TRANSCRIBE_MODEL: "gpt-live-transcribe",
+    OPENAI_TRANSCRIBE_MODEL: "gpt-transcribe",
     OPENAI_SAFETY_SALT: "test-salt",
   });
   try {
@@ -88,7 +88,7 @@ test("Realtime 시크릿은 동일 출처·짧은 수명·서버 전용 영구 �
       expiresAt: 999_999,
       purpose: "transcription",
       speakerId: null,
-      model: "gpt-live-transcribe",
+      model: "gpt-transcribe",
     });
     assert.doesNotMatch(JSON.stringify(transcriptionBody), /server-only-test-key|instructions|prompt/i);
 
@@ -105,8 +105,14 @@ test("Realtime 시크릿은 동일 출처·짧은 수명·서버 전용 영구 �
     assert.equal(upstream.requests[0].safetyIdentifier.length, 64);
     assert.equal(upstream.requests[0].body.expires_after.seconds, 300);
     assert.equal(upstream.requests[0].body.session.type, "transcription");
-    assert.equal(upstream.requests[0].body.session.audio.input.transcription.model, "gpt-live-transcribe");
-    assert.equal(upstream.requests[0].body.session.audio.input.turn_detection, null);
+    assert.equal(upstream.requests[0].body.session.audio.input.transcription.model, "gpt-transcribe");
+    assert.equal("delay" in upstream.requests[0].body.session.audio.input.transcription, false);
+    assert.deepEqual(upstream.requests[0].body.session.audio.input.turn_detection, {
+      type: "server_vad",
+      threshold: 0.3,
+      prefix_padding_ms: 500,
+      silence_duration_ms: 700,
+    });
     assert.equal(upstream.requests[1].body.session.audio.output.voice, "cedar");
 
     const blocked = await secretRequest(app.baseUrl, { purpose: "speech", locale: "ko", speakerId: "mina" }, "https://evil.example");

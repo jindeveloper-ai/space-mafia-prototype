@@ -1,13 +1,12 @@
 import {
   createFinalTranscriptGate,
-  createLocalVoiceActivityDetector,
   createSpeakerQueue,
   createVoiceMetrics,
   createVoiceStateMachine,
   estimateVoiceCost,
   recordSessionEnded,
   recordSessionStarted,
-} from "./voice-call-core.js?v=0.17.3";
+} from "./voice-call-core.js?v=0.17.4";
 
 const REALTIME_CALLS_URL = "https://api.openai.com/v1/realtime/calls";
 const SPEAKER_STYLE = {
@@ -36,13 +35,11 @@ export function createVoiceCallController(options = {}) {
   const clearTimer = options.clearTimer ?? globalThis.clearTimeout?.bind(globalThis);
   const requestFrame = options.requestFrame ?? globalThis.requestAnimationFrame?.bind(globalThis);
   const cancelFrame = options.cancelFrame ?? globalThis.cancelAnimationFrame?.bind(globalThis);
-  const now = options.now ?? (() => globalThis.performance?.now?.() ?? Date.now());
   const permissionTimeoutMs = options.permissionTimeoutMs ?? 12_000;
   const transcriptionTimeoutMs = options.transcriptionTimeoutMs ?? 8_000;
   const locale = options.locale === "en" ? "en" : "ko";
   const metrics = createVoiceMetrics();
   const stateMachine = createVoiceStateMachine(() => options.onUpdate?.(snapshot()));
-  const voiceActivityDetector = createLocalVoiceActivityDetector(options.voiceActivity);
 
   let micStream = null;
   let transcriptionConnection = null;
@@ -109,7 +106,6 @@ export function createVoiceCallController(options = {}) {
       meterSource = audioContext.createMediaStreamSource(stream);
       meterSource.connect(analyser);
       const samples = new Uint8Array(analyser.fftSize);
-      const isMicrophone = stream === micStream;
       const tick = () => {
         let level = 0;
         if (typeof analyser.getByteTimeDomainData === "function") {
@@ -125,15 +121,6 @@ export function createVoiceCallController(options = {}) {
           level = Math.min(1, average / 150);
         }
         options.onMeter?.(level);
-        if (isMicrophone && transcriptionConnection && !manualTurnActive) {
-          const activity = voiceActivityDetector.sample(muted ? 0 : level, now());
-          if (activity?.type === "speech_started") {
-            beginPlayerTurn();
-          }
-          if (activity?.type === "speech_stopped") {
-            finishPlayerTurn({ commit: activity.commit });
-          }
-        }
         meterFrame = requestFrame(tick);
       };
       meterFrame = requestFrame(tick);
@@ -284,7 +271,6 @@ export function createVoiceCallController(options = {}) {
     interruptSpeech("barge_in");
     manualTurnActive = manual;
     if (manual) {
-      voiceActivityDetector.reset();
       safeSend(transcriptionConnection.channel, { type: "input_audio_buffer.clear" });
     }
     updateCaption("");
@@ -295,21 +281,21 @@ export function createVoiceCallController(options = {}) {
   function finishPlayerTurn({ commit = true } = {}) {
     if (disposed || !transcriptionConnection) return false;
     manualTurnActive = false;
-    voiceActivityDetector.reset();
     stateMachine.transition("processing");
     const sent = safeSend(transcriptionConnection.channel, {
       type: commit ? "input_audio_buffer.commit" : "input_audio_buffer.clear",
     });
-    if (transcriptionTimer) clearTimer?.(transcriptionTimer);
-    transcriptionTimer = null;
-    if (sent && commit) {
-      transcriptionTimer = setTimer?.(() => {
-        transcriptionTimer = null;
-        lastError = "no_speech_detected";
-        if (!disposed && transcriptionConnection && !speakerQueue.active) stateMachine.transition("listening");
-      }, transcriptionTimeoutMs);
-    }
+    if (sent && commit) startTranscriptionTimeout();
     return sent;
+  }
+
+  function startTranscriptionTimeout() {
+    if (transcriptionTimer) clearTimer?.(transcriptionTimer);
+    transcriptionTimer = setTimer?.(() => {
+      transcriptionTimer = null;
+      lastError = "no_speech_detected";
+      if (!disposed && transcriptionConnection && !speakerQueue.active) stateMachine.transition("listening");
+    }, transcriptionTimeoutMs);
   }
 
   function toggleTalking() {
@@ -420,7 +406,11 @@ export function createVoiceCallController(options = {}) {
     if (event.type === "input_audio_buffer.speech_started") {
       beginPlayerTurn();
     }
-    if (event.type === "input_audio_buffer.speech_stopped") stateMachine.transition("processing");
+    if (event.type === "input_audio_buffer.speech_stopped") {
+      manualTurnActive = false;
+      stateMachine.transition("processing");
+      startTranscriptionTimeout();
+    }
     if (event.type === "conversation.item.input_audio_transcription.delta") {
       updateCaption(`${captionText}${event.delta ?? ""}`);
     }
@@ -447,7 +437,6 @@ export function createVoiceCallController(options = {}) {
     if (transcriptionTimer) clearTimer?.(transcriptionTimer);
     transcriptionTimer = null;
     manualTurnActive = false;
-    voiceActivityDetector.reset();
   }
 
   function scheduleReconnect() {

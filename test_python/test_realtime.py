@@ -6,15 +6,24 @@ from scripts.realtime import RealtimeError, _session_config, safety_identifier
 
 
 class RealtimeConfigTests(unittest.TestCase):
-    def test_transcription_session_uses_low_latency_model_and_hints(self):
-        with patch.dict(os.environ, {"OPENAI_TRANSCRIBE_MODEL": "gpt-live-transcribe"}, clear=False):
+    def test_transcription_session_uses_server_vad_model_and_hints(self):
+        with patch.dict(os.environ, {"OPENAI_TRANSCRIBE_MODEL": "gpt-transcribe"}, clear=False):
             session = _session_config("transcription", "ko", None)
         transcription = session["audio"]["input"]["transcription"]
         self.assertEqual(session["type"], "transcription")
-        self.assertEqual(transcription["model"], "gpt-live-transcribe")
+        self.assertEqual(transcription["model"], "gpt-transcribe")
         self.assertEqual(transcription["languages"], ["ko"])
         self.assertIn("산소실", transcription["keywords"])
-        self.assertIsNone(session["audio"]["input"]["turn_detection"])
+        self.assertNotIn("delay", transcription)
+        self.assertEqual(
+            session["audio"]["input"]["turn_detection"],
+            {
+                "type": "server_vad",
+                "threshold": 0.3,
+                "prefix_padding_ms": 500,
+                "silence_duration_ms": 700,
+            },
+        )
 
     def test_each_character_has_a_fixed_distinct_output_voice(self):
         mina = _session_config("speech", "ko", "mina")
