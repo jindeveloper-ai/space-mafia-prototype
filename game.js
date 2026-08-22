@@ -19,15 +19,15 @@ import {
   plantEvidence,
   resolveVote,
   startGame,
-} from "./game-engine.js?v=0.18.8";
-import { getCopy, normalizeLocale } from "./i18n.js?v=0.18.8";
+} from "./game-engine.js?v=0.19.0";
+import { getCopy, normalizeLocale } from "./i18n.js?v=0.19.0";
 import {
   buildChatPayload,
   fallbackAccusation,
   fallbackResponse,
   MAX_CHAT_LENGTH,
   normalizeInterpretation,
-} from "./chat-adapter.js?v=0.18.8";
+} from "./chat-adapter.js?v=0.19.0";
 import {
   acceptPersonalQuest,
   awardCrewLevels,
@@ -35,23 +35,26 @@ import {
   dismissCompletedQuest,
   isAttackAllowed,
   isPrivateDetectiveEquipped,
+  friendCallSecondsRemaining,
   localDateKey,
   markDebriefViewed,
   PRIVATE_DETECTIVE_ID,
   PROGRESSION_STORAGE_KEY,
+  recordFriendCallUsage,
   setEquippedJob,
   setDifficultyMode,
   settlePersonalQuest,
-} from "./progression.js?v=0.18.8";
-import { accountController, createMutationId } from "./account-client.js?v=0.18.8";
-import { createVoiceCallController } from "./voice-call.js?v=0.18.8";
+} from "./progression.js?v=0.19.0";
+import { accountController, createMutationId } from "./account-client.js?v=0.19.0";
+import { createVoiceCallController } from "./voice-call.js?v=0.19.0";
+import { createFriendCallController } from "./friend-call.js?v=0.19.0";
 import {
   beginVoiceTurnFinalization,
   createVoiceTurn,
   expireVoiceTurn,
   recordVoiceTurnCandidate,
   voiceTurnSecondsLeft,
-} from "./voice-turn.js?v=0.18.8";
+} from "./voice-turn.js?v=0.19.0";
 
 const app = document.querySelector("#app");
 const assetVersion = new URL(import.meta.url).searchParams.get("v");
@@ -224,6 +227,8 @@ let typingSpeakerId = null;
 let selectedFriendId = null;
 let friendConversationIndex = 0;
 let friendChatLoadingOlder = false;
+let friendCallController = null;
+let friendCallSnapshot = null;
 let playerProfile = loadPlayerProfile();
 let questOfferCharacterId = null;
 let lastPersonalQuestResult = null;
@@ -439,6 +444,61 @@ async function beginVoiceGame() {
     })
     : state;
   state = startGame(nextState);
+  render();
+}
+
+async function beginFriendCall() {
+  if (!selectedFriendId || friendCallController) return;
+  if (!accountController.signedIn) {
+    accountController.requireAuthentication("choice");
+    return;
+  }
+  const remaining = friendCallSecondsRemaining(progression, selectedFriendId, currentDateKey());
+  if (remaining <= 0) {
+    chatNotice = ui.friendCall.limitReached;
+    render();
+    return;
+  }
+  const personId = selectedFriendId;
+  friendCallSnapshot = { characterId: personId, phase: "idle", remainingSeconds: remaining, muted: false };
+  state = { ...state, phase: "friend-call" };
+  render();
+  await accountController.enqueueState().catch(() => {});
+  if (state.phase !== "friend-call" || selectedFriendId !== personId) return;
+  const controller = createFriendCallController({
+    characterId: personId,
+    locale,
+    remainingSeconds: remaining,
+    requestSecret: (payload) => accountController.api("/api/realtime/client-secret", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+    onUpdate(snapshot) {
+      friendCallSnapshot = snapshot;
+      if (state.phase === "friend-call") render();
+    },
+    onUsage({ characterId, dateKey, seconds }) {
+      saveProgression(recordFriendCallUsage(progression, characterId, seconds, dateKey ?? currentDateKey()));
+    },
+    onEnded(snapshot) {
+      friendCallSnapshot = snapshot;
+      if (snapshot.reason !== "daily_limit" || state.phase !== "friend-call") return;
+      friendCallController = null;
+      chatNotice = ui.friendCall.limitReached;
+      state = { ...state, phase: "friend-chat" };
+      render();
+    },
+  });
+  friendCallController = controller;
+  await controller.start();
+}
+
+function endFriendCall(reason = "user") {
+  friendCallController?.end(reason);
+  friendCallController = null;
+  friendCallSnapshot = null;
+  if (selectedFriendId) state = { ...state, phase: "friend-chat" };
+  else state = { ...state, phase: "friend-select" };
   render();
 }
 
@@ -1715,6 +1775,7 @@ function renderChat() {
 }
 
 function friendRoomBar(person) {
+  const remaining = friendCallSecondsRemaining(progression, person.id, currentDateKey());
   return `
     <header class="game-room-bar friend-room-bar">
       <button class="room-back" type="button" data-action="back-friends" aria-label="${ui.friendChatBack}" ${chatPending ? "disabled" : ""}>‹</button>
@@ -1723,6 +1784,9 @@ function friendRoomBar(person) {
         <strong>${person.name}</strong>
         <small>${chatPending ? ui.chatTypingPerson(person.name) : friendStatusLabel()} · ${crewLevelLabel(person.id)} · ${ui.affinity(progression.affinity[person.id])}</small>
       </div>
+      <button class="friend-call-start" type="button" data-action="start-friend-call" aria-label="${ui.friendCall.startAria(person.name, remaining)}" title="${ui.friendCall.start}">
+        <span aria-hidden="true">☎</span><small>${Math.floor(remaining / 60)}:${String(remaining % 60).padStart(2, "0")}</small>
+      </button>
       <button class="room-sound" type="button" data-audio-toggle aria-label="${ui.audioMute}"><span aria-hidden="true">♪</span></button>
       <button class="room-theme" type="button" data-action="cycle-theme" aria-label="${copy.meta.themeControl(copy.meta.themeModes[themeController?.read() ?? "system"])}">
         <span aria-hidden="true">${currentThemeIcon()}</span>
@@ -1777,6 +1841,59 @@ function renderFriendChat() {
           <small class="chat-limit">${ui.friendChatPrivacy} · ${ui.chatLength(MAX_CHAT_LENGTH)}</small>
         </form>
       </div>
+    </div>
+  `;
+}
+
+function renderFriendCall() {
+  const person = crewMember(selectedFriendId);
+  const call = friendCallSnapshot ?? {
+    phase: "idle",
+    remainingSeconds: friendCallSecondsRemaining(progression, person.id, currentDateKey()),
+    muted: false,
+    captionText: "",
+    playerTranscript: "",
+    error: null,
+  };
+  const remaining = Math.max(0, Number(call.remainingSeconds) || 0);
+  const clock = `${Math.floor(remaining / 60)}:${String(remaining % 60).padStart(2, "0")}`;
+  const status = ui.friendCall.status[call.phase] ?? ui.friendCall.status.connecting;
+  const isError = call.phase === "error";
+  const canText = Boolean(call.connected) && !["dialing", "requesting_permission", "error", "ended"].includes(call.phase);
+  return `
+    <div class="friend-call-view" data-call-phase="${call.phase}">
+      <header class="friend-call-header">
+        <button type="button" data-action="friend-call-end" aria-label="${ui.friendCall.end}">‹</button>
+        <div><strong>${ui.friendCall.title(person.name)}</strong><small>${ui.friendCall.dailyLimit}</small></div>
+        <span class="friend-call-clock" aria-label="${ui.friendCall.remaining(clock)}">${clock}</span>
+      </header>
+      <main class="friend-call-stage">
+        <div class="friend-call-avatar ${call.phase === "ai_speaking" ? "is-speaking" : ""} ${call.phase === "dialing" ? "is-ringing" : ""}">
+          ${personAvatar(person, "large")}
+          <span class="friend-call-signal" aria-hidden="true"></span>
+        </div>
+        <span class="friend-call-location">${ui.friendCall.location(person.name)}</span>
+        <h1 tabindex="-1">${person.name}</h1>
+        <p class="friend-call-status" role="status">${status}</p>
+        ${call.playerTranscript ? `<p class="friend-call-caption is-player">${escapeHtml(call.playerTranscript)}</p>` : ""}
+        ${call.captionText ? `<p class="friend-call-caption">${escapeHtml(call.captionText)}</p>` : ""}
+        ${isError ? `<p class="friend-call-error" role="alert">${ui.friendCall.error[call.error] ?? ui.friendCall.error.default}</p>` : ""}
+      </main>
+      <footer class="friend-call-controls">
+        <button type="button" class="friend-call-control" data-action="friend-call-mute" aria-pressed="${Boolean(call.muted)}" ${isError ? "disabled" : ""}>
+          <span aria-hidden="true">${call.muted ? "⊘" : "◉"}</span><small>${call.muted ? ui.friendCall.unmute : ui.friendCall.mute}</small>
+        </button>
+        <button type="button" class="friend-call-hangup" data-action="friend-call-end" aria-label="${ui.friendCall.end}"><span aria-hidden="true">⌕</span></button>
+        <span class="friend-call-control is-passive"><span aria-hidden="true">${call.phase === "player_speaking" ? "●" : "○"}</span><small>${ui.friendCall.micStatus[call.phase] ?? ui.friendCall.micStatus.listening}</small></span>
+      </footer>
+      ${canText ? `
+        <form class="friend-call-text" data-chat-stage="friend-call">
+          <label class="visually-hidden" for="friend-call-message">${ui.friendCall.textFallback}</label>
+          <input id="friend-call-message" name="message" maxlength="280" placeholder="${ui.friendCall.textPlaceholder}" autocomplete="off" />
+          <button type="submit" aria-label="${ui.chatSend}">↑</button>
+        </form>
+      ` : ""}
+      <small class="friend-call-privacy">${ui.friendCall.privacy}</small>
     </div>
   `;
 }
@@ -2640,6 +2757,7 @@ function render() {
     "voice-consent": renderVoiceConsent,
     "friend-select": renderFriendSelect,
     "friend-chat": renderFriendChat,
+    "friend-call": renderFriendCall,
     evidence: renderEvidence,
     meeting: renderMeeting,
     lie: renderDiscussion,
@@ -2654,8 +2772,10 @@ function render() {
   const phaseChanged = renderedPhase !== state.phase;
   document.body.dataset.phase = state.phase;
   document.body.dataset.playMode = playMode;
-  const voiceCallActive = playMode === "voice"
-    && (state.phase === "voice-consent" || voiceConsentBusy || Boolean(voiceController));
+  const voiceCallActive = (playMode === "voice"
+    && (state.phase === "voice-consent" || voiceConsentBusy || Boolean(voiceController)))
+    || state.phase === "friend-call"
+    || Boolean(friendCallController);
   soundController?.setSuppressed?.(voiceCallActive);
   app.dataset.phase = state.phase;
   app.innerHTML = `${views[state.phase]()}${renderCharacterArchive()}`;
@@ -2836,6 +2956,12 @@ app.addEventListener("click", (event) => {
     state = { ...state, phase: "friend-select" };
   }
   if (action === "choose-friend") openFriendChat(button.dataset.id);
+  if (action === "start-friend-call") return void beginFriendCall();
+  if (action === "friend-call-mute") {
+    friendCallController?.setMuted();
+    return;
+  }
+  if (action === "friend-call-end") return endFriendCall();
   if (action === "accept-personal-quest") {
     saveProgression(acceptPersonalQuest(progression, button.dataset.id, { date: currentDateKey() }));
     questOfferCharacterId = null;
@@ -2957,9 +3083,15 @@ app.addEventListener("submit", (event) => {
     return;
   }
   const form = event.target.closest(".chat-composer");
-  if (!form) return;
+  const friendCallForm = event.target.closest(".friend-call-text");
+  if (!form && !friendCallForm) return;
   event.preventDefault();
-  const message = new FormData(form).get("message");
+  const activeForm = form ?? friendCallForm;
+  const message = new FormData(activeForm).get("message");
+  if (activeForm.dataset.chatStage === "friend-call") {
+    if (friendCallController?.sendText(message)) activeForm.reset();
+    return;
+  }
   if (form.dataset.chatStage === "friend") handleFriendSubmit(message);
   else if (playMode === "voice" && form.dataset.inputMode === "voice-text") {
     handleVoiceDiscussionSubmit(form.dataset.chatStage, message, {
@@ -3029,6 +3161,9 @@ window.addEventListener("mars:auth-entered", () => {
 });
 
 window.addEventListener("mars:auth-required", (event) => {
+  friendCallController?.end("authentication");
+  friendCallController = null;
+  friendCallSnapshot = null;
   voiceController?.end();
   voiceController = null;
   playMode = "text";
@@ -3037,7 +3172,10 @@ window.addEventListener("mars:auth-required", (event) => {
   render();
 });
 
-window.addEventListener("pagehide", () => voiceController?.end(), { once: true });
+window.addEventListener("pagehide", () => {
+  voiceController?.end();
+  friendCallController?.end("pagehide");
+}, { once: true });
 
 void accountController.initialize();
 render();

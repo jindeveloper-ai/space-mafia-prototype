@@ -12,6 +12,7 @@ import os
 from pathlib import Path
 import socket
 import time
+from datetime import datetime, timedelta, timezone
 from urllib.parse import unquote
 
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
@@ -19,13 +20,13 @@ from fastapi.responses import FileResponse, JSONResponse
 import uvicorn
 
 try:
-    from .account_api import register_account_routes
+    from .account_api import AccountError, SupabaseBackend, register_account_routes
     from .multiplayer import AVATAR_IDS, RoomError, RoomManager
     from .multiplayer_ai import generate_ai_reply, interpret_message
     from .realtime import CREW_IDS as VOICE_CREW_IDS, RealtimeError, create_client_secret
     from .serve import MAX_BODY_BYTES, generate_chat, rate_limited, validate_payload
 except ImportError:  # Direct execution: python3 scripts/app.py
-    from account_api import register_account_routes
+    from account_api import AccountError, SupabaseBackend, register_account_routes
     from multiplayer import AVATAR_IDS, RoomError, RoomManager
     from multiplayer_ai import generate_ai_reply, interpret_message
     from realtime import CREW_IDS as VOICE_CREW_IDS, RealtimeError, create_client_secret
@@ -38,7 +39,9 @@ CREATE_LIMIT_PER_MINUTE = 8
 JOIN_LIMIT_PER_MINUTE = 24
 VOICE_TRANSCRIPTION_LIMIT_PER_MINUTE = 4
 VOICE_SPEECH_LIMIT_PER_MINUTE = 24
+VOICE_FRIEND_CALL_LIMIT_PER_MINUTE = 6
 ABUSE_BUCKETS: dict[tuple[str, str], deque[float]] = defaultdict(deque)
+ACCOUNT_BACKEND = SupabaseBackend()
 
 
 def safe_error(error: Exception) -> str:
@@ -261,19 +264,51 @@ async def realtime_client_secret(request: Request):
     purpose = payload.get("purpose")
     locale = payload.get("locale")
     speaker_id = payload.get("speakerId")
-    if purpose not in ("transcription", "speech") or locale not in ("ko", "en"):
+    if purpose not in ("transcription", "speech", "friend-call") or locale not in ("ko", "en"):
         return JSONResponse({"error": "invalid_request"}, status_code=400)
     if purpose == "transcription":
         speaker_id = None
         limit = VOICE_TRANSCRIPTION_LIMIT_PER_MINUTE
     elif speaker_id not in VOICE_CREW_IDS:
         return JSONResponse({"error": "invalid_request"}, status_code=400)
+    elif purpose == "friend-call":
+        limit = VOICE_FRIEND_CALL_LIMIT_PER_MINUTE
     else:
         limit = VOICE_SPEECH_LIMIT_PER_MINUTE
     if abuse_limited(f"voice:{purpose}", client_ip, limit):
         return JSONResponse({"error": "rate_limited"}, status_code=429)
+    context = None
+    if purpose == "friend-call":
+        try:
+            user = await ACCOUNT_BACKEND.verify(request)
+            snapshot = await ACCOUNT_BACKEND.snapshot(user)
+        except AccountError as error:
+            return JSONResponse({"error": error.code}, status_code=error.status)
+        offset = payload.get("timezoneOffsetMinutes", 0)
+        if not isinstance(offset, int) or not -840 <= offset <= 840:
+            return JSONResponse({"error": "invalid_request"}, status_code=400)
+        date_key = (datetime.now(timezone.utc) - timedelta(minutes=offset)).date().isoformat()
+        usage = snapshot.get("progression", {}).get("friendCallUsage", {}).get(speaker_id) or {}
+        used_seconds = int(usage.get("seconds", 0)) if usage.get("date") == date_key else 0
+        remaining_seconds = max(0, 300 - min(300, max(0, used_seconds)))
+        if remaining_seconds <= 0:
+            return JSONResponse({"error": "friend_call_daily_limit", "remainingSeconds": 0}, status_code=429)
+        context = {
+            "playerName": snapshot.get("profile", {}).get("name"),
+            "recentChat": snapshot.get("chats", {}).get(speaker_id, [])[-8:],
+            "lastMatch": snapshot.get("matches", [])[-1] if snapshot.get("matches") else None,
+        }
     try:
-        result = await asyncio.to_thread(create_client_secret, purpose, locale, speaker_id, client_ip)
+        result = await asyncio.to_thread(
+            create_client_secret,
+            purpose,
+            locale,
+            speaker_id,
+            client_ip,
+            context,
+        )
+        if purpose == "friend-call":
+            result.update({"remainingSeconds": remaining_seconds, "dateKey": date_key})
         return JSONResponse(result)
     except RealtimeError as error:
         return JSONResponse({"error": error.code}, status_code=error.status)

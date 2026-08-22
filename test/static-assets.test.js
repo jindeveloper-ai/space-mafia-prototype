@@ -11,12 +11,13 @@ async function readProjectFile(path) {
 }
 
 test("브라우저 에셋과 내부 모듈은 패키지 버전으로 캐시를 갱신한다", async () => {
-  const [indexHtml, bootstrapSource, gameSource, engineSource, voiceSource, packageSource] = await Promise.all([
+  const [indexHtml, bootstrapSource, gameSource, engineSource, voiceSource, friendCallSource, packageSource] = await Promise.all([
     readProjectFile("index.html"),
     readProjectFile("bootstrap.js"),
     readProjectFile("game.js"),
     readProjectFile("game-engine.js"),
     readProjectFile("voice-call.js"),
+    readProjectFile("friend-call.js"),
     readProjectFile("package.json"),
   ]);
   const { version } = JSON.parse(packageSource);
@@ -31,8 +32,11 @@ test("브라우저 에셋과 내부 모듈은 패키지 버전으로 캐시를 �
   assert.ok(gameSource.includes(`./chat-adapter.js?v=${version}`));
   assert.ok(gameSource.includes(`./progression.js?v=${version}`));
   assert.ok(gameSource.includes(`./voice-call.js?v=${version}`));
+  assert.ok(gameSource.includes(`./friend-call.js?v=${version}`));
   assert.ok(gameSource.includes(`./voice-turn.js?v=${version}`));
   assert.ok(voiceSource.includes(`./voice-call-core.js?v=${version}`));
+  assert.match(friendCallSource, /purpose: "friend-call"/);
+  assert.doesNotMatch(friendCallSource, /OPENAI_API_KEY|sk-[A-Za-z0-9_-]{20,}/);
   assert.ok(engineSource.includes(`./i18n.js?v=${version}`));
   assert.match(gameSource, /new URL\(import\.meta\.url\)\.searchParams\.get\("v"\)/);
   assert.match(indexHtml, /data-lang="ko"[^>]+href="\.\/\?lang=ko"/);

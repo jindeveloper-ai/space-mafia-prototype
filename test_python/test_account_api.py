@@ -80,6 +80,23 @@ class AccountDataTests(unittest.TestCase):
     def test_all_character_ids_are_stable(self):
         self.assertEqual(CREW_IDS, ("mina", "juno", "noel"))
 
+    def test_friend_call_usage_is_bounded_and_merged_without_rollback(self):
+        sanitized = sanitize_progression({
+            "version": 3,
+            "friendCallUsage": {
+                "mina": {"date": "2050-04-01", "seconds": 999},
+                "juno": {"date": "invalid", "seconds": 50},
+            },
+        })
+        self.assertEqual(sanitized["friendCallUsage"]["mina"], {"date": "2050-04-01", "seconds": 300})
+        self.assertIsNone(sanitized["friendCallUsage"]["juno"])
+
+        merged = merge_progression(
+            {"version": 3, "friendCallUsage": {"mina": {"date": "2050-04-01", "seconds": 200}}},
+            {"version": 3, "friendCallUsage": {"mina": {"date": "2050-04-02", "seconds": 10}}},
+        )
+        self.assertEqual(merged["friendCallUsage"]["mina"], {"date": "2050-04-02", "seconds": 10})
+
 
 class AccountConfigTests(unittest.TestCase):
     def test_public_config_is_disabled_without_environment(self):

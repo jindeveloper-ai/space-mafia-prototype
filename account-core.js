@@ -100,11 +100,22 @@ export function mergeProgression(localRaw, cloudRaw, normalizeProgression = (val
   const unlockedJobs = uniqueStrings([...(local?.unlockedJobs ?? []), ...(cloud?.unlockedJobs ?? [])], 10);
   const preferredActiveQuest = cloud?.activeQuest ?? local?.activeQuest ?? null;
   const equippedCandidate = cloud?.equippedJob ?? local?.equippedJob ?? null;
+  const friendCallUsage = Object.fromEntries(CREW_IDS.map((id) => {
+    const localEntry = local?.friendCallUsage?.[id];
+    const cloudEntry = cloud?.friendCallUsage?.[id];
+    if (!localEntry) return [id, cloudEntry ?? null];
+    if (!cloudEntry) return [id, localEntry];
+    if (localEntry.date === cloudEntry.date) {
+      return [id, { date: localEntry.date, seconds: Math.max(localEntry.seconds, cloudEntry.seconds) }];
+    }
+    return [id, localEntry.date > cloudEntry.date ? localEntry : cloudEntry];
+  }));
   return normalizeProgression({
     ...local,
     ...cloud,
     affinity: maxByCrew("affinity"),
     crewLevels: maxByCrew("crewLevels"),
+    friendCallUsage,
     leveledRoundIds: uniqueStrings([...(local?.leveledRoundIds ?? []), ...(cloud?.leveledRoundIds ?? [])], 100),
     activeQuest: preferredActiveQuest,
     rewardedQuestIds: uniqueStrings([...(local?.rewardedQuestIds ?? []), ...(cloud?.rewardedQuestIds ?? [])], 200),

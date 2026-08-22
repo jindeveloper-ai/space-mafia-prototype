@@ -2,7 +2,7 @@ import os
 import unittest
 from unittest.mock import patch
 
-from scripts.realtime import RealtimeError, _session_config, safety_identifier
+from scripts.realtime import RealtimeError, _session_config, safety_identifier, sanitize_friend_call_context
 
 
 class RealtimeConfigTests(unittest.TestCase):
@@ -39,6 +39,41 @@ class RealtimeConfigTests(unittest.TestCase):
         with self.assertRaises(RealtimeError) as context:
             _session_config("speech", "ko", "player")
         self.assertEqual(context.exception.status, 400)
+
+    def test_friend_call_is_one_semantic_vad_session_with_earth_mars_context(self):
+        session = _session_config("friend-call", "ko", "mina", {
+            "playerName": "수진",
+            "recentChat": [
+                {"sender": "player", "body": "어제 경기 기억나?"},
+                {"sender": "character", "body": "그 표는 좀 억울했음ㅋㅋ"},
+            ],
+            "lastMatch": {"outcome": "win", "accusedId": "juno", "stars": 2},
+        })
+        self.assertEqual(session["type"], "realtime")
+        self.assertEqual(session["audio"]["input"]["turn_detection"]["type"], "semantic_vad")
+        self.assertEqual(session["output_modalities"], ["audio"])
+        self.assertIn("still lives on Earth", session["instructions"])
+        self.assertIn("second-generation", session["instructions"])
+        self.assertIn("어제 경기 기억나?", session["instructions"])
+        self.assertNotIn("api_key", session)
+
+    def test_friend_call_context_is_bounded_and_structured(self):
+        context = sanitize_friend_call_context({
+            "playerName": "x" * 100,
+            "recentChat": [{"sender": "player", "body": str(index) * 300} for index in range(12)],
+            "lastMatch": {"outcome": "admin", "accusedId": "intruder", "stars": 99, "secret": "drop"},
+        }, "juno")
+        self.assertEqual(len(context["playerName"]), 12)
+        self.assertEqual(len(context["recentChat"]), 8)
+        self.assertLessEqual(max(len(item["body"]) for item in context["recentChat"]), 180)
+        self.assertEqual(context["lastMatch"], {
+            "outcome": None,
+            "evidenceTargetId": None,
+            "accusedId": None,
+            "claimId": None,
+            "stars": 3,
+        })
+        self.assertNotIn("secret", context["lastMatch"])
 
     def test_safety_identifier_is_stable_hash_without_raw_ip(self):
         with patch.dict(os.environ, {"OPENAI_SAFETY_SALT": "test-salt"}, clear=False):

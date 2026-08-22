@@ -6,12 +6,15 @@ import {
   createProgression,
   dismissCompletedQuest,
   evaluatePersonalQuest,
+  FRIEND_CALL_DAILY_SECONDS,
+  friendCallSecondsRemaining,
   INITIAL_CREW_LEVELS,
   isAttackAllowed,
   isPrivateDetectiveEquipped,
   localDateKey,
   markDebriefViewed,
   PRIVATE_DETECTIVE_ID,
+  recordFriendCallUsage,
   setEquippedJob,
   setDifficultyMode,
   settlePersonalQuest,
@@ -25,6 +28,18 @@ import {
 } from "../game-engine.js";
 
 const DATE = "2050-04-01";
+
+test("친구별 보이스톡은 하루 5분을 독립적으로 기록하고 다음 날짜에 초기화한다", () => {
+  let progress = createProgression();
+  progress = recordFriendCallUsage(progress, "mina", 125, DATE);
+  progress = recordFriendCallUsage(progress, "mina", 999, DATE);
+  assert.equal(friendCallSecondsRemaining(progress, "mina", DATE), 0);
+  assert.equal(friendCallSecondsRemaining(progress, "juno", DATE), FRIEND_CALL_DAILY_SECONDS);
+  assert.equal(friendCallSecondsRemaining(progress, "mina", "2050-04-02"), FRIEND_CALL_DAILY_SECONDS);
+
+  const protectedProgress = recordFriendCallUsage(progress, "mina", 10, "2050-03-31");
+  assert.deepEqual(protectedProgress.friendCallUsage.mina, { date: DATE, seconds: FRIEND_CALL_DAILY_SECONDS });
+});
 
 function resultState(overrides = {}) {
   return {

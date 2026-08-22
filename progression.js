@@ -1,6 +1,7 @@
 export const PROGRESSION_STORAGE_KEY = "mars-net-progression-v1";
-export const PROGRESSION_VERSION = 2;
+export const PROGRESSION_VERSION = 3;
 export const PRIVATE_DETECTIVE_ID = "private-detective";
+export const FRIEND_CALL_DAILY_SECONDS = 5 * 60;
 export const INITIAL_CREW_LEVELS = Object.freeze({ mina: 2, juno: 4, noel: 3 });
 
 const CREW_IDS = ["mina", "juno", "noel"];
@@ -34,6 +35,17 @@ function safeCrewLevels(raw) {
     id,
     Number.isFinite(raw?.[id]) ? Math.min(50, Math.max(1, Math.floor(raw[id]))) : INITIAL_CREW_LEVELS[id],
   ]));
+}
+
+function safeFriendCallUsage(raw) {
+  return Object.fromEntries(CREW_IDS.map((id) => {
+    const entry = raw?.[id];
+    const date = isDateKey(entry?.date) ? entry.date : null;
+    const seconds = Number.isFinite(entry?.seconds)
+      ? Math.min(FRIEND_CALL_DAILY_SECONDS, Math.max(0, Math.floor(entry.seconds)))
+      : 0;
+    return [id, date ? { date, seconds } : null];
+  }));
 }
 
 function safeActiveQuest(raw) {
@@ -79,7 +91,7 @@ function safeClues(raw) {
 }
 
 export function createProgression(raw = null) {
-  const source = raw && typeof raw === "object" && [1, PROGRESSION_VERSION].includes(raw.version) ? raw : {};
+  const source = raw && typeof raw === "object" && [1, 2, PROGRESSION_VERSION].includes(raw.version) ? raw : {};
   const clues = safeClues(source.clues);
   const unlockedJobs = uniqueStrings(source.unlockedJobs, (id) => id === PRIVATE_DETECTIVE_ID, 1);
   if (clues.length >= 5 && !unlockedJobs.includes(PRIVATE_DETECTIVE_ID)) unlockedJobs.push(PRIVATE_DETECTIVE_ID);
@@ -87,6 +99,7 @@ export function createProgression(raw = null) {
     version: PROGRESSION_VERSION,
     affinity: safeAffinity(source.affinity),
     crewLevels: safeCrewLevels(source.crewLevels),
+    friendCallUsage: safeFriendCallUsage(source.friendCallUsage),
     difficultyMode: DIFFICULTY_MODES.includes(source.difficultyMode) ? source.difficultyMode : "normal",
     leveledRoundIds: uniqueStrings(source.leveledRoundIds, (id) => id.length <= 100, 100),
     activeQuest: safeActiveQuest(source.activeQuest),
@@ -97,6 +110,31 @@ export function createProgression(raw = null) {
     equippedJob: source.equippedJob === PRIVATE_DETECTIVE_ID && unlockedJobs.includes(PRIVATE_DETECTIVE_ID)
       ? PRIVATE_DETECTIVE_ID
       : null,
+  };
+}
+
+export function friendCallSecondsRemaining(progress, characterId, date = localDateKey()) {
+  const current = createProgression(progress);
+  const entry = current.friendCallUsage[characterId];
+  const used = entry?.date === date ? entry.seconds : 0;
+  return Math.max(0, FRIEND_CALL_DAILY_SECONDS - used);
+}
+
+export function recordFriendCallUsage(progress, characterId, seconds, date = localDateKey()) {
+  const current = createProgression(progress);
+  if (!CREW_IDS.includes(characterId) || !isDateKey(date) || !Number.isFinite(seconds) || seconds <= 0) return current;
+  const previous = current.friendCallUsage[characterId];
+  if (previous?.date && previous.date > date) return current;
+  const used = previous?.date === date ? previous.seconds : 0;
+  return {
+    ...current,
+    friendCallUsage: {
+      ...current.friendCallUsage,
+      [characterId]: {
+        date,
+        seconds: Math.min(FRIEND_CALL_DAILY_SECONDS, used + Math.floor(seconds)),
+      },
+    },
   };
 }
 

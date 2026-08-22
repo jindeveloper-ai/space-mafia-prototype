@@ -84,6 +84,15 @@ def sanitize_progression(raw: Any) -> dict[str, Any]:
     source = raw if _is_dict(raw) else {}
     affinity = source.get("affinity") if _is_dict(source.get("affinity")) else {}
     levels = source.get("crewLevels") if _is_dict(source.get("crewLevels")) else {}
+    call_usage_source = source.get("friendCallUsage") if _is_dict(source.get("friendCallUsage")) else {}
+    friend_call_usage = {}
+    for crew_id in CREW_IDS:
+        entry = call_usage_source.get(crew_id) if _is_dict(call_usage_source.get(crew_id)) else {}
+        date = entry.get("date") if isinstance(entry.get("date"), str) and DATE_PATTERN.fullmatch(entry["date"]) else None
+        friend_call_usage[crew_id] = {
+            "date": date,
+            "seconds": _bounded_int(entry.get("seconds"), 0, 300, 0),
+        } if date else None
     clues = []
     for clue in source.get("clues", []) if isinstance(source.get("clues"), list) else []:
         if not _is_dict(clue) or not re.fullmatch(r"private-detective-[1-5]", str(clue.get("id", ""))):
@@ -107,9 +116,10 @@ def sanitize_progression(raw: Any) -> dict[str, Any]:
     unlocked_jobs = [job for job in _unique_strings(source.get("unlockedJobs"), 5) if job == "private-detective"]
     equipped = "private-detective" if source.get("equippedJob") == "private-detective" and unlocked_jobs else None
     return {
-        "version": 2,
+        "version": 3,
         "affinity": {crew_id: _bounded_int(affinity.get(crew_id), 0, 999, 0) for crew_id in CREW_IDS},
         "crewLevels": {crew_id: _bounded_int(levels.get(crew_id), 1, 50, {"mina": 2, "juno": 4, "noel": 3}[crew_id]) for crew_id in CREW_IDS},
+        "friendCallUsage": friend_call_usage,
         "difficultyMode": "hard" if source.get("difficultyMode") == "hard" else "normal",
         "leveledRoundIds": _unique_strings(source.get("leveledRoundIds"), 100),
         "activeQuest": active_quest,
@@ -183,11 +193,27 @@ def merge_progression(local_raw: Any, cloud_raw: Any) -> dict[str, Any]:
     clues = {item["id"]: item for item in [*local["clues"], *cloud["clues"]]}
     unlocked = list(dict.fromkeys([*local["unlockedJobs"], *cloud["unlockedJobs"]]))
     equipped_candidate = cloud.get("equippedJob") or local.get("equippedJob")
+    friend_call_usage = {}
+    for crew_id in CREW_IDS:
+        local_entry = local["friendCallUsage"].get(crew_id)
+        cloud_entry = cloud["friendCallUsage"].get(crew_id)
+        if not local_entry:
+            friend_call_usage[crew_id] = cloud_entry
+        elif not cloud_entry:
+            friend_call_usage[crew_id] = local_entry
+        elif local_entry["date"] == cloud_entry["date"]:
+            friend_call_usage[crew_id] = {
+                "date": local_entry["date"],
+                "seconds": max(local_entry["seconds"], cloud_entry["seconds"]),
+            }
+        else:
+            friend_call_usage[crew_id] = local_entry if local_entry["date"] > cloud_entry["date"] else cloud_entry
     merged = {
         **local,
         **cloud,
         "affinity": {crew_id: max(local["affinity"][crew_id], cloud["affinity"][crew_id]) for crew_id in CREW_IDS},
         "crewLevels": {crew_id: max(local["crewLevels"][crew_id], cloud["crewLevels"][crew_id]) for crew_id in CREW_IDS},
+        "friendCallUsage": friend_call_usage,
         "leveledRoundIds": list(dict.fromkeys([*local["leveledRoundIds"], *cloud["leveledRoundIds"]]))[-100:],
         "activeQuest": cloud.get("activeQuest") or local.get("activeQuest"),
         "rewardedQuestIds": list(dict.fromkeys([*local["rewardedQuestIds"], *cloud["rewardedQuestIds"]]))[-200:],

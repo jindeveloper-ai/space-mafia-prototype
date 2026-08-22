@@ -43,6 +43,22 @@ test("cloud active quest wins while an equipped job must be unlocked", () => {
   assert.equal(merged.progression.equippedJob, null);
 });
 
+test("friend call usage merge keeps the latest day and the greatest same-day usage", () => {
+  const sameDay = mergeProgression(
+    createProgression({ version: 3, friendCallUsage: { mina: { date: "2050-04-01", seconds: 80 } } }),
+    createProgression({ version: 3, friendCallUsage: { mina: { date: "2050-04-01", seconds: 120 } } }),
+    createProgression,
+  );
+  assert.deepEqual(sameDay.friendCallUsage.mina, { date: "2050-04-01", seconds: 120 });
+
+  const laterDay = mergeProgression(
+    sameDay,
+    createProgression({ version: 3, friendCallUsage: { mina: { date: "2050-04-03", seconds: 20 } } }),
+    createProgression,
+  );
+  assert.deepEqual(laterDay.friendCallUsage.mina, { date: "2050-04-03", seconds: 20 });
+});
+
 test("chat and match sanitizers deduplicate stable client identifiers", () => {
   const chats = sanitizeChats({ mina: [
     { id: "m1", sender: "player", body: "first", createdAt: "2026-08-22T01:00:00Z" },
@@ -72,7 +88,7 @@ test("match record contains only structured engine output", () => {
     selectedId: "noel",
     voteShiftCount: 2,
     votes: [{ voterId: "mina", candidateId: "noel", reason: "not persisted" }],
-  }, "0.18.8");
+  }, "0.19.0");
   assert.equal(record.stars, 3);
   assert.deepEqual(record.votes, [{ voterId: "mina", candidateId: "noel" }]);
   assert.equal("reason" in record.votes[0], false);

@@ -132,6 +132,14 @@ test("Realtime 엔드포인트는 키 없음·잘못된 화자·호출 상한을
     assert.deepEqual(await unavailable.json(), { error: "voice_unavailable" });
     const invalidSpeaker = await secretRequest(noKey.baseUrl, { purpose: "speech", locale: "ko", speakerId: "player" });
     assert.equal(invalidSpeaker.status, 400);
+    const unauthenticatedFriendCall = await secretRequest(noKey.baseUrl, {
+      purpose: "friend-call",
+      locale: "ko",
+      speakerId: "mina",
+      timezoneOffsetMinutes: -540,
+    });
+    assert.equal(unauthenticatedFriendCall.status, 503);
+    assert.deepEqual(await unauthenticatedFriendCall.json(), { error: "account_service_unavailable" });
   } finally {
     await stopApp(noKey.child);
   }
