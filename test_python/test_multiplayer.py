@@ -13,7 +13,7 @@ from unittest.mock import patch
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT / "scripts"))
 
-from multiplayer import RoomError, RoomManager, apply_interpretation, resolve_result  # noqa: E402
+from multiplayer import RoomError, RoomManager, apply_interpretation, public_fact_text, resolve_result  # noqa: E402
 import multiplayer_ai  # noqa: E402
 from multiplayer_ai import generate_ai_reply, interpret_message  # noqa: E402
 
@@ -94,6 +94,19 @@ class MultiplayerEngineTests(unittest.TestCase):
         citizen = room.citizen
         self.assertEqual(self.manager.snapshot(room, mafia)["privateAction"]["type"], "plant_evidence")
         self.assertNotIn("privateAction", self.manager.snapshot(room, citizen))
+
+    def test_korean_public_facts_use_natural_topic_particles(self):
+        room, first, second = self.start_round()
+        self.manager.acknowledge_role(room, first, **self.action(room))
+        self.manager.acknowledge_role(room, second, **self.action(room))
+        target = next(participant_id for participant_id in room.participant_ids if participant_id != room.mafia.id)
+        self.manager.plant_evidence(room, room.mafia, target_id=target, **self.action(room))
+
+        facts = " ".join(item["text"] for item in room.public_facts)
+        self.assertNotIn("은(는)", facts)
+        self.assertIn("미나는", public_fact_text("ko", "alibi", "미나"))
+        self.assertIn("주노는", public_fact_text("ko", "contradiction", "주노"))
+        self.assertIn("노엘은", public_fact_text("ko", "alibi", "노엘"))
 
     def test_only_citizen_votes_and_three_vote_outcomes(self):
         room, _, _ = self.open_chat()
@@ -193,6 +206,9 @@ class MultiplayerEngineTests(unittest.TestCase):
         self.assertEqual(interpretation_calls, 0)
         self.assertEqual(len(replies), 2)
         self.assertTrue(all(message and count == 0 for message, count in replies))
+        korean_fallbacks = multiplayer_ai.FALLBACK_REPLIES["ko"]
+        self.assertIn("기록이랑", korean_fallbacks["mina"])
+        self.assertIn("반응 바뀐 거", korean_fallbacks["noel"])
 
     def test_live_message_uses_exactly_three_model_requests(self):
         room, first, _ = self.open_chat(locale="en")

@@ -24,9 +24,9 @@ RAPID_DUPLICATE_SECONDS = 3
 
 PUBLIC_FACT_TEMPLATES = {
     "ko": {
-        "alibi": "{name}은(는) 22:10 화성 표준시에 조종실 카메라에 찍혔습니다.",
+        "alibi": "{subject} 22:10 화성 표준시에 조종실 카메라에 찍혔습니다.",
         "access": "{name}의 주머니에서 산소실 전용 공구가 나왔습니다.",
-        "contradiction": "{name}은(는) 사건 시간을 두 번 다르게 말했습니다.",
+        "contradiction": "{subject} 사건 시간을 두 번 다르게 말했습니다.",
         "evidence": "{name}의 사물함에서 망가진 출입카드가 나왔습니다.",
     },
     "en": {
@@ -36,6 +36,22 @@ PUBLIC_FACT_TEMPLATES = {
         "evidence": "A broken access card was found in {name}'s locker.",
     },
 }
+
+
+def with_korean_topic(name: str) -> str:
+    """Attach 은/는 to a display name without exposing a placeholder to players."""
+    if not name:
+        return name
+    final = ord(name[-1])
+    has_batchim = 0xAC00 <= final <= 0xD7A3 and (final - 0xAC00) % 28 != 0
+    return f"{name}{'은' if has_batchim else '는'}"
+
+
+def public_fact_text(locale: str, fact_type: str, name: str) -> str:
+    return PUBLIC_FACT_TEMPLATES[locale][fact_type].format(
+        name=name,
+        subject=with_korean_topic(name) if locale == "ko" else name,
+    )
 
 
 class RoomError(ValueError):
@@ -449,19 +465,22 @@ class RoomManager:
             room.evidence_target_id = str(target_id)
             fact_types = ("alibi", "access", "contradiction")
             names = self._display_names(room)
-            locale_copy = PUBLIC_FACT_TEMPLATES[room.locale]
             room.public_facts = [
                 {
                     "participantId": participant_id,
                     "type": fact_types[index % len(fact_types)],
-                    "text": locale_copy[fact_types[index % len(fact_types)]].format(name=names[participant_id]),
+                    "text": public_fact_text(
+                        room.locale,
+                        fact_types[index % len(fact_types)],
+                        names[participant_id],
+                    ),
                 }
                 for index, participant_id in enumerate(room.participant_ids)
             ]
             room.public_facts.append({
                 "participantId": room.evidence_target_id,
                 "type": "evidence",
-                "text": locale_copy["evidence"].format(name=names[room.evidence_target_id]),
+                "text": public_fact_text(room.locale, "evidence", names[room.evidence_target_id]),
             })
             room.phase = "facts"
             self._event(room, "evidence_revealed", {"targetId": room.evidence_target_id})

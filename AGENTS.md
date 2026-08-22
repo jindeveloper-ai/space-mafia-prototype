@@ -34,4 +34,6 @@
   never skip tests or security checks to save tokens.
 - Keep reports in outcome, cause, change, validation order. Prefer small module
   extractions that preserve one-way dependencies and a single owner for state.
+- Call the Figma MCP only for tasks that materially change or inspect UI/UX;
+  do not call it for gameplay logic, copy-only edits, tests, validation, or deployment.
 <!-- END CODEX TOKEN-EFFICIENT DEVELOPMENT -->

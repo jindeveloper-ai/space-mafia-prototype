@@ -24,9 +24,9 @@ AI_NAMES = {
 
 FALLBACK_REPLIES = {
     "ko": {
-        "mina": "잠깐, 지금 나온 기록랑 같이 놓고 보면 그렇게 바로 확정할 건 아닌 듯.",
+        "mina": "잠깐, 지금 나온 기록이랑 같이 놓고 보면 그렇게 바로 확정할 건 아닌 듯.",
         "juno": "그 가능성은 있음. 근데 반대로 설명되는 경우도 하나는 남아 있어.",
-        "noel": "방금 그 말 나오고 반응 바뀌 거 봤지? 일단 조금 더 보자.",
+        "noel": "방금 그 말 나오고 반응 바뀐 거 봤지? 일단 조금 더 보자.",
     },
     "en": {
         "mina": "hold on, that does not line up cleanly enough with the record to call it yet.",

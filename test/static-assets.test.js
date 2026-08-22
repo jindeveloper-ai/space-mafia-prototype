@@ -233,11 +233,8 @@ test("캐릭터 프로필은 익명 게시글·흑역사와 세션 댓글을 연
   assert.match(gameSource, /return void beginFriendCall\(\)/);
   assert.match(gameSource, /function closeCharacterArchive/);
   assert.match(gameSource, /document\.getElementById\(returnFocusId\)\?\.focus/);
-  assert.match(gameSource, /class="home-history-row /);
-  assert.match(gameSource, /class="home-history-row__chat"/);
   assert.match(gameSource, /class="friend-row" role="listitem"/);
   assert.match(gameSource, /class="friend-row__chat"/);
-  assert.doesNotMatch(gameSource, /<button class="home-history-row /);
   assert.doesNotMatch(gameSource, /<button class="friend-row"/);
   assert.match(gameSource, /class="archive-comment-form"/);
   assert.match(gameSource, /archiveSessionComments/);
@@ -375,9 +372,12 @@ test("생성형 미디어는 상황·대화 상대와 함께 판정되고 로컬
 });
 
 test("첫 화면·프로필·홈과 캐릭터 프로필 이미지는 브라우저 로컬 흐름으로 연결된다", async () => {
-  const [gameSource, styles, ...images] = await Promise.all([
+  const [gameSource, styles, navGame, navChat, navMe, ...images] = await Promise.all([
     readProjectFile("game.js"),
     readProjectFile("styles.css"),
+    readProjectFile("assets/icons/nav-game.svg"),
+    readProjectFile("assets/icons/nav-chat.svg"),
+    readProjectFile("assets/icons/nav-me.svg"),
     ...["mafia-astronaut-v2.png", "mina.png", "juno.png", "noel.png"]
       .map((name) => readFile(new URL(`assets/images/${name}`, projectRoot))),
   ]);
@@ -393,13 +393,21 @@ test("첫 화면·프로필·홈과 캐릭터 프로필 이미지는 브라우�
   assert.match(gameSource, /phase: "home"/);
   assert.match(gameSource, /class="home-screen"/);
   assert.match(gameSource, /homePlayTitle/);
-  assert.match(gameSource, /homeChatTitle/);
+  assert.match(gameSource, /class="app-bottom-nav"/);
+  assert.match(gameSource, /action: "nav-game"/);
+  assert.match(gameSource, /action: "nav-chat"/);
+  assert.match(gameSource, /action: "nav-me"/);
+  assert.match(gameSource, /data-action="\$\{item\.action\}"/);
   assert.match(gameSource, /data-action="get-started"[\s\S]+phase: playerProfile\.name \? "intro" : "profile"/);
   assert.match(gameSource, /class="home-action is-primary"[^>]+data-action="open-tutorial"/);
   assert.match(gameSource, /class="game-mode-choice"[\s\S]+data-action="start"/);
-  assert.match(gameSource, /savePlayerProfile[\s\S]+phase: "intro"/);
+  assert.match(gameSource, /hadExistingProfile[\s\S]+phase: hadExistingProfile \? "home" : "intro"/);
+  assert.match(gameSource, /function beginTextGame\(\)[\s\S]+selectedTargetId = null;[\s\S]+state = startGame/);
+  assert.match(gameSource, /async function beginVoiceGame\(\)[\s\S]+selectedTargetId = null;[\s\S]+state = startGame/);
   assert.match(styles, /\.welcome-screen/);
   assert.match(styles, /\.home-actions/);
+  assert.match(styles, /\.app-bottom-nav__item\.is-active/);
+  assert.ok([navGame, navChat, navMe].every((icon) => icon.includes("<svg")));
   assert.ok(images.every((image) => image.byteLength > 20_000));
 });
 

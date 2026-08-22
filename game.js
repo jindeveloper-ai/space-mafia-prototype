@@ -19,15 +19,15 @@ import {
   plantEvidence,
   resolveVote,
   startGame,
-} from "./game-engine.js?v=0.19.1";
-import { getCopy, normalizeLocale } from "./i18n.js?v=0.19.1";
+} from "./game-engine.js?v=0.20.0";
+import { getCopy, normalizeLocale } from "./i18n.js?v=0.20.0";
 import {
   buildChatPayload,
   fallbackAccusation,
   fallbackResponse,
   MAX_CHAT_LENGTH,
   normalizeInterpretation,
-} from "./chat-adapter.js?v=0.19.1";
+} from "./chat-adapter.js?v=0.20.0";
 import {
   acceptPersonalQuest,
   awardCrewLevels,
@@ -44,17 +44,17 @@ import {
   setEquippedJob,
   setDifficultyMode,
   settlePersonalQuest,
-} from "./progression.js?v=0.19.1";
-import { accountController, createMutationId } from "./account-client.js?v=0.19.1";
-import { createVoiceCallController } from "./voice-call.js?v=0.19.1";
-import { createFriendCallController } from "./friend-call.js?v=0.19.1";
+} from "./progression.js?v=0.20.0";
+import { accountController, createMutationId } from "./account-client.js?v=0.20.0";
+import { createVoiceCallController } from "./voice-call.js?v=0.20.0";
+import { createFriendCallController } from "./friend-call.js?v=0.20.0";
 import {
   beginVoiceTurnFinalization,
   createVoiceTurn,
   expireVoiceTurn,
   recordVoiceTurnCandidate,
   voiceTurnSecondsLeft,
-} from "./voice-turn.js?v=0.19.1";
+} from "./voice-turn.js?v=0.20.0";
 
 const app = document.querySelector("#app");
 const assetVersion = new URL(import.meta.url).searchParams.get("v");
@@ -433,6 +433,7 @@ async function beginVoiceGame() {
   detectiveInspection = null;
   lastPersonalQuestResult = null;
   lastClueAward = null;
+  selectedTargetId = null;
   const nextState = state.targetId || state.outcome
     ? createGame({
       caseIndex: nextCaseIndex(state.caseIndex),
@@ -510,6 +511,7 @@ function beginTextGame() {
   detectiveInspection = null;
   lastPersonalQuestResult = null;
   lastClueAward = null;
+  selectedTargetId = null;
   const nextState = state.targetId || state.outcome
     ? createGame({
       caseIndex: nextCaseIndex(state.caseIndex),
@@ -1049,10 +1051,11 @@ function renderAuthGate() {
 }
 
 function renderProfileSetup() {
+  const existingProfile = Boolean(playerProfile.name);
   return `
     <section class="profile-screen">
       ${screenAudioControl()}
-      <button class="plain-back" type="button" data-action="back-welcome" aria-label="${ui.profileBack}">‹</button>
+      <button class="plain-back" type="button" data-action="${existingProfile ? "nav-game" : "back-welcome"}" aria-label="${existingProfile ? ui.homeBack : ui.profileBack}">‹</button>
       <div class="profile-copy">
         <span>${ui.profileStep}</span>
         <h1 tabindex="-1">${ui.profileTitle}</h1>
@@ -1073,22 +1076,8 @@ function renderProfileSetup() {
         <button class="welcome-start" type="submit">${ui.profileContinue}</button>
         <small class="profile-privacy">${ui.profilePrivacy}</small>
       </form>
+      ${existingProfile ? '<div class="profile-account"><mars-account-control></mars-account-control></div>' : ""}
     </section>
-  `;
-}
-
-function homeHistoryRow(person, index) {
-  const latestMessage = accountController.latestChat(person.id);
-  const preview = latestMessage?.body ?? ui.homeHistoryPreview[person.personality];
-  return `
-    <div class="home-history-row ${index === 1 ? "is-featured" : ""}">
-      ${characterProfileButton(person, "small", `home-${person.id}`)}
-      <button class="home-history-row__chat" type="button" data-action="choose-friend" data-id="${person.id}" aria-label="${ui.friendChatWith(person.name)}">
-        <span><strong>${person.name} <small class="level-badge">${crewLevelLabel(person.id)}</small></strong><small>${escapeHtml(preview)}</small></span>
-        <time>${ui.homeHistoryTime[index]}</time>
-        <span aria-hidden="true">›</span>
-      </button>
-    </div>
   `;
 }
 
@@ -1236,35 +1225,54 @@ function renderHome() {
     <section class="home-screen">
       <header class="home-header">
         <button class="home-menu" type="button" data-action="open-tutorial" aria-label="${ui.homeTutorial}"></button>
-        <p><small>${ui.homeGreeting}</small><strong>${ui.homeHello(name)}</strong></p>
+        <strong class="home-brand">MARS.NET</strong>
         <button class="home-sound" type="button" data-audio-toggle aria-label="${ui.audioMute}"><span aria-hidden="true">♪</span></button>
-        <button class="home-profile" type="button" data-action="edit-profile" aria-label="${ui.homeEditProfile}">${profileAvatar("small")}</button>
       </header>
 
-      <mars-account-control></mars-account-control>
-
       <div class="home-hero">
+        <span>2050 · MARS.NET</span>
+        <small>${ui.homeHello(name)}</small>
         <h1 tabindex="-1">${ui.homeTitle}</h1>
-        <button class="home-search" type="button" data-action="open-friends"><span aria-hidden="true">⌕</span>${ui.homeSearch}</button>
       </div>
 
       <div class="home-actions">
         <button class="home-action is-primary" type="button" data-action="open-tutorial">
-          <span>${ui.homePlayEyebrow}</span><strong>${ui.homePlayTitle}</strong><small>${ui.homePlayLead}</small><b aria-hidden="true">↗</b>
-        </button>
-        <button class="home-action" type="button" data-action="open-friends">
-          <span>${ui.homeChatEyebrow}</span><strong>${ui.homeChatTitle}</strong><small>${ui.homeChatLead}</small><b aria-hidden="true">↗</b>
+          <span>${ui.homePlayEyebrow}</span>
+          <strong>${ui.homePlayTitle}</strong>
+          <small>${ui.homePlayLead}</small>
+          <span class="home-crew-stack" aria-hidden="true">${crew.map((person) => `<img src="${CREW_AVATARS[person.id]}" alt="" />`).join("")}</span>
+          <b aria-hidden="true">→</b>
         </button>
         <button class="home-action is-multiplayer" type="button" data-action="open-multiplayer">
-          <span>${ui.homeMultiplayerEyebrow}</span><strong>${ui.homeMultiplayerTitle}</strong><small>${ui.homeMultiplayerLead}</small><b aria-hidden="true">↗</b>
+          <span>${ui.homeMultiplayerEyebrow}</span>
+          <strong>${ui.homeMultiplayerTitle}</strong>
+          <small>${ui.homeMultiplayerLead}</small>
+          <b aria-hidden="true">›</b>
         </button>
       </div>
-
-      <section class="home-history" aria-label="${ui.homeHistory}">
-        <div class="home-history__heading"><h2>${ui.homeHistory}</h2><button type="button" data-action="open-friends">${ui.homeSeeAll}</button></div>
-        ${crew.map(homeHistoryRow).join("")}
-      </section>
     </section>
+  `;
+}
+
+function renderBottomNavigation() {
+  const topLevelPhases = new Set(["home", "intro", "friend-select", "profile"]);
+  if (!playerProfile.name || !topLevelPhases.has(state.phase)) return "";
+  const active = state.phase === "friend-select" ? "chat" : state.phase === "profile" ? "me" : "game";
+  const iconVersion = encodeURIComponent(assetVersion ?? "dev");
+  const items = [
+    { id: "game", action: "nav-game", label: ui.bottomNav.game, icon: "nav-game.svg" },
+    { id: "chat", action: "nav-chat", label: ui.bottomNav.chat, icon: "nav-chat.svg" },
+    { id: "me", action: "nav-me", label: ui.bottomNav.me, icon: "nav-me.svg" },
+  ];
+  return `
+    <nav class="app-bottom-nav" aria-label="${ui.bottomNav.aria}">
+      ${items.map((item) => `
+        <button class="app-bottom-nav__item ${active === item.id ? "is-active" : ""}" type="button" data-action="${item.action}" ${active === item.id ? 'aria-current="page"' : ""}>
+          <span><img src="./assets/icons/${item.icon}?v=${iconVersion}" alt="" /></span>
+          <small>${item.label}</small>
+        </button>
+      `).join("")}
+    </nav>
   `;
 }
 
@@ -2788,7 +2796,7 @@ function render() {
     || Boolean(friendCallController);
   soundController?.setSuppressed?.(voiceCallActive);
   app.dataset.phase = state.phase;
-  app.innerHTML = `${views[state.phase]()}${renderCharacterArchive()}`;
+  app.innerHTML = `${views[state.phase]()}${renderBottomNavigation()}${renderCharacterArchive()}`;
   if (phaseChanged) {
     window.scrollTo(0, 0);
     app.querySelector("h1")?.focus({ preventScroll: true });
@@ -2941,6 +2949,9 @@ app.addEventListener("click", (event) => {
     state = { ...state, phase: "welcome" };
   }
   if (action === "edit-profile") state = { ...state, phase: "profile" };
+  if (action === "nav-game") state = { ...state, phase: "home" };
+  if (action === "nav-chat") state = { ...state, phase: "friend-select" };
+  if (action === "nav-me") state = { ...state, phase: "profile" };
   if (action === "go-home") {
     clearVoiceTurn();
     voiceController?.end();
@@ -3100,8 +3111,9 @@ app.addEventListener("submit", (event) => {
     event.preventDefault();
     const name = String(new FormData(profileForm).get("name") ?? "").trim().slice(0, 12);
     if (!name) return profileForm.querySelector("#profile-name-input")?.focus();
+    const hadExistingProfile = Boolean(playerProfile.name);
     savePlayerProfile({ name, avatar: playerProfile.avatar });
-    state = { ...state, phase: "intro" };
+    state = { ...state, phase: hadExistingProfile ? "home" : "intro" };
     render();
     return;
   }
