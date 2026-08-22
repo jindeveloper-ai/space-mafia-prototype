@@ -76,12 +76,13 @@ test("보이스콜 모드는 Figma 통화 구조·접근성·안전한 임시 �
     readProjectFile("sound.js"),
   ]);
 
-  assert.match(gameSource, /data-action="start"[^>]*>\$\{ui\.voice\.playText\}/);
-  assert.match(gameSource, /data-action="start-voice"[^>]*>\$\{ui\.voice\.playVoice\}/);
+  assert.match(gameSource, /data-action="start"[\s\S]+?\$\{ui\.voice\.playText\}/);
+  assert.match(gameSource, /data-action="start-voice"[\s\S]+?\$\{ui\.voice\.playVoice\}/);
   assert.match(gameSource, /function renderVoiceConsent/);
   assert.match(gameSource, /class="voice-active-avatar"/);
   assert.match(gameSource, /class="voice-secondary-avatars"/);
   assert.match(gameSource, /data-action="voice-toggle-mute"/);
+  assert.match(gameSource, /data-action="voice-toggle-talk"/);
   assert.match(gameSource, /data-action="voice-toggle-pause"/);
   assert.match(gameSource, /data-action="voice-toggle-captions"/);
   assert.match(gameSource, /data-action="voice-end"/);
@@ -90,6 +91,11 @@ test("보이스콜 모드는 Figma 통화 구조·접근성·안전한 임시 �
   assert.match(voiceSource, /\/api\/realtime\/client-secret/);
   assert.match(voiceSource, /conversation\.item\.input_audio_transcription\.completed/);
   assert.match(voiceSource, /input_audio_buffer\.speech_started/);
+  assert.match(voiceSource, /"input_audio_buffer\.commit"/);
+  assert.match(gameSource, /async function speakVoiceOpening/);
+  assert.match(gameSource, /function switchVoiceGameToText/);
+  assert.match(gameSource, /function endVoiceGame/);
+  assert.doesNotMatch(gameSource, /onFallback\(\) \{\s*playMode = "text"/);
   assert.match(voiceSource, /type: "response\.cancel"/);
   assert.match(voiceSource, /type: "output_audio_buffer\.clear"/);
   assert.match(coreSource, /completedIds\.has\(utteranceId\)/);
@@ -353,7 +359,7 @@ test("첫 화면·프로필·홈과 캐릭터 프로필 이미지는 브라우�
   assert.match(gameSource, /homeChatTitle/);
   assert.match(gameSource, /data-action="get-started"[\s\S]+phase: playerProfile\.name \? "intro" : "profile"/);
   assert.match(gameSource, /class="home-action is-primary"[^>]+data-action="open-tutorial"/);
-  assert.match(gameSource, /class="intro-actions"[\s\S]+data-action="start"/);
+  assert.match(gameSource, /class="game-mode-choice"[\s\S]+data-action="start"/);
   assert.match(gameSource, /savePlayerProfile[\s\S]+phase: "intro"/);
   assert.match(styles, /\.welcome-screen/);
   assert.match(styles, /\.home-actions/);

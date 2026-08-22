@@ -28,6 +28,6 @@ repos:
     hooks:
       - id: node-syntax-check
         name: node syntax check
-        entry: scripts/node-syntax-check
+        entry: node --check
         language: system
         files: \.(js|mjs|cjs)$

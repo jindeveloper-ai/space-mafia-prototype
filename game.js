@@ -19,15 +19,15 @@ import {
   plantEvidence,
   resolveVote,
   startGame,
-} from "./game-engine.js?v=0.17.2";
-import { getCopy, normalizeLocale } from "./i18n.js?v=0.17.2";
+} from "./game-engine.js?v=0.17.3";
+import { getCopy, normalizeLocale } from "./i18n.js?v=0.17.3";
 import {
   buildChatPayload,
   fallbackAccusation,
   fallbackResponse,
   MAX_CHAT_LENGTH,
   normalizeInterpretation,
-} from "./chat-adapter.js?v=0.17.2";
+} from "./chat-adapter.js?v=0.17.3";
 import {
   acceptPersonalQuest,
   awardCrewLevels,
@@ -42,9 +42,9 @@ import {
   setEquippedJob,
   setDifficultyMode,
   settlePersonalQuest,
-} from "./progression.js?v=0.17.2";
-import { accountController, createMutationId } from "./account-client.js?v=0.17.2";
-import { createVoiceCallController } from "./voice-call.js?v=0.17.2";
+} from "./progression.js?v=0.17.3";
+import { accountController, createMutationId } from "./account-client.js?v=0.17.3";
+import { createVoiceCallController } from "./voice-call.js?v=0.17.3";
 
 const app = document.querySelector("#app");
 const assetVersion = new URL(import.meta.url).searchParams.get("v");
@@ -212,6 +212,7 @@ let playMode = "text";
 let voiceController = null;
 let voiceConsentBusy = false;
 let voiceFallbackNotice = null;
+const voicedOpeningKeys = new Set();
 const archiveSessionComments = Object.create(null);
 const archivePendingReplies = Object.create(null);
 const shownContextMedia = new Set();
@@ -257,9 +258,7 @@ function createRoundVoiceController() {
       await handleChatSubmit(stage, utterance.text, { inputMode: "voice", utteranceId: utterance.id });
     },
     onFallback() {
-      playMode = "text";
       voiceFallbackNotice = ui.voice.fallbackNotice;
-      if (state.phase === "voice-consent") state = { ...state, phase: "intro" };
       render();
     },
     onMetrics(metrics) {
@@ -267,6 +266,54 @@ function createRoundVoiceController() {
     },
   });
   return voiceController;
+}
+
+async function speakVoiceOpening(controller) {
+  const openingKey = `${state.roundId ?? state.caseIndex}:accusation`;
+  if (voicedOpeningKeys.has(openingKey) || controller !== voiceController) return;
+  const statements = getMeetingStatements(state);
+  const opening = statements[state.caseIndex % Math.max(1, statements.length)];
+  if (!opening) return;
+  try {
+    const spoken = await controller.speak(opening.id, opening.text);
+    if (spoken.completed) voicedOpeningKeys.add(openingKey);
+  } catch {
+    controller.end({ fallback: true });
+    voiceFallbackNotice = ui.voice.fallbackNotice;
+    render();
+  }
+}
+
+async function reconnectVoiceGame() {
+  voiceFallbackNotice = null;
+  const controller = createRoundVoiceController();
+  render();
+  if (!await controller.prepare()) return;
+  if (!await controller.connect()) return;
+  await speakVoiceOpening(controller);
+  render();
+}
+
+function switchVoiceGameToText() {
+  voiceController?.end({ fallback: true });
+  voiceController = null;
+  playMode = "text";
+  voiceFallbackNotice = null;
+  chatNotice = ui.voice.switchedToText;
+  render();
+}
+
+function endVoiceGame() {
+  voiceController?.end();
+  voiceController = null;
+  playMode = "text";
+  voiceFallbackNotice = null;
+  chatLog = [];
+  chatPending = false;
+  chatNotice = null;
+  typingSpeakerId = null;
+  state = { ...state, phase: "intro" };
+  render();
 }
 
 async function beginVoiceGame() {
@@ -277,7 +324,10 @@ async function beginVoiceGame() {
   render();
   const ready = await controller.prepare();
   voiceConsentBusy = false;
-  if (!ready) return;
+  if (!ready) {
+    render();
+    return;
+  }
   voiceFallbackNotice = null;
   detectiveInspection = null;
   lastPersonalQuestResult = null;
@@ -990,6 +1040,7 @@ function renderVoiceConsent() {
       <ul class="voice-disclosures">
         ${ui.voice.disclosures.map((item) => `<li>${item}</li>`).join("")}
       </ul>
+      ${voiceFallbackNotice ? `<p class="voice-consent-error" role="alert">${escapeHtml(voiceFallbackNotice)}</p>` : ""}
       <div class="voice-consent-actions">
         <button class="primary-button" type="button" data-action="confirm-voice" ${voiceConsentBusy ? "disabled" : ""}>
           ${voiceConsentBusy ? ui.voice.status[voiceState] : ui.voice.consentAction}
@@ -1083,9 +1134,16 @@ function renderIntro() {
 
     ${renderDifficultyChoice()}
 
+    <section class="game-mode-choice" aria-label="${ui.voice.modeTitle}">
+      <span>${ui.voice.modeTitle}</span>
+      <button class="game-mode-card is-text" data-action="start">
+        <span aria-hidden="true">⌨</span><strong>${ui.voice.playText}</strong><small>${ui.voice.textModeDescription}</small>
+      </button>
+      <button class="game-mode-card is-voice" data-action="start-voice">
+        <span aria-hidden="true">●</span><strong>${ui.voice.playVoice}</strong><small>${ui.voice.voiceModeDescription}</small>
+      </button>
+    </section>
     <div class="intro-actions">
-      <button class="primary-button" data-action="start">${ui.voice.playText}</button>
-      <button class="secondary-button is-voice" data-action="start-voice">${ui.voice.playVoice}</button>
       <button class="secondary-button" data-action="open-friends">${ui.friendChatOpen}</button>
     </div>
 
@@ -1112,10 +1170,11 @@ function renderVoiceCall() {
     : ui.voice.status[voice.state] ?? ui.voice.status.processing;
   const secondaryCrew = crew.filter((person) => person.id !== speakerId);
   const canPause = Boolean(voice.activeSpeakerId) || voice.paused;
+  const canTalk = voice.connected && !voice.muted && !["connecting", "reconnecting", "processing"].includes(voice.state);
   return `
     <div class="voice-call-view" data-voice-state="${voice.state}">
       <header class="voice-call-header">
-        <button type="button" data-action="voice-fallback" aria-label="${ui.voice.end}">‹</button>
+        <button type="button" data-action="voice-end" aria-label="${ui.voice.end}">‹</button>
         <div><strong>${ui.voice.callTitle}</strong><small>${ui.voice.callStage}</small></div>
         <button type="button" data-action="voice-toggle-captions" aria-pressed="${voice.captionsEnabled}" aria-label="${ui.voice.captionLabel}">CC</button>
       </header>
@@ -1143,7 +1202,12 @@ function renderVoiceCall() {
       </details>
 
       ${voiceFallbackNotice ? `<p class="voice-call-notice">${escapeHtml(voiceFallbackNotice)}</p>` : ""}
-      ${voice.state === "reconnecting" ? `<button class="voice-reconnect" type="button" data-action="voice-reconnect">${ui.voice.reconnect}</button>` : ""}
+      ${voice.state === "reconnecting" || voiceFallbackNotice ? `<button class="voice-reconnect" type="button" data-action="voice-reconnect">${ui.voice.reconnect}</button>` : ""}
+
+      <button class="voice-talk ${voice.manualTurnActive ? "is-active" : ""}" type="button" data-action="voice-toggle-talk" aria-pressed="${voice.manualTurnActive}" ${canTalk ? "" : "disabled"}>
+        <strong>${voice.manualTurnActive ? ui.voice.talkStop : ui.voice.talkStart}</strong>
+        <small>${voice.manualTurnActive ? ui.voice.talkStopHint : ui.voice.talkStartHint}</small>
+      </button>
 
       <div class="voice-call-controls">
         <button class="voice-control" type="button" data-action="voice-toggle-mute" aria-pressed="${voice.muted}" aria-label="${voice.muted ? ui.voice.unmute : ui.voice.mute}">
@@ -1826,12 +1890,15 @@ function startChat() {
   state = { ...state, phase: "lie" };
   if (playMode === "voice") {
     const controller = voiceController ?? createRoundVoiceController();
-    void controller.connect().then((connected) => {
+    void controller.connect().then(async (connected) => {
       if (!connected) {
-        playMode = "text";
         voiceFallbackNotice = ui.voice.fallbackNotice;
         render();
+        return;
       }
+      voiceFallbackNotice = null;
+      await speakVoiceOpening(controller);
+      render();
     });
   }
 }
@@ -1983,10 +2050,10 @@ async function revealReplies(replies, stage) {
         }
       } catch {
         voiceController?.end({ fallback: true });
-        voiceController = null;
-        playMode = "text";
         voiceFallbackNotice = ui.voice.fallbackNotice;
         chatNotice = ui.voice.fallbackNotice;
+        render();
+        break;
       }
     } else {
       await wait(typingDuration(reply));
@@ -2041,8 +2108,7 @@ async function handleChatSubmit(stage, rawMessage, options = {}) {
       await voiceController?.speak(speakerId, clarification);
     } catch {
       voiceController?.end({ fallback: true });
-      voiceController = null;
-      playMode = "text";
+      voiceFallbackNotice = ui.voice.fallbackNotice;
       chatNotice = ui.voice.fallbackNotice;
     }
     typingSpeakerId = null;
@@ -2250,7 +2316,6 @@ function resetGame() {
     const controller = createRoundVoiceController();
     void controller.prepare().then((ready) => {
       if (!ready) {
-        playMode = "text";
         voiceFallbackNotice = ui.voice.fallbackNotice;
         render();
       }
@@ -2415,16 +2480,12 @@ app.addEventListener("click", (event) => {
     renderThemeControl();
   }
   if (action === "voice-toggle-mute") voiceController?.setMuted();
+  if (action === "voice-toggle-talk") voiceController?.toggleTalking();
   if (action === "voice-toggle-pause") void voiceController?.setPaused();
   if (action === "voice-toggle-captions") voiceController?.setCaptions();
-  if (action === "voice-reconnect") void voiceController?.reconnect();
-  if (action === "voice-end" || action === "voice-fallback") {
-    voiceController?.end({ fallback: true });
-    voiceController = null;
-    playMode = "text";
-    voiceFallbackNotice = ui.voice.fallbackNotice;
-    chatNotice = ui.voice.fallbackNotice;
-  }
+  if (action === "voice-reconnect") return void reconnectVoiceGame();
+  if (action === "voice-fallback") return switchVoiceGameToText();
+  if (action === "voice-end") return endVoiceGame();
   if (action === "draft-message") {
     const input = app.querySelector("#player-message");
     if (input) {

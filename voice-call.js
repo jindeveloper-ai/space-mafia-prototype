@@ -7,7 +7,7 @@ import {
   estimateVoiceCost,
   recordSessionEnded,
   recordSessionStarted,
-} from "./voice-call-core.js?v=0.17.2";
+} from "./voice-call-core.js?v=0.17.3";
 
 const REALTIME_CALLS_URL = "https://api.openai.com/v1/realtime/calls";
 const SPEAKER_STYLE = {
@@ -38,6 +38,7 @@ export function createVoiceCallController(options = {}) {
   const cancelFrame = options.cancelFrame ?? globalThis.cancelAnimationFrame?.bind(globalThis);
   const now = options.now ?? (() => globalThis.performance?.now?.() ?? Date.now());
   const permissionTimeoutMs = options.permissionTimeoutMs ?? 12_000;
+  const transcriptionTimeoutMs = options.transcriptionTimeoutMs ?? 8_000;
   const locale = options.locale === "en" ? "en" : "ko";
   const metrics = createVoiceMetrics();
   const stateMachine = createVoiceStateMachine(() => options.onUpdate?.(snapshot()));
@@ -47,6 +48,7 @@ export function createVoiceCallController(options = {}) {
   let transcriptionConnection = null;
   let currentOutput = null;
   let reconnectTimer = null;
+  let transcriptionTimer = null;
   let audioContext = null;
   let meterFrame = null;
   let meterSource = null;
@@ -58,6 +60,7 @@ export function createVoiceCallController(options = {}) {
   let lastSpeakerId = "mina";
   let disposed = false;
   let lastError = null;
+  let manualTurnActive = false;
 
   function snapshot() {
     return {
@@ -69,6 +72,8 @@ export function createVoiceCallController(options = {}) {
       activeSpeakerId,
       lastSpeakerId,
       connected: Boolean(transcriptionConnection),
+      manualTurnActive,
+      audioContextState: audioContext?.state ?? "unavailable",
       error: lastError,
       metrics: { ...metrics, estimatedUsd: estimateVoiceCost(metrics) },
     };
@@ -97,31 +102,36 @@ export function createVoiceCallController(options = {}) {
     if (!AudioContextClass || !requestFrame || !stream) return;
     try {
       audioContext ??= new AudioContextClass();
-      void audioContext.resume?.();
+      void audioContext.resume?.().catch?.(() => {});
       const analyser = audioContext.createAnalyser();
-      analyser.fftSize = 64;
+      analyser.fftSize = 512;
       analyser.smoothingTimeConstant = 0.72;
       meterSource = audioContext.createMediaStreamSource(stream);
       meterSource.connect(analyser);
-      const samples = new Uint8Array(analyser.frequencyBinCount);
+      const samples = new Uint8Array(analyser.fftSize);
       const isMicrophone = stream === micStream;
       const tick = () => {
-        analyser.getByteFrequencyData(samples);
-        const average = samples.reduce((sum, value) => sum + value, 0) / Math.max(1, samples.length);
-        const level = Math.min(1, average / 150);
+        let level = 0;
+        if (typeof analyser.getByteTimeDomainData === "function") {
+          analyser.getByteTimeDomainData(samples);
+          const meanSquare = samples.reduce((sum, value) => {
+            const normalized = (value - 128) / 128;
+            return sum + (normalized * normalized);
+          }, 0) / Math.max(1, samples.length);
+          level = Math.min(1, Math.sqrt(meanSquare) * 4);
+        } else {
+          analyser.getByteFrequencyData(samples);
+          const average = samples.reduce((sum, value) => sum + value, 0) / Math.max(1, samples.length);
+          level = Math.min(1, average / 150);
+        }
         options.onMeter?.(level);
-        if (isMicrophone && transcriptionConnection) {
+        if (isMicrophone && transcriptionConnection && !manualTurnActive) {
           const activity = voiceActivityDetector.sample(muted ? 0 : level, now());
           if (activity?.type === "speech_started") {
-            interruptSpeech("barge_in");
-            updateCaption("");
-            stateMachine.transition("player_speaking");
+            beginPlayerTurn();
           }
           if (activity?.type === "speech_stopped") {
-            stateMachine.transition("processing");
-            safeSend(transcriptionConnection.channel, {
-              type: activity.commit ? "input_audio_buffer.commit" : "input_audio_buffer.clear",
-            });
+            finishPlayerTurn({ commit: activity.commit });
           }
         }
         meterFrame = requestFrame(tick);
@@ -269,6 +279,44 @@ export function createVoiceCallController(options = {}) {
     return true;
   }
 
+  function beginPlayerTurn({ manual = false } = {}) {
+    if (disposed || muted || !transcriptionConnection) return false;
+    interruptSpeech("barge_in");
+    manualTurnActive = manual;
+    if (manual) {
+      voiceActivityDetector.reset();
+      safeSend(transcriptionConnection.channel, { type: "input_audio_buffer.clear" });
+    }
+    updateCaption("");
+    stateMachine.transition("player_speaking");
+    return true;
+  }
+
+  function finishPlayerTurn({ commit = true } = {}) {
+    if (disposed || !transcriptionConnection) return false;
+    manualTurnActive = false;
+    voiceActivityDetector.reset();
+    stateMachine.transition("processing");
+    const sent = safeSend(transcriptionConnection.channel, {
+      type: commit ? "input_audio_buffer.commit" : "input_audio_buffer.clear",
+    });
+    if (transcriptionTimer) clearTimer?.(transcriptionTimer);
+    transcriptionTimer = null;
+    if (sent && commit) {
+      transcriptionTimer = setTimer?.(() => {
+        transcriptionTimer = null;
+        lastError = "no_speech_detected";
+        if (!disposed && transcriptionConnection && !speakerQueue.active) stateMachine.transition("listening");
+      }, transcriptionTimeoutMs);
+    }
+    return sent;
+  }
+
+  function toggleTalking() {
+    if (manualTurnActive) return finishPlayerTurn();
+    return beginPlayerTurn({ manual: true });
+  }
+
   async function playSpeech(item) {
     if (disposed) return { completed: false, reason: "ended" };
     const beginPlayback = (stream = null) => {
@@ -370,18 +418,22 @@ export function createVoiceCallController(options = {}) {
 
   function handleTranscriptionEvent(event) {
     if (event.type === "input_audio_buffer.speech_started") {
-      interruptSpeech("barge_in");
-      updateCaption("");
-      stateMachine.transition("player_speaking");
+      beginPlayerTurn();
     }
     if (event.type === "input_audio_buffer.speech_stopped") stateMachine.transition("processing");
     if (event.type === "conversation.item.input_audio_transcription.delta") {
       updateCaption(`${captionText}${event.delta ?? ""}`);
     }
     if (event.type === "conversation.item.input_audio_transcription.completed") {
-      transcriptGate.accept({ id: event.item_id, text: event.transcript });
+      if (transcriptionTimer) clearTimer?.(transcriptionTimer);
+      transcriptionTimer = null;
+      lastError = null;
+      const accepted = transcriptGate.accept({ id: event.item_id, text: event.transcript });
+      if (!accepted && !disposed && transcriptionConnection) stateMachine.transition("listening");
     }
     if (event.type === "error") {
+      if (transcriptionTimer) clearTimer?.(transcriptionTimer);
+      transcriptionTimer = null;
       lastError = event.error?.code ?? "voice_transcription_failed";
       stateMachine.transition("reconnecting", lastError);
       scheduleReconnect();
@@ -392,6 +444,9 @@ export function createVoiceCallController(options = {}) {
     if (!transcriptionConnection) return;
     closeConnection(transcriptionConnection);
     transcriptionConnection = null;
+    if (transcriptionTimer) clearTimer?.(transcriptionTimer);
+    transcriptionTimer = null;
+    manualTurnActive = false;
     voiceActivityDetector.reset();
   }
 
@@ -435,6 +490,14 @@ export function createVoiceCallController(options = {}) {
       micStream = await Promise.race([mediaRequest, timeout]);
       if (permissionTimer) clearTimer?.(permissionTimer);
       micStream.getAudioTracks().forEach((track) => { track.enabled = false; });
+      if (AudioContextClass) {
+        try {
+          audioContext ??= new AudioContextClass();
+          await audioContext.resume?.();
+        } catch {
+          // Manual turn controls still work when Web Audio metering is unavailable.
+        }
+      }
       stateMachine.transition("idle");
       return true;
     } catch (error) {
@@ -492,6 +555,7 @@ export function createVoiceCallController(options = {}) {
   function setMuted(nextMuted = !muted) {
     muted = Boolean(nextMuted);
     micStream?.getAudioTracks?.().forEach((track) => { track.enabled = !muted; });
+    if (muted && manualTurnActive) finishPlayerTurn({ commit: false });
     options.onUpdate?.(snapshot());
     return muted;
   }
@@ -551,6 +615,7 @@ export function createVoiceCallController(options = {}) {
     reconnect,
     speak,
     interruptSpeech,
+    toggleTalking,
     setMuted,
     setPaused,
     setCaptions,

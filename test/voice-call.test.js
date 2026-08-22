@@ -99,6 +99,34 @@ class FakeAudio extends FakeTarget {
   remove() {}
 }
 
+class FakeAudioContext {
+  constructor() {
+    this.state = "suspended";
+    this.resumeCalls = 0;
+  }
+
+  async resume() {
+    this.resumeCalls += 1;
+    this.state = "running";
+  }
+
+  createAnalyser() {
+    return {
+      frequencyBinCount: 32,
+      getByteFrequencyData(values) { values.fill(0); },
+      connect() {},
+    };
+  }
+
+  createMediaStreamSource() {
+    return { connect() {}, disconnect() {} };
+  }
+
+  async close() {
+    this.state = "closed";
+  }
+}
+
 function fakeResponse({ ok = true, json = null, text = "fake-answer" } = {}) {
   return {
     ok,
@@ -107,7 +135,12 @@ function fakeResponse({ ok = true, json = null, text = "fake-answer" } = {}) {
   };
 }
 
-function createHarness({ denyMicrophone = false, failNegotiation = false } = {}) {
+function createHarness({
+  denyMicrophone = false,
+  failNegotiation = false,
+  withAudioContext = false,
+  transcriptionTimeoutMs,
+} = {}) {
   FakePeerConnection.instances = [];
   const track = { enabled: true, stopped: false, stop() { this.stopped = true; } };
   const stream = { getAudioTracks: () => [track], getTracks: () => [track] };
@@ -119,7 +152,8 @@ function createHarness({ denyMicrophone = false, failNegotiation = false } = {})
     locale: "ko",
     PeerConnection: FakePeerConnection,
     AudioElement: FakeAudio,
-    AudioContextClass: null,
+    AudioContextClass: withAudioContext ? FakeAudioContext : null,
+    transcriptionTimeoutMs,
     mediaDevices: {
       async getUserMedia() {
         if (denyMicrophone) throw Object.assign(new Error("denied"), { name: "NotAllowedError" });
@@ -232,6 +266,50 @@ test("확정 자막만 발화 ID당 한 번 판정하고 음소거는 마이크 
   assert.equal(harness.track.stopped, true);
   assert.equal(transcriptionPeer.closed, true);
   assert.deepEqual(harness.soundDucking, [true, false]);
+});
+
+test("브라우저 자동 감지가 멈춰도 수동 말하기 버튼이 전사 버퍼를 확정한다", async () => {
+  const harness = createHarness({ withAudioContext: true });
+  assert.equal(await harness.controller.connect(), true);
+  const transcriptionPeer = FakePeerConnection.instances[0];
+  assert.equal(harness.controller.snapshot().audioContextState, "running");
+
+  assert.equal(harness.controller.toggleTalking(), true);
+  assert.equal(harness.controller.snapshot().manualTurnActive, true);
+  assert.equal(harness.controller.snapshot().state, "player_speaking");
+  assert.deepEqual(transcriptionPeer.channel.sent.at(-1), { type: "input_audio_buffer.clear" });
+
+  assert.equal(harness.controller.toggleTalking(), true);
+  assert.equal(harness.controller.snapshot().manualTurnActive, false);
+  assert.equal(harness.controller.snapshot().state, "processing");
+  assert.deepEqual(transcriptionPeer.channel.sent.at(-1), { type: "input_audio_buffer.commit" });
+  harness.controller.end();
+});
+
+test("무음 발화는 처리 중에 갇히지 않고 다시 듣기 상태로 돌아간다", async () => {
+  const harness = createHarness({ transcriptionTimeoutMs: 1 });
+  await harness.controller.connect();
+  harness.controller.toggleTalking();
+  harness.controller.toggleTalking();
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  assert.equal(harness.controller.snapshot().state, "listening");
+  assert.equal(harness.controller.snapshot().error, "no_speech_detected");
+  harness.controller.end();
+});
+
+test("빈 확정 자막도 처리 중에 갇히지 않고 다시 듣는다", async () => {
+  const harness = createHarness();
+  await harness.controller.connect();
+  harness.controller.toggleTalking();
+  harness.controller.toggleTalking();
+  emitRealtime(FakePeerConnection.instances[0], {
+    type: "conversation.item.input_audio_transcription.completed",
+    item_id: "empty-utterance",
+    transcript: "",
+  });
+  assert.equal(harness.controller.snapshot().state, "listening");
+  assert.deepEqual(harness.finalTranscripts, []);
+  harness.controller.end();
 });
 
 test("미나·주노·노엘은 실제 오디오 이벤트에 맞춰 한 명씩 말하고 최대 동시 세션은 2개다", async () => {
