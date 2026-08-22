@@ -115,6 +115,14 @@ test("하드 모드는 빠른 초안을 숨기고 일반 모드는 기존 초안
   assert.match(gameSource, /"hard-defense-2": renderChat/);
   assert.match(gameSource, /"hard-final": renderChat/);
   assert.match(gameSource, /class="chat-context__facts"/);
+  assert.match(
+    styles,
+    /Keep every quick draft readable[\s\S]+?chat-suggestions\s*\{[\s\S]+?display:\s*grid;[\s\S]+?grid-template-columns:\s*minmax\(0, 1fr\);/,
+  );
+  assert.match(
+    styles,
+    /\.game-room-view \.chat-dock \.chat-suggestion\s*\{[\s\S]+?width:\s*100%;[\s\S]+?max-width:\s*none;/,
+  );
   for (const phase of ["hard-defense-1", "hard-defense-2", "hard-final"]) {
     assert.match(styles, new RegExp(`data-phase="${phase}"`));
   }

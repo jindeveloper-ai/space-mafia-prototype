@@ -4273,7 +4273,7 @@ body {
   white-space: nowrap;
 }
 
-/* v0.16.3 — fixed 390px frame and long-chat usability fixes. */
+/* v0.16.4 — fixed 390px frame and long-chat usability fixes. */
 .game-room-view.is-setup {
   overflow-y: auto;
   overscroll-behavior: contain;
@@ -4369,40 +4369,4 @@ body {
 
 .game-room-view .chat-room {
   min-height: 180px;
-}
-
-.game-room-view .chat-dock .chat-suggestions {
-  display: flex;
-  align-items: stretch;
-  gap: 7px;
-  padding: 8px 12px 6px;
-  overflow-x: auto;
-  overflow-y: hidden;
-  scrollbar-width: none;
-}
-
-.game-room-view .chat-dock .chat-suggestions > span {
-  display: grid;
-  flex: 0 0 104px;
-  align-content: center;
-  gap: 3px;
-}
-
-.game-room-view .chat-dock .chat-suggestions > span small {
-  max-width: 104px;
-  text-align: left;
-}
-
-.game-room-view .chat-dock .chat-suggestion {
-  flex: 0 0 220px;
-  width: 220px;
-  min-height: 64px;
-  max-width: 220px;
-}
-
-.game-room-view .chat-dock .chat-suggestion span {
-  overflow: visible;
-  text-overflow: clip;
-  white-space: normal;
-  overflow-wrap: anywhere;
 }
