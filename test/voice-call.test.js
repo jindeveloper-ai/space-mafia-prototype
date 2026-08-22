@@ -478,26 +478,34 @@ test("AI 답변은 겹치지 않고 앞 화자가 끝난 뒤 다음 화자로 �
   assert.equal(final.metrics.maxConcurrentSessions, 2);
 });
 
-test("플레이어가 끼어들면 현재 AI 음성이 즉시 중단되고 뒤 발화도 취소된다", { concurrency: false }, async () => {
+test("AI가 말하는 동안 마이크와 전사 버퍼를 격리하고 끝난 뒤 새 버퍼로 듣는다", { concurrency: false }, async () => {
   const harness = createHarness();
   await harness.controller.connect();
   const transcriptionPeer = FakePeerConnection.instances[0];
-  const mina = harness.controller.speak("mina", "끝까지 말하면 안 되는 대사");
-  const juno = harness.controller.speak("juno", "대기 중인 대사");
+  const mina = harness.controller.speak("mina", "내 대사가 사용자 입력으로 들어가면 안 됨");
   await waitFor(() => FakePeerConnection.instances.length === 2, "Mina output session");
   const outputPeer = FakePeerConnection.instances[1];
   await waitFor(
     () => outputPeer.channel.sent.some((event) => event.type === "response.create"),
     "Mina response request",
   );
+  assert.equal(harness.track.enabled, false);
+  assert.equal(
+    transcriptionPeer.channel.sent.some((event) => event.type === "input_audio_buffer.clear"),
+    true,
+  );
   outputPeer.ontrack({ streams: [{ id: "mina-stream" }] });
   emitRealtime(outputPeer, { type: "output_audio_buffer.started" });
 
   emitRealtime(transcriptionPeer, { type: "input_audio_buffer.speech_started" });
-  assert.equal(harness.controller.snapshot().state, "player_speaking");
-  assert.equal(outputPeer.channel.sent.some((event) => event.type === "response.cancel"), true);
-  assert.equal(outputPeer.channel.sent.some((event) => event.type === "output_audio_buffer.clear"), true);
-  assert.deepEqual(await mina, { completed: false, reason: "barge_in", transcript: "" });
-  assert.deepEqual(await juno, { completed: false, reason: "barge_in" });
+  assert.equal(harness.controller.snapshot().state, "ai_speaking");
+  assert.equal(outputPeer.channel.sent.some((event) => event.type === "response.cancel"), false);
+
+  emitRealtime(outputPeer, { type: "output_audio_buffer.stopped" });
+  assert.deepEqual(await mina, { completed: true, reason: "completed", transcript: "" });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(harness.track.enabled, true);
+  assert.equal(transcriptionPeer.channel.sent.at(-1).type, "input_audio_buffer.clear");
+  assert.equal(harness.controller.snapshot().state, "listening");
   harness.controller.end();
 });

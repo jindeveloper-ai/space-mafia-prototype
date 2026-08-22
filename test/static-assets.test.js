@@ -31,6 +31,7 @@ test("브라우저 에셋과 내부 모듈은 패키지 버전으로 캐시를 �
   assert.ok(gameSource.includes(`./chat-adapter.js?v=${version}`));
   assert.ok(gameSource.includes(`./progression.js?v=${version}`));
   assert.ok(gameSource.includes(`./voice-call.js?v=${version}`));
+  assert.ok(gameSource.includes(`./voice-turn.js?v=${version}`));
   assert.ok(voiceSource.includes(`./voice-call-core.js?v=${version}`));
   assert.ok(engineSource.includes(`./i18n.js?v=${version}`));
   assert.match(gameSource, /new URL\(import\.meta\.url\)\.searchParams\.get\("v"\)/);
@@ -90,7 +91,9 @@ test("보이스콜 모드는 Figma 통화 구조·접근성·안전한 임시 �
   assert.match(gameSource, /VOICE_EXPRESSION_STICKERS/);
   assert.doesNotMatch(`${gameSource}\n${voiceSource}`, /speakGroup/);
   assert.match(voiceSource, /mediaDevices\.getUserMedia/);
-  assert.match(voiceSource, /track\.enabled = !muted/);
+  assert.match(voiceSource, /function suspendInput/);
+  assert.match(voiceSource, /function resumeInput/);
+  assert.match(voiceSource, /setInputEnabled/);
   assert.match(voiceSource, /\/api\/realtime\/client-secret/);
   assert.match(voiceSource, /conversation\.item\.input_audio_transcription\.completed/);
   assert.match(voiceSource, /input_audio_buffer\.speech_started/);
@@ -98,6 +101,10 @@ test("보이스콜 모드는 Figma 통화 구조·접근성·안전한 임시 �
   assert.match(voiceSource, /monitorLocalVad/);
   assert.match(voiceSource, /input_audio_buffer_commit_empty/);
   assert.match(gameSource, /async function speakVoiceOpening/);
+  assert.match(gameSource, /async function handleVoiceDiscussionSubmit/);
+  assert.match(gameSource, /async function finalizeVoiceDiscussionTurn/);
+  assert.match(gameSource, /data-voice-turn-clock/);
+  assert.match(voiceStyles, /\.voice-turn-timer/);
   assert.match(gameSource, /function switchVoiceGameToText/);
   assert.match(gameSource, /function endVoiceGame/);
   assert.doesNotMatch(gameSource, /onFallback\(\) \{\s*playMode = "text"/);

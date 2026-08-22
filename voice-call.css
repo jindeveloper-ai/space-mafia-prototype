@@ -333,6 +333,55 @@ body[data-play-mode="voice"]:is(
   font-size: 0.88rem;
 }
 
+.voice-turn-timer {
+  display: grid;
+  width: min(100%, 330px);
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 5px 12px;
+  margin-top: 10px;
+  padding: 10px 12px;
+  border: 1px solid #343434;
+  border-radius: 14px;
+  background: #171717;
+}
+
+.voice-turn-timer > span,
+.voice-turn-timer > small {
+  color: #a9a9a9;
+  font-size: 0.68rem;
+}
+
+.voice-turn-timer > strong {
+  font-size: 0.76rem;
+}
+
+.voice-turn-timer > i {
+  display: block;
+  height: 4px;
+  grid-column: 1 / -1;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #333;
+}
+
+.voice-turn-timer > i > b {
+  display: block;
+  width: calc(var(--voice-turn-progress, 0) * 100%);
+  height: 100%;
+  border-radius: inherit;
+  background: #b8a7ff;
+  transition: width 240ms linear;
+}
+
+.voice-turn-timer > small {
+  grid-column: 1 / -1;
+  line-height: 1.35;
+}
+
+.voice-turn-timer.is-closing > i > b {
+  background: #ffb4ab;
+}
+
 .voice-caption {
   display: grid;
   width: min(100%, 330px);

@@ -6,7 +6,7 @@ import {
   estimateVoiceCost,
   recordSessionEnded,
   recordSessionStarted,
-} from "./voice-call-core.js?v=0.17.10";
+} from "./voice-call-core.js?v=0.18.0";
 
 const REALTIME_CALLS_URL = "https://api.openai.com/v1/realtime/calls";
 const SPEAKER_STYLE = {
@@ -65,6 +65,7 @@ export function createVoiceCallController(options = {}) {
   let meterFrame = null;
   let meterSource = null;
   let muted = false;
+  let inputEnabled = true;
   let paused = false;
   let captionsEnabled = true;
   let captionText = "";
@@ -84,6 +85,7 @@ export function createVoiceCallController(options = {}) {
     return {
       state: stateMachine.state,
       muted,
+      inputEnabled,
       paused,
       captionsEnabled,
       captionText,
@@ -122,8 +124,35 @@ export function createVoiceCallController(options = {}) {
     localQuietSince = null;
   }
 
+  function setMicTrackEnabled(enabled) {
+    micStream?.getAudioTracks?.().forEach((track) => {
+      track.enabled = Boolean(enabled);
+    });
+  }
+
+  function suspendInput({ clear = true } = {}) {
+    setMicTrackEnabled(false);
+    stopMeter();
+    resetLocalVad();
+    localTurnActive = false;
+    serverTurnActive = false;
+    manualTurnActive = false;
+    if (clear) safeSend(transcriptionConnection?.channel, { type: "input_audio_buffer.clear" });
+  }
+
+  function resumeInput() {
+    if (disposed || muted || !inputEnabled || !micStream || !transcriptionConnection || speakerQueue.active || activeOutputs.size) {
+      return false;
+    }
+    safeSend(transcriptionConnection.channel, { type: "input_audio_buffer.clear" });
+    setMicTrackEnabled(true);
+    startMeter(micStream, { monitorSpeech: true });
+    stateMachine.transition("listening");
+    return true;
+  }
+
   function monitorLocalVad(level, timestamp = now()) {
-    if (disposed || muted || !transcriptionConnection || activeOutputs.size || speakerQueue.active) {
+    if (disposed || muted || !inputEnabled || !transcriptionConnection || activeOutputs.size || speakerQueue.active) {
       resetLocalVad();
       return;
     }
@@ -310,7 +339,6 @@ export function createVoiceCallController(options = {}) {
     if (!activeOutputs.size) {
       paused = false;
       activeSpeakerId = null;
-      if (micStream && transcriptionConnection) startMeter(micStream, { monitorSpeech: true });
       if (!disposed && stateMachine.state !== "player_speaking") stateMachine.transition("processing");
     } else if (!disposed && stateMachine.state !== "player_speaking") {
       stateMachine.transition(paused ? "paused" : "ai_speaking");
@@ -332,7 +360,7 @@ export function createVoiceCallController(options = {}) {
   }
 
   function beginPlayerTurn({ manual = false } = {}) {
-    if (disposed || muted || !transcriptionConnection) return false;
+    if (disposed || muted || !inputEnabled || !transcriptionConnection) return false;
     interruptSpeech("barge_in");
     manualTurnActive = manual;
     if (manual) {
@@ -372,6 +400,9 @@ export function createVoiceCallController(options = {}) {
 
   async function playSpeech(item, epoch = outputEpoch) {
     if (disposed) return { completed: false, reason: "ended" };
+    // Keep the call half-duplex: AI playback must never be captured as the
+    // player's next utterance. A fresh input buffer starts after the queue idles.
+    suspendInput();
     const output = {
       id: `voice-output-${outputSequence += 1}`,
       connection: null,
@@ -459,9 +490,7 @@ export function createVoiceCallController(options = {}) {
 
   const speakerQueue = createSpeakerQueue(playSpeech, {
     onIdle() {
-      if (!disposed && transcriptionConnection && !activeOutputs.size && stateMachine.state !== "player_speaking") {
-        stateMachine.transition("listening");
-      }
+      if (!disposed && transcriptionConnection && !activeOutputs.size && stateMachine.state !== "player_speaking") resumeInput();
     },
     onInterrupt() {
       activeOutputs.forEach((output) => output.connection?.audio?.pause?.());
@@ -474,11 +503,12 @@ export function createVoiceCallController(options = {}) {
     stateMachine.transition("processing");
     updateCaption(utterance.text);
     await options.onFinalTranscript?.(utterance);
-    if (!disposed && transcriptionConnection && !speakerQueue.active) stateMachine.transition("listening");
+    if (!disposed && transcriptionConnection && !speakerQueue.active) resumeInput();
   });
 
   function handleTranscriptionEvent(event) {
     if (event.type === "input_audio_buffer.speech_started") {
+      if (activeOutputs.size || speakerQueue.active || !inputEnabled) return;
       serverTurnActive = true;
       localTurnActive = false;
       resetLocalVad();
@@ -613,8 +643,8 @@ export function createVoiceCallController(options = {}) {
         stateMachine.transition("reconnecting");
         scheduleReconnect();
       };
-      micStream.getAudioTracks().forEach((track) => { track.enabled = !muted; });
-      startMeter(micStream, { monitorSpeech: true });
+      setMicTrackEnabled(!muted && inputEnabled);
+      if (!muted && inputEnabled) startMeter(micStream, { monitorSpeech: true });
       lastError = null;
       stateMachine.transition("listening");
       return true;
@@ -637,10 +667,19 @@ export function createVoiceCallController(options = {}) {
 
   function setMuted(nextMuted = !muted) {
     muted = Boolean(nextMuted);
-    micStream?.getAudioTracks?.().forEach((track) => { track.enabled = !muted; });
+    setMicTrackEnabled(!muted && inputEnabled && !speakerQueue.active && !activeOutputs.size);
     if (muted && (manualTurnActive || localTurnActive || serverTurnActive)) finishPlayerTurn({ commit: false });
+    if (!muted) resumeInput();
     options.onUpdate?.(snapshot());
     return muted;
+  }
+
+  function setInputEnabled(nextEnabled) {
+    inputEnabled = Boolean(nextEnabled);
+    if (inputEnabled) resumeInput();
+    else suspendInput();
+    options.onUpdate?.(snapshot());
+    return inputEnabled;
   }
 
   async function setPaused(nextPaused = !paused) {
@@ -701,6 +740,7 @@ export function createVoiceCallController(options = {}) {
     interruptSpeech,
     toggleTalking,
     setMuted,
+    setInputEnabled,
     setPaused,
     setCaptions,
     end,

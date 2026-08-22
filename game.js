@@ -19,15 +19,15 @@ import {
   plantEvidence,
   resolveVote,
   startGame,
-} from "./game-engine.js?v=0.17.10";
-import { getCopy, normalizeLocale } from "./i18n.js?v=0.17.10";
+} from "./game-engine.js?v=0.18.0";
+import { getCopy, normalizeLocale } from "./i18n.js?v=0.18.0";
 import {
   buildChatPayload,
   fallbackAccusation,
   fallbackResponse,
   MAX_CHAT_LENGTH,
   normalizeInterpretation,
-} from "./chat-adapter.js?v=0.17.10";
+} from "./chat-adapter.js?v=0.18.0";
 import {
   acceptPersonalQuest,
   awardCrewLevels,
@@ -42,9 +42,16 @@ import {
   setEquippedJob,
   setDifficultyMode,
   settlePersonalQuest,
-} from "./progression.js?v=0.17.10";
-import { accountController, createMutationId } from "./account-client.js?v=0.17.10";
-import { createVoiceCallController } from "./voice-call.js?v=0.17.10";
+} from "./progression.js?v=0.18.0";
+import { accountController, createMutationId } from "./account-client.js?v=0.18.0";
+import { createVoiceCallController } from "./voice-call.js?v=0.18.0";
+import {
+  beginVoiceTurnFinalization,
+  createVoiceTurn,
+  expireVoiceTurn,
+  recordVoiceTurnCandidate,
+  voiceTurnSecondsLeft,
+} from "./voice-turn.js?v=0.18.0";
 
 const app = document.querySelector("#app");
 const assetVersion = new URL(import.meta.url).searchParams.get("v");
@@ -230,6 +237,8 @@ let playMode = "text";
 let voiceController = null;
 let voiceConsentBusy = false;
 let voiceFallbackNotice = null;
+let voiceTurn = null;
+let voiceTurnTicker = null;
 const voicedOpeningKeys = new Set();
 const archiveSessionComments = Object.create(null);
 const archivePendingReplies = Object.create(null);
@@ -255,6 +264,58 @@ function voiceStageForPhase(phase = state.phase) {
   return null;
 }
 
+function voiceTurnPosition(phase = state.phase) {
+  if (state.difficultyMode === "hard") {
+    return {
+      lie: [1, 4],
+      "hard-defense-1": [2, 4],
+      "hard-defense-2": [3, 4],
+      "hard-final": [4, 4],
+    }[phase] ?? [1, 4];
+  }
+  return phase === "lie" ? [1, 2] : [2, 2];
+}
+
+function clearVoiceTurn() {
+  if (voiceTurnTicker !== null) window.clearInterval(voiceTurnTicker);
+  voiceTurnTicker = null;
+  voiceTurn = null;
+}
+
+function updateVoiceTurnClock() {
+  if (!voiceTurn) return;
+  const secondsLeft = voiceTurnSecondsLeft(voiceTurn);
+  const clock = app.querySelector("[data-voice-turn-clock]");
+  const progressBar = app.querySelector("[data-voice-turn-progress]");
+  if (clock) clock.textContent = ui.voice.secondsLeft(secondsLeft);
+  if (progressBar) {
+    const progress = Math.max(0, Math.min(1, secondsLeft / voiceTurn.durationSeconds));
+    progressBar.style.setProperty("--voice-turn-progress", progress.toFixed(3));
+  }
+  if (secondsLeft > 0 || voiceTurn.expired) return;
+  if (voiceController?.snapshot().state === "player_speaking") return;
+  voiceTurn = expireVoiceTurn(voiceTurn);
+  if (voiceTurnTicker !== null) window.clearInterval(voiceTurnTicker);
+  voiceTurnTicker = null;
+  voiceController?.setInputEnabled(false);
+  render();
+  if (!chatPending) void finalizeVoiceDiscussionTurn();
+}
+
+function startVoiceDiscussionTurn(stage = voiceStageForPhase()) {
+  if (!stage || playMode !== "voice") return;
+  if (voiceTurn?.phase === state.phase && !voiceTurn.expired) {
+    voiceController?.setInputEnabled(true);
+    return;
+  }
+  clearVoiceTurn();
+  voiceTurn = createVoiceTurn({ stage, phase: state.phase });
+  voiceController?.setInputEnabled(true);
+  voiceTurnTicker = window.setInterval(updateVoiceTurnClock, 250);
+  updateVoiceTurnClock();
+  render();
+}
+
 function createRoundVoiceController() {
   voiceController?.end();
   const debugVoice = ["127.0.0.1", "localhost"].includes(window.location.hostname)
@@ -273,7 +334,7 @@ function createRoundVoiceController() {
     async onFinalTranscript(utterance) {
       const stage = voiceStageForPhase();
       if (!stage || playMode !== "voice") return;
-      await handleChatSubmit(stage, utterance.text, { inputMode: "voice", utteranceId: utterance.id });
+      await handleVoiceDiscussionSubmit(stage, utterance.text, { utteranceId: utterance.id });
     },
     onFallback() {
       voiceFallbackNotice = ui.voice.fallbackNotice;
@@ -311,10 +372,13 @@ async function reconnectVoiceGame() {
   if (!await controller.prepare()) return;
   if (!await controller.connect()) return;
   await speakVoiceOpening(controller);
+  if (!voiceTurn || voiceTurn.expired) startVoiceDiscussionTurn();
+  else controller.setInputEnabled(true);
   render();
 }
 
 function switchVoiceGameToText() {
+  clearVoiceTurn();
   voiceController?.end({ fallback: true });
   voiceController = null;
   playMode = "text";
@@ -324,6 +388,7 @@ function switchVoiceGameToText() {
 }
 
 function endVoiceGame() {
+  clearVoiceTurn();
   voiceController?.end();
   voiceController = null;
   playMode = "text";
@@ -349,6 +414,7 @@ async function beginVoiceGame() {
     return;
   }
   voiceFallbackNotice = null;
+  clearVoiceTurn();
   detectiveInspection = null;
   lastPersonalQuestResult = null;
   lastClueAward = null;
@@ -367,6 +433,7 @@ async function beginVoiceGame() {
 }
 
 function beginTextGame() {
+  clearVoiceTurn();
   voiceController?.end({ fallback: true });
   voiceController = null;
   playMode = "text";
@@ -1207,12 +1274,23 @@ function renderVoiceCall() {
       : ui.voice.status[voice.state] ?? ui.voice.status.processing;
   const secondaryCrew = crew.filter((person) => person.id !== speakerId);
   const canPause = Boolean(voice.activeSpeakerId) || voice.paused;
-  const canTalk = voice.connected && !voice.muted && !["connecting", "reconnecting", "processing"].includes(voice.state);
+  const [turnCurrent, turnTotal] = voiceTurnPosition();
+  const secondsLeft = voiceTurnSecondsLeft(voiceTurn);
+  const turnProgress = voiceTurn
+    ? Math.max(0, Math.min(1, secondsLeft / voiceTurn.durationSeconds))
+    : 0;
+  const turnClosed = !voiceTurn || voiceTurn.expired || voiceTurn.finalizing;
+  const canTalk = voice.connected
+    && voice.inputEnabled
+    && !voice.muted
+    && !turnClosed
+    && !["connecting", "reconnecting", "processing", "ai_speaking", "paused"].includes(voice.state);
+  const inputDisabled = chatPending || turnClosed;
   return `
     <div class="voice-call-view" data-voice-state="${voice.state}">
       <header class="voice-call-header">
         <button type="button" data-action="voice-end" aria-label="${ui.voice.end}">‹</button>
-        <div><strong>${ui.voice.callTitle}</strong><small>${ui.voice.callStage}</small></div>
+        <div><strong>${ui.voice.callTitle}</strong><small>${ui.voice.turnLabel(turnCurrent, turnTotal)}</small></div>
         <button type="button" data-action="voice-toggle-captions" aria-pressed="${voice.captionsEnabled}" aria-label="${ui.voice.captionLabel}">CC</button>
       </header>
 
@@ -1228,6 +1306,12 @@ function renderVoiceCall() {
           ${Array.from({ length: 7 }, (_, index) => `<i style="--bar:${index}"></i>`).join("")}
         </div>
         <strong class="voice-status" role="status">${status}</strong>
+        <div class="voice-turn-timer ${turnClosed ? "is-closing" : ""}" data-voice-turn-progress style="--voice-turn-progress:${turnProgress.toFixed(3)}">
+          <span>${ui.voice.turnLabel(turnCurrent, turnTotal)}</span>
+          <strong data-voice-turn-clock>${voiceTurn ? ui.voice.secondsLeft(secondsLeft) : ui.voice.preparingTurn}</strong>
+          <i aria-hidden="true"><b></b></i>
+          <small>${turnClosed ? ui.voice.turnClosing : ui.voice.turnHelp}</small>
+        </div>
         <div class="voice-caption" aria-label="${ui.voice.captionLabel}">
           ${voice.captionsEnabled ? escapeHtml(voice.captionText || ui.voice.waitingCaption) : ui.voice.captionOff}
         </div>
@@ -1245,8 +1329,8 @@ function renderVoiceCall() {
         <span>${ui.voice.textInputHint}</span>
         <div class="chat-composer__row">
           <label class="visually-hidden" for="player-message">${ui.chatInputLabel}</label>
-          <textarea id="player-message" name="message" maxlength="${MAX_CHAT_LENGTH}" rows="1" placeholder="${ui.voice.textInputPlaceholder}" ${chatPending ? "disabled" : ""} required></textarea>
-          <button class="composer-send" type="submit" aria-label="${ui.chatSend}" ${chatPending ? "disabled" : ""}><span aria-hidden="true">↑</span></button>
+          <textarea id="player-message" name="message" maxlength="${MAX_CHAT_LENGTH}" rows="1" placeholder="${ui.voice.textInputPlaceholder}" ${inputDisabled ? "disabled" : ""} required></textarea>
+          <button class="composer-send" type="submit" aria-label="${ui.chatSend}" ${inputDisabled ? "disabled" : ""}><span aria-hidden="true">↑</span></button>
         </div>
       </form>
 
@@ -1944,6 +2028,7 @@ function startChat() {
       }
       voiceFallbackNotice = null;
       await speakVoiceOpening(controller);
+      startVoiceDiscussionTurn("accusation");
       render();
     });
   }
@@ -2114,6 +2199,214 @@ async function revealReplies(replies, stage) {
     render();
     await wait(140);
   }
+}
+
+function voiceDiscussionFallbackReplies(stage, projectedState, interpretation) {
+  if (stage === "accusation") return fallbackAccusationReplies(projectedState);
+  if (stage === "hard-response" || stage === "hard-final") {
+    return fallbackHardReplies(projectedState, interpretation);
+  }
+  return fallbackResponseReplies(projectedState);
+}
+
+function voiceDiscussionReplyPair(replies, fallbackReplies) {
+  const source = replies.length ? replies : fallbackReplies;
+  if (source.length <= 2) return source;
+  const offset = (state.caseIndex + (voiceTurn?.playerTurns ?? 0)) % source.length;
+  return [source[offset], source[(offset + 1) % source.length]];
+}
+
+function voiceDefaultInterpretation(stage) {
+  const playerMessage = chatLog
+    .filter((item) => item.speakerId === "player")
+    .map((item) => item.text)
+    .join(" ");
+  if (stage === "accusation") {
+    const allowedCrew = detectiveInspection
+      ? crew.filter((person) => isAttackAllowed(detectiveInspection.voterId, person.id))
+      : crew;
+    return fallbackAccusation(playerMessage, state, allowedCrew);
+  }
+  if (stage === "hard-response" || stage === "hard-final") {
+    return {
+      targetId: state.accusedId,
+      claimId: state.claimId,
+      ...fallbackResponse(playerMessage),
+    };
+  }
+  return fallbackResponse(playerMessage);
+}
+
+function projectVoiceTurn(stage, interpretation) {
+  if (stage === "accusation") {
+    return state.difficultyMode === "hard"
+      ? applyHardLie(state, interpretation.accusedId, interpretation.claimId)
+      : applyLie(state, interpretation.accusedId, interpretation.claimId);
+  }
+  if (stage === "hard-response" || stage === "hard-final") return applyHardDefense(state, interpretation);
+  return applyResponse(state, interpretation.responseId);
+}
+
+function voiceTransitionPrompt() {
+  if (state.phase === "challenge") {
+    return { speakerId: state.challengerId, text: state.challengeText };
+  }
+  const [current, total] = voiceTurnPosition();
+  const person = crew[(state.caseIndex + current - 1) % crew.length];
+  return { speakerId: person.id, text: ui.voice.nextTurnPrompt(current, total) };
+}
+
+async function beginNextVoiceTurn(controller) {
+  const nextStage = voiceStageForPhase();
+  if (!nextStage || playMode !== "voice" || controller !== voiceController) return;
+  const prompt = voiceTransitionPrompt();
+  chatLog.push(prompt);
+  render();
+  try {
+    await controller.speak(prompt.speakerId, prompt.text, {
+      emotion: voiceEmotionForReply(prompt, nextStage),
+    });
+  } catch {
+    controller.end({ fallback: true });
+    voiceFallbackNotice = ui.voice.fallbackNotice;
+    render();
+    return;
+  }
+  if (controller === voiceController) startVoiceDiscussionTurn(nextStage);
+}
+
+async function finalizeVoiceDiscussionTurn() {
+  if (!voiceTurn || voiceTurn.finalizing || chatPending) return;
+  const completedTurn = voiceTurn;
+  voiceTurn = beginVoiceTurnFinalization(voiceTurn);
+  if (voiceTurnTicker !== null) window.clearInterval(voiceTurnTicker);
+  voiceTurnTicker = null;
+  voiceController?.setInputEnabled(false);
+  render();
+
+  const interpretation = completedTurn.candidate?.interpretation
+    ?? voiceDefaultInterpretation(completedTurn.stage);
+  const nextState = projectVoiceTurn(completedTurn.stage, interpretation);
+  if (completedTurn.stage === "accusation") {
+    const claim = getClaimOptions(interpretation.accusedId, locale)
+      .find((option) => option.id === interpretation.claimId);
+    chatLog.push({
+      speakerId: "system",
+      text: ui.voice.finalPosition(
+        displayName(interpretation.accusedId),
+        claim?.short ?? interpretation.claimId,
+      ),
+    });
+  } else if (completedTurn.stage === "hard-response" || completedTurn.stage === "hard-final") {
+    const claim = getClaimOptions(interpretation.targetId, locale)
+      .find((option) => option.id === interpretation.claimId);
+    const response = getResponseOptions(nextState)
+      .find((option) => option.id === interpretation.responseId);
+    chatLog.push({
+      speakerId: "system",
+      text: ui.hardInterpreted(
+        displayName(interpretation.targetId),
+        claim?.short ?? interpretation.claimId,
+        response?.label.replaceAll("“", "").replaceAll("”", "") ?? interpretation.responseId,
+      ),
+    });
+  } else {
+    chatLog.push({ speakerId: "system", text: ui.chatInterpretedResponse(nextState.responseText) });
+  }
+
+  state = nextState;
+  clearVoiceTurn();
+  chatPending = false;
+  render();
+  if (state.phase === "response") {
+    voiceController?.end();
+    voiceController = null;
+    render();
+    return;
+  }
+  const controller = voiceController;
+  if (controller) await beginNextVoiceTurn(controller);
+}
+
+async function handleVoiceDiscussionSubmit(stage, rawMessage, options = {}) {
+  if (chatPending || !voiceTurn || voiceTurn.expired || voiceTurn.stage !== stage) return;
+  const message = String(rawMessage).trim().slice(0, MAX_CHAT_LENGTH);
+  if (!message) return;
+  const allowedCrew = stage === "accusation" && detectiveInspection
+    ? crew.filter((person) => isAttackAllowed(detectiveInspection.voterId, person.id))
+    : crew;
+  const blockedPerson = stage === "accusation" && detectiveInspection
+    ? crewMember(detectiveInspection.voterId)
+    : null;
+  if (blockedPerson) {
+    const normalized = message.toLocaleLowerCase();
+    if (normalized.includes(blockedPerson.id) || normalized.includes(blockedPerson.name.toLocaleLowerCase())) {
+      chatNotice = ui.detective.cannotAccuse(blockedPerson.name);
+      render();
+      return;
+    }
+  }
+
+  const activeTurnId = voiceTurn.id;
+  chatLog.push({ speakerId: "player", text: message });
+  appendContextMedia("game", message);
+  chatPending = true;
+  chatNotice = null;
+  render();
+
+  let remote = null;
+  try {
+    remote = await requestCharacterChat(stage, message, null, {
+      inputMode: "voice",
+      utteranceId: options.utteranceId ?? `typed-${Date.now()}`,
+    });
+    chatMode = "live";
+  } catch {
+    chatMode = "mock";
+    chatNotice = ui.chatFallback;
+  }
+  if (!voiceTurn || voiceTurn.id !== activeTurnId) {
+    chatPending = false;
+    return;
+  }
+
+  if (remote?.clarification) {
+    const speakerId = state.challengerId ?? crew[(state.caseIndex + chatLog.length) % crew.length].id;
+    const clarification = remote.clarification === "target"
+      ? ui.voice.clarificationTarget
+      : ui.voice.clarificationClaim;
+    const reply = { speakerId, text: clarification };
+    await revealReplies([reply], stage);
+    chatPending = false;
+    render();
+    if (voiceTurn?.expired) await finalizeVoiceDiscussionTurn();
+    return;
+  }
+
+  const localFallback = stage === "accusation"
+    ? fallbackAccusation(message, state, allowedCrew)
+    : stage === "hard-response" || stage === "hard-final"
+      ? { targetId: state.accusedId, claimId: state.claimId, ...fallbackResponse(message) }
+      : fallbackResponse(message);
+  const interpretation = normalizeInterpretation(
+    stage,
+    remote?.interpretation ?? localFallback,
+    message,
+    state,
+    allowedCrew,
+  );
+  const projectedState = projectVoiceTurn(stage, interpretation);
+  voiceTurn = recordVoiceTurnCandidate(voiceTurn, {
+    interpretation,
+    message,
+    utteranceId: options.utteranceId,
+  });
+  const liveReplies = safeLiveReplies(remote?.replies ?? []);
+  const fallbackReplies = voiceDiscussionFallbackReplies(stage, projectedState, interpretation);
+  await revealReplies(voiceDiscussionReplyPair(liveReplies, fallbackReplies), stage);
+  chatPending = false;
+  render();
+  if (voiceTurn?.expired) await finalizeVoiceDiscussionTurn();
 }
 
 async function handleChatSubmit(stage, rawMessage, options = {}) {
@@ -2346,6 +2639,7 @@ function render() {
 }
 
 function resetGame() {
+  clearVoiceTurn();
   state = startGame(createGame({
     caseIndex: nextCaseIndex(state.caseIndex),
     subquestId: nextSubquestId(state.subquestId),
@@ -2464,6 +2758,7 @@ app.addEventListener("click", (event) => {
     state = { ...state, phase: playerProfile.name ? "intro" : "profile" };
   }
   if (action === "back-welcome") {
+    clearVoiceTurn();
     voiceController?.end();
     voiceController = null;
     playMode = "text";
@@ -2471,6 +2766,7 @@ app.addEventListener("click", (event) => {
   }
   if (action === "edit-profile") state = { ...state, phase: "profile" };
   if (action === "go-home") {
+    clearVoiceTurn();
     voiceController?.end();
     voiceController = null;
     state = { ...state, phase: "home" };
@@ -2487,6 +2783,7 @@ app.addEventListener("click", (event) => {
     return;
   }
   if (action === "cancel-voice") {
+    clearVoiceTurn();
     voiceController?.end();
     voiceController = null;
     playMode = "text";
@@ -2550,6 +2847,7 @@ app.addEventListener("click", (event) => {
     return;
   }
   if (action === "vote") {
+    clearVoiceTurn();
     voiceController?.end();
     voiceController = null;
     state = resolveVote(state);
@@ -2630,9 +2928,11 @@ app.addEventListener("submit", (event) => {
   event.preventDefault();
   const message = new FormData(form).get("message");
   if (form.dataset.chatStage === "friend") handleFriendSubmit(message);
-  else handleChatSubmit(form.dataset.chatStage, message, {
-    inputMode: form.dataset.inputMode === "voice-text" ? "text" : undefined,
-  });
+  else if (playMode === "voice" && form.dataset.inputMode === "voice-text") {
+    handleVoiceDiscussionSubmit(form.dataset.chatStage, message, {
+      utteranceId: `typed-${Date.now()}`,
+    });
+  } else handleChatSubmit(form.dataset.chatStage, message);
 });
 
 app.addEventListener("input", (event) => {
