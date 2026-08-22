@@ -149,7 +149,18 @@ export function normalizeInterpretation(stage, interpretation, message, state, c
   };
 }
 
-export function buildChatPayload({ locale, stage, message, state, crew, incident, transcript, friendId = null }) {
+export function buildChatPayload({
+  locale,
+  stage,
+  message,
+  state,
+  crew,
+  incident,
+  transcript,
+  friendId = null,
+  inputMode = "text",
+  utteranceId = null,
+}) {
   return {
     locale,
     stage,
@@ -178,6 +189,8 @@ export function buildChatPayload({ locale, stage, message, state, crew, incident
     difficultyMode: state.difficultyMode,
     hardTurns: state.hardTurns.map(({ targetId, claimId, responseId }) => ({ targetId, claimId, responseId })),
     friendId,
+    inputMode: inputMode === "voice" ? "voice" : "text",
+    utteranceId: inputMode === "voice" ? String(utteranceId ?? "").slice(0, 100) : null,
     round: {
       caseIndex: state.caseIndex,
       subquestId: state.subquestId,

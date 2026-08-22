@@ -11,11 +11,12 @@ import {
   PROGRESSION_STORAGE_KEY,
   sanitizeChats,
   sanitizeMatches,
-} from "./account-core.js?v=0.16.4";
-import { createProgression } from "./progression.js?v=0.16.4";
+} from "./account-core.js?v=0.17.1";
+import { createProgression } from "./progression.js?v=0.17.1";
 
 const AUTH_SESSION_KEY = "mars-net-auth-session-v1";
 const AUTH_TRANSACTION_KEY = "mars-net-auth-transaction-v1";
+const AUTH_ENTRY_STORAGE_KEY = "mars-net-auth-entry-v1";
 const ACCOUNT_CACHE_PREFIX = "mars-net-account-cache:";
 const QUEUE_DATABASE = "mars-net-cloud-v1";
 const QUEUE_STORE = "mutations";
@@ -29,11 +30,43 @@ const COPY = {
     syncing: "동기화 중",
     pending: "동기화 대기",
     saveTitle: "이 기록을 계정에 저장",
-    saveLead: "Google로 로그인하면 다른 기기에서도 성장·판 기록·개인 채팅을 이어갈 수 있어요.",
-    saveAction: "Google로 기록 저장",
+    saveLead: "로그인하면 다른 기기에서도 성장·판 기록·개인 채팅을 이어갈 수 있어요.",
+    saveAction: "로그인하고 기록 저장",
     accountTitle: "MARS.NET 계정",
     loginLead: "게스트 플레이는 계속 가능합니다. 로그인하면 현재 기기 기록을 안전하게 합칩니다.",
-    google: "Google로 계속",
+    google: "Google로 계속하기",
+    email: "이메일로 로그인",
+    guestAction: "게스트로 시작",
+    authEyebrow: "2050 · MARS.NET",
+    authTitle: "화성에서 기다리는 친구들",
+    authLead: "로그인해서 기록을 이어가거나, 게스트로 바로 시작하세요.",
+    authLoading: "계정 연결 상태를 확인하는 중…",
+    guestNote: "가입 없이 바로 시작할 수 있어요. 진행 기록은 이 기기에 저장됩니다.",
+    emailLoginTitle: "이메일로 로그인",
+    emailSignupTitle: "MARS.NET 계정 만들기",
+    emailResetTitle: "비밀번호 재설정",
+    recoveryTitle: "새 비밀번호 설정",
+    emailLabel: "이메일",
+    passwordLabel: "비밀번호",
+    passwordConfirmLabel: "비밀번호 확인",
+    passwordHint: "8자 이상 입력하세요.",
+    emailPlaceholder: "you@example.com",
+    loginAction: "로그인",
+    signupAction: "회원가입",
+    resetAction: "재설정 메일 보내기",
+    updatePasswordAction: "새 비밀번호 저장",
+    forgotPassword: "비밀번호를 잊었나요?",
+    createAccount: "처음이신가요? 회원가입",
+    existingAccount: "이미 계정이 있나요? 로그인",
+    back: "이전으로",
+    confirmationSent: "인증 메일을 보냈습니다. 이메일을 확인한 뒤 로그인해 주세요.",
+    resetSent: "입력한 주소가 등록되어 있다면 재설정 메일을 보냈습니다.",
+    passwordUpdated: "비밀번호를 변경했습니다.",
+    invalidEmail: "올바른 이메일 주소를 입력해 주세요.",
+    passwordMismatch: "비밀번호가 서로 다릅니다.",
+    authError: "로그인 정보를 확인하거나 잠시 뒤 다시 시도해 주세요.",
+    providerGoogle: "Google",
+    providerEmail: "이메일",
     unavailable: "클라우드 저장 설정 전입니다. 게임은 이 기기에 계속 저장됩니다.",
     connected: "연결된 로그인",
     lastSync: "마지막 동기화",
@@ -47,7 +80,7 @@ const COPY = {
     close: "계정 창 닫기",
     confirmChatDelete: "이 캐릭터와의 저장된 채팅을 모두 삭제할까요? 되돌릴 수 없습니다.",
     confirmAccountDelete: "계정, 성장 기록, 판 기록, 개인 채팅, 프로필 이미지를 모두 삭제할까요? 되돌릴 수 없습니다.",
-    reauth: "보안을 위해 Google 로그인을 다시 한 뒤 계정 삭제를 시도해 주세요.",
+    reauth: "보안을 위해 다시 로그인한 뒤 계정 삭제를 시도해 주세요.",
     error: "클라우드 연결에 실패했습니다. 로컬 플레이는 계속할 수 있어요.",
     characters: { mina: "미나", juno: "주노", noel: "노엘" },
   },
@@ -58,11 +91,43 @@ const COPY = {
     syncing: "Syncing",
     pending: "Waiting to sync",
     saveTitle: "Save this record to an account",
-    saveLead: "Sign in with Google to keep progression, matches, and private chats across devices.",
-    saveAction: "Save with Google",
+    saveLead: "Sign in to keep progression, matches, and private chats across devices.",
+    saveAction: "Sign in and save",
     accountTitle: "MARS.NET account",
     loginLead: "Guest play stays available. Signing in safely merges this device's records.",
     google: "Continue with Google",
+    email: "Continue with email",
+    guestAction: "Continue as guest",
+    authEyebrow: "2050 · MARS.NET",
+    authTitle: "Your friends are waiting on Mars",
+    authLead: "Sign in to continue your record, or jump in as a guest.",
+    authLoading: "Checking your account…",
+    guestNote: "No account needed. Your progress will stay on this device.",
+    emailLoginTitle: "Sign in with email",
+    emailSignupTitle: "Create a MARS.NET account",
+    emailResetTitle: "Reset your password",
+    recoveryTitle: "Set a new password",
+    emailLabel: "Email",
+    passwordLabel: "Password",
+    passwordConfirmLabel: "Confirm password",
+    passwordHint: "Use at least 8 characters.",
+    emailPlaceholder: "you@example.com",
+    loginAction: "Sign in",
+    signupAction: "Create account",
+    resetAction: "Send reset email",
+    updatePasswordAction: "Save new password",
+    forgotPassword: "Forgot password?",
+    createAccount: "New here? Create an account",
+    existingAccount: "Already have an account? Sign in",
+    back: "Back",
+    confirmationSent: "We sent a confirmation email. Verify it, then sign in.",
+    resetSent: "If that address is registered, a reset email is on its way.",
+    passwordUpdated: "Your password has been updated.",
+    invalidEmail: "Enter a valid email address.",
+    passwordMismatch: "The passwords do not match.",
+    authError: "Check your details or try again in a moment.",
+    providerGoogle: "Google",
+    providerEmail: "Email",
     unavailable: "Cloud saving is not configured yet. The game will keep saving on this device.",
     connected: "Connected sign-in",
     lastSync: "Last synced",
@@ -76,7 +141,7 @@ const COPY = {
     close: "Close account panel",
     confirmChatDelete: "Delete every saved chat with this character? This cannot be undone.",
     confirmAccountDelete: "Delete the account, progression, matches, private chats, and avatar? This cannot be undone.",
-    reauth: "For security, sign in with Google again before deleting the account.",
+    reauth: "For security, sign in again before deleting the account.",
     error: "Cloud connection failed. Local play is still available.",
     characters: { mina: "Mina", juno: "Juno", noel: "Noel" },
   },
@@ -117,6 +182,15 @@ const base64Url = (bytes) => btoa(String.fromCharCode(...bytes))
   .replaceAll("/", "_")
   .replace(/=+$/u, "");
 const sha256 = async (value) => new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value)));
+const decodeJwtPayload = (token) => {
+  try {
+    const encoded = String(token).split(".")[1]?.replaceAll("-", "+").replaceAll("_", "/");
+    if (!encoded) return {};
+    return JSON.parse(atob(encoded.padEnd(Math.ceil(encoded.length / 4) * 4, "=")));
+  } catch {
+    return {};
+  }
+};
 
 function publicSession(raw) {
   const accessToken = raw?.access_token ?? raw?.accessToken;
@@ -130,23 +204,96 @@ function publicSession(raw) {
     user: {
       id: String(raw.user?.id ?? ""),
       email: String(raw.user?.email ?? "").slice(0, 254),
+      provider: raw.user?.provider === "google" || raw.user?.app_metadata?.provider === "google" ? "google" : "email",
     },
   };
 }
 
 class SupabasePkceAuth {
   constructor() {
-    this.config = { enabled: false, providers: { google: false, apple: false } };
+    this.config = { enabled: false, providers: { google: false, email: false } };
     this.session = publicSession(readJson(AUTH_SESSION_KEY, null));
+    this.recoveryMode = false;
   }
 
   async initialize() {
     const response = await fetch("/api/auth/config", { cache: "no-store" });
     this.config = response.ok ? await response.json() : this.config;
     const url = new URL(window.location.href);
+    this.consumeHashCallback(url);
     if (url.searchParams.has("code")) await this.exchangeCallback(url);
     await this.refreshIfNeeded();
     return this.session;
+  }
+
+  consumeHashCallback(url) {
+    const params = new URLSearchParams(url.hash.replace(/^#/u, ""));
+    if (!params.has("access_token") || !params.has("refresh_token")) return;
+    const claims = decodeJwtPayload(params.get("access_token"));
+    this.setSession({
+      access_token: params.get("access_token"),
+      refresh_token: params.get("refresh_token"),
+      expires_in: params.get("expires_in"),
+      user: {
+        id: claims.sub,
+        email: claims.email,
+        app_metadata: claims.app_metadata,
+      },
+    });
+    this.recoveryMode = params.get("type") === "recovery";
+    history.replaceState({}, "", `${url.pathname}${url.search}`);
+  }
+
+  async request(path, body, options = {}) {
+    if (!this.config.enabled) throw new Error("auth_unavailable");
+    const endpoint = new URL(`${this.config.supabaseUrl}/auth/v1/${path}`);
+    if (options.redirectTo) endpoint.searchParams.set("redirect_to", options.redirectTo);
+    const response = await fetch(endpoint, {
+      method: options.method ?? "POST",
+      headers: {
+        "Content-Type": "application/json",
+        apikey: this.config.publishableKey,
+        ...(options.token ? { Authorization: `Bearer ${options.token}` } : {}),
+      },
+      body: JSON.stringify(body),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      const error = new Error("auth_request_failed");
+      error.status = response.status;
+      throw error;
+    }
+    return data;
+  }
+
+  async signInWithEmail(email, password) {
+    if (!this.config.providers?.email) throw new Error("auth_unavailable");
+    this.setSession(await this.request("token?grant_type=password", { email, password }));
+    return this.session;
+  }
+
+  async signUpWithEmail(email, password) {
+    if (!this.config.providers?.email) throw new Error("auth_unavailable");
+    const returnUrl = new URL(window.location.href);
+    returnUrl.hash = "";
+    returnUrl.searchParams.delete("code");
+    const result = await this.request("signup", { email, password }, { redirectTo: returnUrl.toString() });
+    this.setSession(result);
+    return { session: this.session, confirmationRequired: !this.session };
+  }
+
+  async requestPasswordReset(email) {
+    if (!this.config.providers?.email) throw new Error("auth_unavailable");
+    const returnUrl = new URL(window.location.href);
+    returnUrl.hash = "";
+    await this.request("recover", { email }, { redirectTo: returnUrl.toString() });
+  }
+
+  async updatePassword(password) {
+    const token = await this.accessToken();
+    if (!token || !this.recoveryMode) throw new Error("authentication_required");
+    await this.request("user", { password }, { method: "PUT", token });
+    this.recoveryMode = false;
   }
 
   async signInWithGoogle() {
@@ -293,6 +440,7 @@ class AccountController extends EventTarget {
     this.syncState = "guest";
     this.lastSync = null;
     this.modalOpen = false;
+    this.initialized = false;
     this.syncTimer = null;
     this.flushing = false;
     this.modalOpener = null;
@@ -307,9 +455,13 @@ class AccountController extends EventTarget {
     return Boolean(this.auth.session?.user?.id);
   }
 
+  get guestSelected() {
+    return readJson(AUTH_ENTRY_STORAGE_KEY, null)?.mode === "guest";
+  }
+
   notify() {
     this.dispatchEvent(new Event("change"));
-    document.querySelectorAll("mars-account-control, mars-account-save").forEach((element) => element.render?.());
+    document.querySelectorAll("mars-account-control, mars-account-save, mars-auth-gate").forEach((element) => element.render?.());
     this.renderModal();
   }
 
@@ -324,7 +476,10 @@ class AccountController extends EventTarget {
     const hadStoredSession = Boolean(this.auth.session);
     try {
       await this.auth.initialize();
-      if (this.signedIn) await this.bootstrap();
+      if (this.signedIn) {
+        removeValue(AUTH_ENTRY_STORAGE_KEY);
+        await this.bootstrap();
+      }
       else if (hadStoredSession) {
         this.restoreGuestBackup();
         window.dispatchEvent(new CustomEvent("mars:account-hydrated", { detail: this.localSnapshot() }));
@@ -332,7 +487,59 @@ class AccountController extends EventTarget {
     } catch {
       this.setSyncState("error");
     }
+    this.initialized = true;
     this.notify();
+    if (this.auth.recoveryMode) this.requireAuthentication("recovery");
+    else if (this.signedIn) this.completeEntry("account");
+    else if (this.guestSelected) this.completeEntry("guest");
+  }
+
+  completeEntry(mode) {
+    window.dispatchEvent(new CustomEvent("mars:auth-entered", { detail: { mode } }));
+  }
+
+  continueAsGuest() {
+    writeJson(AUTH_ENTRY_STORAGE_KEY, { version: 1, mode: "guest" });
+    this.setSyncState("guest");
+    this.completeEntry("guest");
+  }
+
+  async finishEmailAuthentication() {
+    removeValue(AUTH_ENTRY_STORAGE_KEY);
+    try {
+      await this.bootstrap();
+    } catch {
+      this.setSyncState("error");
+    }
+    this.notify();
+    this.completeEntry("account");
+  }
+
+  async loginWithEmail(email, password) {
+    await this.auth.signInWithEmail(email, password);
+    await this.finishEmailAuthentication();
+  }
+
+  async signupWithEmail(email, password) {
+    const result = await this.auth.signUpWithEmail(email, password);
+    if (result.session) await this.finishEmailAuthentication();
+    return result;
+  }
+
+  async requestPasswordReset(email) {
+    await this.auth.requestPasswordReset(email);
+  }
+
+  async updateRecoveredPassword(password) {
+    await this.auth.updatePassword(password);
+    await this.finishEmailAuthentication();
+  }
+
+  requireAuthentication(view = "choice") {
+    removeValue(AUTH_ENTRY_STORAGE_KEY);
+    this.modalOpen = false;
+    this.renderModal();
+    window.dispatchEvent(new CustomEvent("mars:auth-required", { detail: { view } }));
   }
 
   requestHeaders() {
@@ -561,11 +768,7 @@ class AccountController extends EventTarget {
   }
 
   async login() {
-    try {
-      await this.auth.signInWithGoogle();
-    } catch {
-      this.setSyncState("error");
-    }
+    await this.auth.signInWithGoogle();
   }
 
   async logout() {
@@ -577,6 +780,7 @@ class AccountController extends EventTarget {
     this.modalOpen = false;
     this.setSyncState("guest");
     window.dispatchEvent(new CustomEvent("mars:account-hydrated", { detail: this.localSnapshot() }));
+    this.requireAuthentication("choice");
   }
 
   async deleteChat(characterId) {
@@ -643,7 +847,7 @@ class AccountController extends EventTarget {
         <section class="account-sheet">
           <header><div><small>2050 · MARS.NET</small><h2 id="account-modal-title">${text.accountTitle}</h2></div><button type="button" data-account-action="close" aria-label="${text.close}">×</button></header>
           ${session ? `
-            <div class="account-identity"><span>${escapeHtml(session.user.email.slice(0, 1).toUpperCase())}</span><div><strong>${escapeHtml(session.user.email)}</strong><small>${text.connected}: Google</small></div></div>
+            <div class="account-identity"><span>${escapeHtml(session.user.email.slice(0, 1).toUpperCase())}</span><div><strong>${escapeHtml(session.user.email)}</strong><small>${text.connected}: ${session.user.provider === "google" ? text.providerGoogle : text.providerEmail}</small></div></div>
             <dl class="account-sync-detail"><div><dt>${status}</dt><dd>${text.lastSync}: ${this.lastSync ? new Date(this.lastSync).toLocaleString(locale) : text.never}</dd></div></dl>
             <button class="account-action" type="button" data-account-action="export">${text.export}</button>
             <fieldset class="account-chat-delete"><legend>${text.deleteChats}</legend>${CREW_IDS.map((id) => `<button type="button" data-account-action="delete-chat" data-character-id="${id}">${text.deleteChat(text.characters[id])}</button>`).join("")}</fieldset>
@@ -653,7 +857,11 @@ class AccountController extends EventTarget {
             <p>${text.loginLead}</p>
             ${this.auth.config.enabled && this.auth.config.providers?.google
               ? `<button class="account-google" type="button" data-account-action="google"><span aria-hidden="true">G</span>${text.google}</button>`
-              : `<p class="account-unavailable">${text.unavailable}</p>`}
+              : ""}
+            ${this.auth.config.enabled && this.auth.config.providers?.email
+              ? `<button class="account-action account-email" type="button" data-account-action="email">${text.email}</button>`
+              : ""}
+            ${!this.auth.config.enabled ? `<p class="account-unavailable">${text.unavailable}</p>` : ""}
           `}
           <a class="account-feedback" href="mailto:su.jin.lee.developer@gmail.com?subject=${feedbackSubject}&body=${feedbackBody}">${text.feedback}</a>
         </section>
@@ -661,7 +869,8 @@ class AccountController extends EventTarget {
     root.querySelectorAll("[data-account-action]").forEach((button) => button.addEventListener("click", (event) => {
       const action = event.currentTarget.dataset.accountAction;
       if (action === "close") this.closeModal();
-      if (action === "google") void this.login();
+      if (action === "google") void this.login().catch(() => this.setSyncState("error"));
+      if (action === "email") this.requireAuthentication("email-login");
       if (action === "export") void this.exportData();
       if (action === "logout") void this.logout();
       if (action === "delete-account") void this.deleteAccount();
@@ -671,6 +880,155 @@ class AccountController extends EventTarget {
 
   registerElements() {
     const controller = this;
+    if (!customElements.get("mars-auth-gate")) customElements.define("mars-auth-gate", class extends HTMLElement {
+      constructor() {
+        super();
+        this.view = "choice";
+        this.pending = false;
+        this.notice = "";
+        this.error = "";
+      }
+
+      connectedCallback() {
+        const requested = this.getAttribute("initial-view");
+        if (["choice", "email-login", "email-signup", "email-reset", "recovery"].includes(requested)) this.view = requested;
+        this.render();
+      }
+
+      validEmail(value) {
+        return value.length <= 254 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/u.test(value);
+      }
+
+      show(view) {
+        this.view = view;
+        this.notice = "";
+        this.error = "";
+        this.render();
+        this.querySelector("input")?.focus();
+      }
+
+      displayError(message) {
+        this.error = message;
+        let status = this.querySelector(".auth-status.is-error");
+        if (!status) {
+          status = document.createElement("p");
+          status.className = "auth-status is-error";
+          status.setAttribute("role", "alert");
+          this.querySelector(".auth-screen")?.append(status);
+        }
+        status.textContent = message;
+      }
+
+      async perform(task) {
+        if (this.pending) return;
+        this.pending = true;
+        this.error = "";
+        this.render();
+        try {
+          await task();
+        } catch {
+          this.error = text.authError;
+        } finally {
+          this.pending = false;
+          if (this.isConnected) this.render();
+        }
+      }
+
+      emailForm(view) {
+        const isSignup = view === "email-signup";
+        const isReset = view === "email-reset";
+        const isRecovery = view === "recovery";
+        const title = isSignup
+          ? text.emailSignupTitle
+          : isReset
+            ? text.emailResetTitle
+            : isRecovery
+              ? text.recoveryTitle
+              : text.emailLoginTitle;
+        const action = isSignup
+          ? text.signupAction
+          : isReset
+            ? text.resetAction
+            : isRecovery
+              ? text.updatePasswordAction
+              : text.loginAction;
+        return `
+          <button class="auth-back" type="button" data-auth-action="back" aria-label="${text.back}">‹</button>
+          <div class="auth-heading"><span>${text.authEyebrow}</span><h1 tabindex="-1">${title}</h1></div>
+          <form class="auth-email-form" data-auth-form="${view}">
+            ${isRecovery ? "" : `<label><span>${text.emailLabel}</span><input name="email" type="email" maxlength="254" autocomplete="email" placeholder="${text.emailPlaceholder}" required /></label>`}
+            ${isReset ? "" : `<label><span>${text.passwordLabel}</span><input name="password" type="password" minlength="8" maxlength="128" autocomplete="${isSignup ? "new-password" : isRecovery ? "new-password" : "current-password"}" required /><small>${text.passwordHint}</small></label>`}
+            ${isSignup || isRecovery ? `<label><span>${text.passwordConfirmLabel}</span><input name="passwordConfirm" type="password" minlength="8" maxlength="128" autocomplete="new-password" required /></label>` : ""}
+            <button class="auth-primary" type="submit" ${this.pending ? "disabled" : ""}>${action}</button>
+          </form>
+          ${view === "email-login" ? `<div class="auth-text-actions"><button type="button" data-auth-action="email-signup">${text.createAccount}</button><button type="button" data-auth-action="email-reset">${text.forgotPassword}</button></div>` : ""}
+          ${isSignup || isReset ? `<button class="auth-existing" type="button" data-auth-action="email-login">${text.existingAccount}</button>` : ""}
+        `;
+      }
+
+      render() {
+        if (!controller.initialized) {
+          this.innerHTML = `<section class="auth-screen is-loading"><div class="auth-loading" role="status"><span>${text.authEyebrow}</span><p>${text.authLoading}</p></div></section>`;
+          return;
+        }
+        const view = controller.auth.recoveryMode ? "recovery" : this.view;
+        const content = view === "choice" ? `
+          <div class="auth-brand"><span>${text.authEyebrow}</span><strong>MARS.NET</strong></div>
+          <div class="auth-art" aria-hidden="true"><img src="./assets/images/mafia-astronaut-v2.png" alt="" /></div>
+          <div class="auth-heading"><h1 tabindex="-1">${text.authTitle}</h1><p>${text.authLead}</p></div>
+          <div class="auth-actions">
+            <button class="auth-google" type="button" data-auth-action="google" ${this.pending ? "disabled" : ""}><span aria-hidden="true">G</span>${text.google}</button>
+            <button class="auth-email" type="button" data-auth-action="email-login" ${this.pending ? "disabled" : ""}>${text.email}</button>
+            <span class="auth-divider" aria-hidden="true"></span>
+            <button class="auth-primary" type="button" data-auth-action="guest" ${this.pending ? "disabled" : ""}>${text.guestAction}</button>
+            <small>${text.guestNote}</small>
+          </div>
+          ${!controller.auth.config.enabled ? `<p class="account-unavailable">${text.unavailable}</p>` : ""}
+        ` : this.emailForm(view);
+        this.innerHTML = `
+          <section class="auth-screen ${view === "choice" ? "is-choice" : "is-email"}">
+            ${content}
+            ${this.notice ? `<p class="auth-status is-notice" role="status">${escapeHtml(this.notice)}</p>` : ""}
+            ${this.error ? `<p class="auth-status is-error" role="alert">${escapeHtml(this.error)}</p>` : ""}
+          </section>`;
+        this.querySelectorAll("[data-auth-action]").forEach((button) => button.addEventListener("click", () => {
+          const action = button.dataset.authAction;
+          if (action === "back") this.show("choice");
+          if (action === "email-login" || action === "email-signup" || action === "email-reset") this.show(action);
+          if (action === "guest") controller.continueAsGuest();
+          if (action === "google") void this.perform(() => controller.login());
+        }));
+        this.querySelector("form")?.addEventListener("submit", (event) => {
+          event.preventDefault();
+          const form = new FormData(event.currentTarget);
+          const email = String(form.get("email") ?? "").trim().toLowerCase();
+          const password = String(form.get("password") ?? "");
+          const confirmation = String(form.get("passwordConfirm") ?? "");
+          if (view !== "recovery" && !this.validEmail(email)) {
+            this.displayError(text.invalidEmail);
+            return;
+          }
+          if ((view === "email-signup" || view === "recovery") && password !== confirmation) {
+            this.displayError(text.passwordMismatch);
+            return;
+          }
+          if (view === "email-login") void this.perform(() => controller.loginWithEmail(email, password));
+          if (view === "email-signup") void this.perform(async () => {
+            const result = await controller.signupWithEmail(email, password);
+            if (result.confirmationRequired) {
+              this.view = "email-login";
+              this.notice = text.confirmationSent;
+            }
+          });
+          if (view === "email-reset") void this.perform(async () => {
+            await controller.requestPasswordReset(email);
+            this.view = "email-login";
+            this.notice = text.resetSent;
+          });
+          if (view === "recovery") void this.perform(() => controller.updateRecoveredPassword(password));
+        });
+      }
+    });
     if (!customElements.get("mars-account-control")) customElements.define("mars-account-control", class extends HTMLElement {
       connectedCallback() { this.render(); }
       render() {

@@ -17,6 +17,7 @@
   let volume = Number.isFinite(stored.volume) ? Math.min(0.6, Math.max(0, stored.volume)) : 0.3;
   let scene = "lobby";
   let hasStarted = false;
+  let ducking = false;
   let labels = {
     start: "Play background music",
     mute: "Mute background music",
@@ -51,7 +52,7 @@
 
   function applyVolume() {
     Object.values(tracks).forEach((track) => {
-      track.volume = muted ? 0 : volume;
+      track.volume = muted ? 0 : volume * (ducking ? 0.22 : 1);
       track.muted = muted;
     });
   }
@@ -143,6 +144,10 @@
     setLabels(nextLabels) {
       labels = { ...labels, ...nextLabels };
       renderControls();
+    },
+    setDucking(nextDucking) {
+      ducking = Boolean(nextDucking);
+      applyVolume();
     },
   };
 

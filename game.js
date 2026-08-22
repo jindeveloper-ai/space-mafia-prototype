@@ -19,15 +19,15 @@ import {
   plantEvidence,
   resolveVote,
   startGame,
-} from "./game-engine.js?v=0.16.4";
-import { getCopy, normalizeLocale } from "./i18n.js?v=0.16.4";
+} from "./game-engine.js?v=0.17.1";
+import { getCopy, normalizeLocale } from "./i18n.js?v=0.17.1";
 import {
   buildChatPayload,
   fallbackAccusation,
   fallbackResponse,
   MAX_CHAT_LENGTH,
   normalizeInterpretation,
-} from "./chat-adapter.js?v=0.16.4";
+} from "./chat-adapter.js?v=0.17.1";
 import {
   acceptPersonalQuest,
   awardCrewLevels,
@@ -42,8 +42,9 @@ import {
   setEquippedJob,
   setDifficultyMode,
   settlePersonalQuest,
-} from "./progression.js?v=0.16.4";
-import { accountController, createMutationId } from "./account-client.js?v=0.16.4";
+} from "./progression.js?v=0.17.1";
+import { accountController, createMutationId } from "./account-client.js?v=0.17.1";
+import { createVoiceCallController } from "./voice-call.js?v=0.17.1";
 
 const app = document.querySelector("#app");
 const assetVersion = new URL(import.meta.url).searchParams.get("v");
@@ -186,8 +187,9 @@ soundController?.setLabels({
 let progression = loadProgression();
 let state = {
   ...createGame({ locale, crewLevels: progression.crewLevels, difficultyMode: progression.difficultyMode, roundId: newRoundId() }),
-  phase: "welcome",
+  phase: "auth",
 };
+let authInitialView = "choice";
 let selectedTargetId = null;
 let chatLog = [];
 let chatPending = false;
@@ -206,13 +208,17 @@ let detectiveInspection = null;
 let openArchiveCharacterId = null;
 let openArchiveView = "profile";
 let archiveReturnFocusId = null;
+let playMode = "text";
+let voiceController = null;
+let voiceConsentBusy = false;
+let voiceFallbackNotice = null;
 const archiveSessionComments = Object.create(null);
 const archivePendingReplies = Object.create(null);
 const shownContextMedia = new Set();
 
 document.querySelectorAll("[data-lang]").forEach((link) => {
   link.addEventListener("click", (event) => {
-    if (["welcome", "profile", "home", "intro"].includes(state.phase)) return;
+    if (["auth", "welcome", "profile", "home", "intro"].includes(state.phase)) return;
     if (!window.confirm(ui.languageRestartConfirm)) event.preventDefault();
   });
 });
@@ -221,6 +227,94 @@ const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
 const wait = (milliseconds) => new Promise((resolve) => {
   window.setTimeout(resolve, reducedMotion.matches ? 0 : milliseconds);
 });
+
+function voiceStageForPhase(phase = state.phase) {
+  if (phase === "lie") return "accusation";
+  if (phase === "hard-final") return "hard-final";
+  if (phase === "hard-defense-1" || phase === "hard-defense-2") return "hard-response";
+  if (phase === "challenge") return "response";
+  return null;
+}
+
+function createRoundVoiceController() {
+  voiceController?.end();
+  const debugVoice = ["127.0.0.1", "localhost"].includes(window.location.hostname)
+    && new URLSearchParams(window.location.search).get("voiceDebug") === "1";
+  voiceController = createVoiceCallController({
+    locale,
+    soundController,
+    onUpdate() {
+      if (playMode === "voice" && (state.phase === "voice-consent" || voiceStageForPhase())) render();
+    },
+    onMeter(level) {
+      const wave = app.querySelector("[data-voice-wave]");
+      if (!wave) return;
+      wave.style.setProperty("--voice-level", level.toFixed(3));
+    },
+    async onFinalTranscript(utterance) {
+      const stage = voiceStageForPhase();
+      if (!stage || playMode !== "voice") return;
+      await handleChatSubmit(stage, utterance.text, { inputMode: "voice", utteranceId: utterance.id });
+    },
+    onFallback() {
+      playMode = "text";
+      voiceFallbackNotice = ui.voice.fallbackNotice;
+      if (state.phase === "voice-consent") state = { ...state, phase: "intro" };
+      render();
+    },
+    onMetrics(metrics) {
+      if (debugVoice) console.debug("[MARS.NET voice metrics]", metrics);
+    },
+  });
+  return voiceController;
+}
+
+async function beginVoiceGame() {
+  if (voiceConsentBusy) return;
+  voiceConsentBusy = true;
+  playMode = "voice";
+  const controller = createRoundVoiceController();
+  render();
+  const ready = await controller.prepare();
+  voiceConsentBusy = false;
+  if (!ready) return;
+  voiceFallbackNotice = null;
+  detectiveInspection = null;
+  lastPersonalQuestResult = null;
+  lastClueAward = null;
+  const nextState = state.targetId || state.outcome
+    ? createGame({
+      caseIndex: nextCaseIndex(state.caseIndex),
+      subquestId: nextSubquestId(state.subquestId),
+      locale,
+      crewLevels: progression.crewLevels,
+      difficultyMode: progression.difficultyMode,
+      roundId: newRoundId(),
+    })
+    : state;
+  state = startGame(nextState);
+  render();
+}
+
+function beginTextGame() {
+  voiceController?.end({ fallback: true });
+  voiceController = null;
+  playMode = "text";
+  detectiveInspection = null;
+  lastPersonalQuestResult = null;
+  lastClueAward = null;
+  const nextState = state.targetId || state.outcome
+    ? createGame({
+      caseIndex: nextCaseIndex(state.caseIndex),
+      subquestId: nextSubquestId(state.subquestId),
+      locale,
+      crewLevels: progression.crewLevels,
+      difficultyMode: progression.difficultyMode,
+      roundId: newRoundId(),
+    })
+    : state;
+  state = startGame(nextState);
+}
 
 const escapeHtml = (value) => {
   const element = document.createElement("span");
@@ -721,6 +815,10 @@ function renderWelcome() {
   `;
 }
 
+function renderAuthGate() {
+  return `<mars-auth-gate initial-view="${escapeHtml(authInitialView)}"></mars-auth-gate>`;
+}
+
 function renderProfileSetup() {
   return `
     <section class="profile-screen">
@@ -878,6 +976,30 @@ function renderDifficultyChoice() {
   `;
 }
 
+function renderVoiceConsent() {
+  const voiceState = voiceController?.snapshot().state ?? "idle";
+  return `
+    <section class="voice-consent-screen">
+      <button class="plain-back" type="button" data-action="cancel-voice" aria-label="${ui.homeBack}">‹</button>
+      <div class="voice-consent-copy">
+        <span>${ui.voice.consentEyebrow}</span>
+        <h1 tabindex="-1">${ui.voice.consentTitle}</h1>
+        <p>${ui.voice.consentLead}</p>
+      </div>
+      <div class="voice-consent-avatar" aria-hidden="true">${roomAvatarStack()}</div>
+      <ul class="voice-disclosures">
+        ${ui.voice.disclosures.map((item) => `<li>${item}</li>`).join("")}
+      </ul>
+      <div class="voice-consent-actions">
+        <button class="primary-button" type="button" data-action="confirm-voice" ${voiceConsentBusy ? "disabled" : ""}>
+          ${voiceConsentBusy ? ui.voice.status[voiceState] : ui.voice.consentAction}
+        </button>
+        <button class="secondary-button" type="button" data-action="start-text">${ui.voice.textFallback}</button>
+      </div>
+    </section>
+  `;
+}
+
 function renderHome() {
   const name = escapeHtml(playerProfile.name || ui.profileDefaultName);
   return `
@@ -962,7 +1084,8 @@ function renderIntro() {
     ${renderDifficultyChoice()}
 
     <div class="intro-actions">
-      <button class="primary-button" data-action="start">${ui.start}</button>
+      <button class="primary-button" data-action="start">${ui.voice.playText}</button>
+      <button class="secondary-button is-voice" data-action="start-voice">${ui.voice.playVoice}</button>
       <button class="secondary-button" data-action="open-friends">${ui.friendChatOpen}</button>
     </div>
 
@@ -970,6 +1093,74 @@ function renderIntro() {
       ${ui.rules.map((rule, index) => `<li><span>${index + 1}</span><p>${rule}</p></li>`).join("")}
     </ol>
   `;
+}
+
+function renderVoiceCall() {
+  const voice = voiceController?.snapshot() ?? {
+    state: "connecting",
+    muted: false,
+    paused: false,
+    captionsEnabled: true,
+    captionText: "",
+    activeSpeakerId: null,
+    lastSpeakerId: "mina",
+  };
+  const speakerId = voice.activeSpeakerId ?? voice.lastSpeakerId ?? "mina";
+  const speaker = crewMember(speakerId);
+  const status = voice.activeSpeakerId
+    ? ui.voice.speaking(speaker.name)
+    : ui.voice.status[voice.state] ?? ui.voice.status.processing;
+  const secondaryCrew = crew.filter((person) => person.id !== speakerId);
+  const canPause = Boolean(voice.activeSpeakerId) || voice.paused;
+  return `
+    <div class="voice-call-view" data-voice-state="${voice.state}">
+      <header class="voice-call-header">
+        <button type="button" data-action="voice-fallback" aria-label="${ui.voice.end}">‹</button>
+        <div><strong>${ui.voice.callTitle}</strong><small>${ui.voice.callStage}</small></div>
+        <button type="button" data-action="voice-toggle-captions" aria-pressed="${voice.captionsEnabled}" aria-label="${ui.voice.captionLabel}">CC</button>
+      </header>
+
+      <section class="voice-stage" aria-label="${status}">
+        <div class="voice-secondary-avatars" aria-hidden="true">
+          ${secondaryCrew.map((person) => `<span class="voice-secondary-avatar">${personAvatar(person, "normal")}</span>`).join("")}
+        </div>
+        <div class="voice-active-avatar" data-speaker="${speakerId}">
+          ${personAvatar(speaker, "large")}
+          <span>${speaker.name}</span>
+        </div>
+        <div class="voice-wave" data-voice-wave aria-hidden="true">
+          ${Array.from({ length: 7 }, (_, index) => `<i style="--bar:${index}"></i>`).join("")}
+        </div>
+        <strong class="voice-status" role="status">${status}</strong>
+        <div class="voice-caption" aria-label="${ui.voice.captionLabel}">
+          ${voice.captionsEnabled ? escapeHtml(voice.captionText || ui.voice.waitingCaption) : ui.voice.captionOff}
+        </div>
+      </section>
+
+      <details class="voice-call-context">
+        <summary>${ui.publicFacts}</summary>
+        <div>${crew.map((person) => `<p><strong>${person.name}</strong><span>${state.facts[person.id].text}</span></p>`).join("")}</div>
+      </details>
+
+      ${voiceFallbackNotice ? `<p class="voice-call-notice">${escapeHtml(voiceFallbackNotice)}</p>` : ""}
+      ${voice.state === "reconnecting" ? `<button class="voice-reconnect" type="button" data-action="voice-reconnect">${ui.voice.reconnect}</button>` : ""}
+
+      <div class="voice-call-controls">
+        <button class="voice-control" type="button" data-action="voice-toggle-mute" aria-pressed="${voice.muted}" aria-label="${voice.muted ? ui.voice.unmute : ui.voice.mute}">
+          <span aria-hidden="true">${voice.muted ? "⌁" : "●"}</span><small>${voice.muted ? ui.voice.unmute : ui.voice.mute}</small>
+        </button>
+        <button class="voice-end" type="button" data-action="voice-end" aria-label="${ui.voice.end}"><span aria-hidden="true">⌕</span></button>
+        <button class="voice-control" type="button" data-action="voice-toggle-pause" aria-pressed="${voice.paused}" aria-label="${voice.paused ? ui.voice.resume : ui.voice.pause}" ${canPause ? "" : "disabled"}>
+          <span aria-hidden="true">${voice.paused ? "▶" : "Ⅱ"}</span><small>${voice.paused ? ui.voice.resume : ui.voice.pause}</small>
+        </button>
+      </div>
+      <button class="voice-text-fallback" type="button" data-action="voice-fallback">${ui.voice.textFallback}</button>
+    </div>
+  `;
+}
+
+function renderDiscussion() {
+  return playMode === "voice" ? renderVoiceCall() : renderChat();
 }
 
 function friendSelectBar() {
@@ -1633,9 +1824,19 @@ function startChat() {
   chatNotice = null;
   typingSpeakerId = null;
   state = { ...state, phase: "lie" };
+  if (playMode === "voice") {
+    const controller = voiceController ?? createRoundVoiceController();
+    void controller.connect().then((connected) => {
+      if (!connected) {
+        playMode = "text";
+        voiceFallbackNotice = ui.voice.fallbackNotice;
+        render();
+      }
+    });
+  }
 }
 
-async function requestCharacterChat(stage, message, friendId = null) {
+async function requestCharacterChat(stage, message, friendId = null, options = {}) {
   const payload = buildChatPayload({
     locale,
     stage,
@@ -1645,6 +1846,8 @@ async function requestCharacterChat(stage, message, friendId = null) {
     incident,
     transcript: chatLog,
     friendId,
+    inputMode: options.inputMode,
+    utteranceId: options.utteranceId,
   });
   if (stage === "debrief") payload.debrief = buildDebriefSummary();
   const response = await fetch("/api/chat", {
@@ -1770,7 +1973,24 @@ async function revealReplies(replies, stage) {
   for (const reply of orderedReplies(replies, stage)) {
     typingSpeakerId = reply.speakerId;
     render();
-    await wait(typingDuration(reply));
+    if (playMode === "voice" && voiceController) {
+      try {
+        const spoken = await voiceController.speak(reply.speakerId, reply.text);
+        if (!spoken.completed) {
+          typingSpeakerId = null;
+          render();
+          break;
+        }
+      } catch {
+        voiceController?.end({ fallback: true });
+        voiceController = null;
+        playMode = "text";
+        voiceFallbackNotice = ui.voice.fallbackNotice;
+        chatNotice = ui.voice.fallbackNotice;
+      }
+    } else {
+      await wait(typingDuration(reply));
+    }
     typingSpeakerId = null;
     chatLog.push(reply);
     render();
@@ -1778,7 +1998,7 @@ async function revealReplies(replies, stage) {
   }
 }
 
-async function handleChatSubmit(stage, rawMessage) {
+async function handleChatSubmit(stage, rawMessage, options = {}) {
   if (chatPending) return;
   const message = String(rawMessage).trim().slice(0, MAX_CHAT_LENGTH);
   if (!message) return;
@@ -1802,11 +2022,34 @@ async function handleChatSubmit(stage, rawMessage) {
 
   let remote = null;
   try {
-    remote = await requestCharacterChat(stage, message);
+    remote = await requestCharacterChat(stage, message, null, options);
     chatMode = "live";
   } catch {
     chatMode = "mock";
     chatNotice = ui.chatFallback;
+  }
+
+  if (options.inputMode === "voice" && remote?.clarification) {
+    const speakerId = state.challengerId ?? crew[(state.caseIndex + chatLog.length) % crew.length].id;
+    const clarification = remote.clarification === "target"
+      ? ui.voice.clarificationTarget
+      : ui.voice.clarificationClaim;
+    const reply = { speakerId, text: clarification };
+    typingSpeakerId = speakerId;
+    render();
+    try {
+      await voiceController?.speak(speakerId, clarification);
+    } catch {
+      voiceController?.end({ fallback: true });
+      voiceController = null;
+      playMode = "text";
+      chatNotice = ui.voice.fallbackNotice;
+    }
+    typingSpeakerId = null;
+    chatLog.push(reply);
+    chatPending = false;
+    render();
+    return;
   }
 
   if (stage === "accusation") {
@@ -1881,6 +2124,11 @@ async function handleChatSubmit(stage, rawMessage) {
 
   typingSpeakerId = null;
   chatPending = false;
+  if (playMode === "voice" && state.phase === "response") {
+    voiceController?.setMuted(true);
+    voiceController?.end();
+    voiceController = null;
+  }
   render();
 }
 
@@ -1940,35 +2188,38 @@ let renderedPhase = null;
 
 function render() {
   const views = {
+    auth: renderAuthGate,
     welcome: renderWelcome,
     profile: renderProfileSetup,
     home: renderHome,
     intro: renderIntro,
+    "voice-consent": renderVoiceConsent,
     "friend-select": renderFriendSelect,
     "friend-chat": renderFriendChat,
     evidence: renderEvidence,
     meeting: renderMeeting,
-    lie: renderChat,
-    challenge: renderChat,
-    "hard-defense-1": renderChat,
-    "hard-defense-2": renderChat,
-    "hard-final": renderChat,
+    lie: renderDiscussion,
+    challenge: renderDiscussion,
+    "hard-defense-1": renderDiscussion,
+    "hard-defense-2": renderDiscussion,
+    "hard-final": renderDiscussion,
     response: renderResponse,
     result: renderResult,
     debrief: renderDebrief,
   };
   const phaseChanged = renderedPhase !== state.phase;
   document.body.dataset.phase = state.phase;
+  document.body.dataset.playMode = playMode;
   app.dataset.phase = state.phase;
   app.innerHTML = `${views[state.phase]()}${renderCharacterArchive()}`;
   if (phaseChanged) {
     window.scrollTo(0, 0);
     app.querySelector("h1")?.focus({ preventScroll: true });
   }
-  if (["lie", "challenge", "hard-defense-1", "hard-defense-2", "hard-final", "response", "friend-chat", "debrief"].includes(state.phase)) {
+  if (playMode !== "voice" && ["lie", "challenge", "hard-defense-1", "hard-defense-2", "hard-final", "response", "friend-chat", "debrief"].includes(state.phase)) {
     app.querySelector(".chat-transcript")?.scrollTo(0, 10_000);
   }
-  soundController?.setScene(["welcome", "profile", "home", "intro", "friend-select", "friend-chat", "debrief"].includes(state.phase) ? "lobby" : "game");
+  soundController?.setScene(["auth", "welcome", "profile", "home", "intro", "friend-select", "friend-chat", "debrief"].includes(state.phase) ? "lobby" : "game");
   soundController?.refresh();
   renderedPhase = state.phase;
 }
@@ -1995,6 +2246,16 @@ function resetGame() {
   lastLevelGrowth = null;
   detectiveInspection = null;
   shownContextMedia.clear();
+  if (playMode === "voice") {
+    const controller = createRoundVoiceController();
+    void controller.prepare().then((ready) => {
+      if (!ready) {
+        playMode = "text";
+        voiceFallbackNotice = ui.voice.fallbackNotice;
+        render();
+      }
+    });
+  }
   render();
 }
 
@@ -2082,26 +2343,37 @@ app.addEventListener("click", (event) => {
     void soundController?.start?.();
     state = { ...state, phase: playerProfile.name ? "intro" : "profile" };
   }
-  if (action === "back-welcome") state = { ...state, phase: "welcome" };
-  if (action === "edit-profile") state = { ...state, phase: "profile" };
-  if (action === "go-home") state = { ...state, phase: "home" };
-  if (action === "open-tutorial") state = { ...state, phase: "intro" };
-  if (action === "start") {
-    detectiveInspection = null;
-    lastPersonalQuestResult = null;
-    lastClueAward = null;
-    const nextState = state.targetId || state.outcome
-      ? createGame({
-        caseIndex: nextCaseIndex(state.caseIndex),
-        subquestId: nextSubquestId(state.subquestId),
-        locale,
-        crewLevels: progression.crewLevels,
-        difficultyMode: progression.difficultyMode,
-        roundId: newRoundId(),
-      })
-      : state;
-    state = startGame(nextState);
+  if (action === "back-welcome") {
+    voiceController?.end();
+    voiceController = null;
+    playMode = "text";
+    state = { ...state, phase: "welcome" };
   }
+  if (action === "edit-profile") state = { ...state, phase: "profile" };
+  if (action === "go-home") {
+    voiceController?.end();
+    voiceController = null;
+    state = { ...state, phase: "home" };
+  }
+  if (action === "open-tutorial") state = { ...state, phase: "intro" };
+  if (action === "start") beginTextGame();
+  if (action === "start-voice") {
+    playMode = "voice";
+    voiceFallbackNotice = null;
+    state = { ...state, phase: "voice-consent" };
+  }
+  if (action === "confirm-voice") {
+    void beginVoiceGame();
+    return;
+  }
+  if (action === "cancel-voice") {
+    voiceController?.end();
+    voiceController = null;
+    playMode = "text";
+    voiceConsentBusy = false;
+    state = { ...state, phase: "intro" };
+  }
+  if (action === "start-text") beginTextGame();
   if (action === "open-friends") state = { ...state, phase: "friend-select" };
   if (action === "open-multiplayer") window.location.assign(`./friend.html?lang=${locale}`);
   if (action === "back-home") state = { ...state, phase: "home" };
@@ -2142,6 +2414,17 @@ app.addEventListener("click", (event) => {
     themeController?.next();
     renderThemeControl();
   }
+  if (action === "voice-toggle-mute") voiceController?.setMuted();
+  if (action === "voice-toggle-pause") void voiceController?.setPaused();
+  if (action === "voice-toggle-captions") voiceController?.setCaptions();
+  if (action === "voice-reconnect") void voiceController?.reconnect();
+  if (action === "voice-end" || action === "voice-fallback") {
+    voiceController?.end({ fallback: true });
+    voiceController = null;
+    playMode = "text";
+    voiceFallbackNotice = ui.voice.fallbackNotice;
+    chatNotice = ui.voice.fallbackNotice;
+  }
   if (action === "draft-message") {
     const input = app.querySelector("#player-message");
     if (input) {
@@ -2151,6 +2434,8 @@ app.addEventListener("click", (event) => {
     return;
   }
   if (action === "vote") {
+    voiceController?.end();
+    voiceController = null;
     state = resolveVote(state);
     const levelAward = awardCrewLevels(progression, state);
     const settlement = settlePersonalQuest(levelAward.progress, state, { date: currentDateKey() });
@@ -2286,5 +2571,22 @@ window.addEventListener("mars:account-hydrated", () => {
   render();
 });
 
-render();
+window.addEventListener("mars:auth-entered", () => {
+  authInitialView = "choice";
+  state = { ...state, phase: "welcome" };
+  render();
+});
+
+window.addEventListener("mars:auth-required", (event) => {
+  voiceController?.end();
+  voiceController = null;
+  playMode = "text";
+  authInitialView = event.detail?.view ?? "choice";
+  state = { ...state, phase: "auth" };
+  render();
+});
+
+window.addEventListener("pagehide", () => voiceController?.end(), { once: true });
+
 void accountController.initialize();
+render();

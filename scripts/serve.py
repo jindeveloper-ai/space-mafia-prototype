@@ -225,6 +225,10 @@ def validate_payload(raw):
             "personalQuest": personal_quest,
         }
     raw_round = raw.get("round") if isinstance(raw.get("round"), dict) else {}
+    input_mode = raw.get("inputMode") if raw.get("inputMode") == "voice" else "text"
+    utterance_id = clean_text(raw.get("utteranceId"), 100) if input_mode == "voice" else ""
+    if input_mode == "voice" and not utterance_id:
+        raise ValueError("invalid_utterance")
     difficulty_mode = raw.get("difficultyMode") if raw.get("difficultyMode") in ("normal", "hard") else "normal"
     raw_hard_turns = raw.get("hardTurns") if isinstance(raw.get("hardTurns"), list) else []
     hard_turns = []
@@ -259,6 +263,8 @@ def validate_payload(raw):
         "difficultyMode": difficulty_mode,
         "hardTurns": hard_turns,
         "friendId": friend_id,
+        "inputMode": input_mode,
+        "utteranceId": utterance_id,
         "debrief": debrief,
         "round": {
             "caseIndex": raw_round.get("caseIndex") if isinstance(raw_round.get("caseIndex"), int) else 0,
@@ -336,8 +342,32 @@ def call_structured(instructions, context, schema_name, schema, max_output_token
 
 
 def interpret_player_message(payload):
+    voice_properties = {
+        "mentionedFactId": {"type": "string", "enum": ["alibi", "access", "contradiction", "none"]},
+        "certainty": {"type": "string", "enum": ["low", "medium", "high"]},
+        "deflection": {"type": "boolean"},
+        "recordCheck": {"type": "boolean"},
+        "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+        "targetExplicit": {"type": "boolean"},
+        "claimExplicit": {"type": "boolean"},
+    }
+
+    def add_voice_fields(schema):
+        if payload["inputMode"] != "voice":
+            return schema
+        schema["properties"].update(voice_properties)
+        schema["required"].extend(voice_properties)
+        return schema
+
+    voice_instruction = (
+        " For voice input, also report the mentioned public fact, certainty, whether the player deflects, "
+        "whether they ask to check records, whether target and claim were explicit, and an interpretation confidence from 0 to 1. "
+        "Low confidence means the target or intended claim is genuinely ambiguous; never inflate it just to advance the game."
+        if payload["inputMode"] == "voice"
+        else ""
+    )
     if payload["stage"] == "accusation":
-        schema = {
+        schema = add_voice_fields({
             "type": "object",
             "properties": {
                 "accusedId": {"type": "string", "enum": list(CREW_IDS)},
@@ -345,19 +375,19 @@ def interpret_player_message(payload):
             },
             "required": ["accusedId", "claimId"],
             "additionalProperties": False,
-        }
+        })
         return call_structured(
             "Map the player's Mafia-game accusation to the one person they ultimately blame and the claim attached to that person. "
             "If multiple people or facts are mentioned, pair each action with its subject and choose the final accusation or conclusion, not the first name. "
             "claimId meanings: seen=the target was seen leaving the oxygen room; machine=the target touched or tampered with the purifier or had the relevant tool; "
-            "changed=the target changed or confused their time/story. Use only supplied IDs and do not judge truth.",
+            f"changed=the target changed or confused their time/story. Use only supplied IDs and do not judge truth.{voice_instruction}",
             payload,
             "mafia_accusation",
             schema,
-            80,
+            160 if payload["inputMode"] == "voice" else 80,
         )
     if payload["stage"] in ("hard-response", "hard-final"):
-        schema = {
+        schema = add_voice_fields({
             "type": "object",
             "properties": {
                 "targetId": {"type": "string", "enum": list(CREW_IDS)},
@@ -366,31 +396,31 @@ def interpret_player_message(payload):
             },
             "required": ["targetId", "claimId", "responseId"],
             "additionalProperties": False,
-        }
+        })
         return call_structured(
             "Map the player's Hard-mode defense by meaning. targetId and claimId describe the position they defend now; "
             "when unstated, preserve the latest structured target and claim from hardTurns. responseId meanings: "
             "check-time=inspect 22:10 records, logs, timestamps, or timeline; return-evidence=focus on the planted card, "
-            "locker, or physical evidence; double-down=insist on the accusation or eyewitness claim. Use only supplied IDs.",
+            f"locker, or physical evidence; double-down=insist on the accusation or eyewitness claim. Use only supplied IDs.{voice_instruction}",
             payload,
             "mafia_hard_defense",
             schema,
-            90,
+            170 if payload["inputMode"] == "voice" else 90,
         )
-    schema = {
+    schema = add_voice_fields({
         "type": "object",
         "properties": {"responseId": {"type": "string", "enum": list(RESPONSE_IDS)}},
         "required": ["responseId"],
         "additionalProperties": False,
-    }
+    })
     return call_structured(
         "Map the player's rebuttal by meaning, not exact wording. responseId meanings: check-time=inspect 22:10, original records, logs, timestamps, or timeline; "
         "return-evidence=return attention to the planted access card, locker, or physical evidence; double-down=insist on the original accusation or eyewitness claim. "
-        "Use only supplied IDs.",
+        f"Use only supplied IDs.{voice_instruction}",
         payload,
         "mafia_response",
         schema,
-        60,
+        150 if payload["inputMode"] == "voice" else 60,
     )
 
 
@@ -541,6 +571,16 @@ def generate_chat(payload):
     if payload["stage"] == "debrief":
         return {"mode": "live", "replies": debrief_reply(payload)}
     interpretation = interpret_player_message(payload)
+    if payload["inputMode"] == "voice" and interpretation.get("confidence", 0) < 0.62:
+        clarification = "target" if not interpretation.get("targetExplicit") else "claim"
+        return {
+            "mode": "live",
+            "interpretation": {**interpretation, "utteranceId": payload["utteranceId"]},
+            "clarification": clarification,
+            "replies": [],
+        }
+    if payload["inputMode"] == "voice":
+        interpretation = {**interpretation, "utteranceId": payload["utteranceId"]}
     if payload["stage"] == "hard-final":
         return {"mode": "live", "interpretation": interpretation, "replies": []}
     with ThreadPoolExecutor(max_workers=3) as executor:

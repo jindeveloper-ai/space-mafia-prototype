@@ -86,6 +86,7 @@ class AccountConfigTests(unittest.TestCase):
         with patch.dict(os.environ, {}, clear=True):
             backend = SupabaseBackend()
         self.assertEqual(backend.public_config()["enabled"], False)
+        self.assertEqual(backend.public_config()["providers"], {"google": False, "email": False})
         self.assertNotIn("service", " ".join(backend.public_config().keys()).lower())
 
     def test_public_config_never_returns_service_role_key(self):
@@ -94,10 +95,22 @@ class AccountConfigTests(unittest.TestCase):
             "SUPABASE_PUBLISHABLE_KEY": "public-value",
             "SUPABASE_SERVICE_ROLE_KEY": "must-not-leak",
             "SUPABASE_GOOGLE_ENABLED": "true",
+            "SUPABASE_EMAIL_ENABLED": "true",
         }
         with patch.dict(os.environ, values, clear=True):
             backend = SupabaseBackend()
         self.assertNotIn("must-not-leak", str(backend.public_config()))
+
+    def test_public_config_exposes_google_and_email_only_when_configured(self):
+        values = {
+            "SUPABASE_URL": "https://project.supabase.co",
+            "SUPABASE_PUBLISHABLE_KEY": "public-value",
+            "SUPABASE_GOOGLE_ENABLED": "true",
+            "SUPABASE_EMAIL_ENABLED": "true",
+        }
+        with patch("account_api.PyJWKClient", return_value=object()), patch.dict(os.environ, values, clear=True):
+            backend = SupabaseBackend()
+        self.assertEqual(backend.public_config()["providers"], {"google": True, "email": True})
 
     def test_upstream_url_rejects_unsafe_schemes_and_absolute_paths(self):
         with patch.dict(os.environ, {"SUPABASE_URL": "file:///tmp/data", "SUPABASE_PUBLISHABLE_KEY": "public"}, clear=True):

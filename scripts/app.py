@@ -22,11 +22,13 @@ try:
     from .account_api import register_account_routes
     from .multiplayer import AVATAR_IDS, RoomError, RoomManager
     from .multiplayer_ai import generate_ai_reply, interpret_message
+    from .realtime import CREW_IDS as VOICE_CREW_IDS, RealtimeError, create_client_secret
     from .serve import MAX_BODY_BYTES, generate_chat, rate_limited, validate_payload
 except ImportError:  # Direct execution: python3 scripts/app.py
     from account_api import register_account_routes
     from multiplayer import AVATAR_IDS, RoomError, RoomManager
     from multiplayer_ai import generate_ai_reply, interpret_message
+    from realtime import CREW_IDS as VOICE_CREW_IDS, RealtimeError, create_client_secret
     from serve import MAX_BODY_BYTES, generate_chat, rate_limited, validate_payload
 
 
@@ -34,6 +36,8 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 ROOM_MANAGER = RoomManager()
 CREATE_LIMIT_PER_MINUTE = 8
 JOIN_LIMIT_PER_MINUTE = 24
+VOICE_TRANSCRIPTION_LIMIT_PER_MINUTE = 4
+VOICE_SPEECH_LIMIT_PER_MINUTE = 24
 ABUSE_BUCKETS: dict[tuple[str, str], deque[float]] = defaultdict(deque)
 
 
@@ -76,6 +80,16 @@ def token_from(request: Request, payload: dict | None = None) -> str:
     if not isinstance(token, str):
         raise RoomError("invalid_participant")
     return token
+
+
+def same_origin(request: Request) -> bool:
+    origin = request.headers.get("origin")
+    host = request.headers.get("host")
+    if not origin or not host:
+        return False
+    forwarded_proto = request.headers.get("x-forwarded-proto", "").split(",", 1)[0].strip()
+    scheme = forwarded_proto if forwarded_proto in ("http", "https") else request.url.scheme
+    return origin == f"{scheme}://{host}"
 
 
 class ConnectionHub:
@@ -192,11 +206,11 @@ async def security_headers(request: Request, call_next):
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["Referrer-Policy"] = "no-referrer"
     response.headers["X-Frame-Options"] = "DENY"
-    response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+    response.headers["Permissions-Policy"] = "camera=(), microphone=(self), geolocation=()"
     response.headers["Content-Security-Policy"] = (
         "default-src 'self'; "
         "base-uri 'self'; "
-        "connect-src 'self' https://*.supabase.co wss://*.supabase.co; "
+        "connect-src 'self' https://api.openai.com https://*.supabase.co wss://*.supabase.co; "
         "font-src 'self' data:; "
         "frame-ancestors 'none'; "
         "img-src 'self' data: blob:; "
@@ -233,6 +247,36 @@ async def solo_chat(request: Request):
         return await asyncio.to_thread(generate_chat, payload)
     except (OSError, RuntimeError, TimeoutError, ValueError, json.JSONDecodeError):
         return JSONResponse({"error": "ai_failed", "mode": "mock"}, status_code=502)
+
+
+@app.post("/api/realtime/client-secret")
+async def realtime_client_secret(request: Request):
+    if not same_origin(request):
+        return JSONResponse({"error": "origin_not_allowed"}, status_code=403)
+    client_ip = request.client.host if request.client else "unknown"
+    try:
+        payload = await read_json(request)
+    except RoomError:
+        return JSONResponse({"error": "invalid_request"}, status_code=400)
+    purpose = payload.get("purpose")
+    locale = payload.get("locale")
+    speaker_id = payload.get("speakerId")
+    if purpose not in ("transcription", "speech") or locale not in ("ko", "en"):
+        return JSONResponse({"error": "invalid_request"}, status_code=400)
+    if purpose == "transcription":
+        speaker_id = None
+        limit = VOICE_TRANSCRIPTION_LIMIT_PER_MINUTE
+    elif speaker_id not in VOICE_CREW_IDS:
+        return JSONResponse({"error": "invalid_request"}, status_code=400)
+    else:
+        limit = VOICE_SPEECH_LIMIT_PER_MINUTE
+    if abuse_limited(f"voice:{purpose}", client_ip, limit):
+        return JSONResponse({"error": "rate_limited"}, status_code=429)
+    try:
+        result = await asyncio.to_thread(create_client_secret, purpose, locale, speaker_id, client_ip)
+        return JSONResponse(result)
+    except RealtimeError as error:
+        return JSONResponse({"error": error.code}, status_code=error.status)
 
 
 @app.post("/api/rooms")

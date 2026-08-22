@@ -11,16 +11,18 @@ async function readProjectFile(path) {
 }
 
 test("브라우저 에셋과 내부 모듈은 패키지 버전으로 캐시를 갱신한다", async () => {
-  const [indexHtml, bootstrapSource, gameSource, engineSource, packageSource] = await Promise.all([
+  const [indexHtml, bootstrapSource, gameSource, engineSource, voiceSource, packageSource] = await Promise.all([
     readProjectFile("index.html"),
     readProjectFile("bootstrap.js"),
     readProjectFile("game.js"),
     readProjectFile("game-engine.js"),
+    readProjectFile("voice-call.js"),
     readProjectFile("package.json"),
   ]);
   const { version } = JSON.parse(packageSource);
 
   assert.ok(indexHtml.includes(`./styles.css?v=${version}`));
+  assert.ok(indexHtml.includes(`./voice-call.css?v=${version}`));
   assert.ok(indexHtml.includes(`./theme.js?v=${version}`));
   assert.ok(indexHtml.includes(`./sound.js?v=${version}`));
   assert.ok(bootstrapSource.includes(`./game.js?v=${version}`));
@@ -28,6 +30,8 @@ test("브라우저 에셋과 내부 모듈은 패키지 버전으로 캐시를 �
   assert.ok(gameSource.includes(`./i18n.js?v=${version}`));
   assert.ok(gameSource.includes(`./chat-adapter.js?v=${version}`));
   assert.ok(gameSource.includes(`./progression.js?v=${version}`));
+  assert.ok(gameSource.includes(`./voice-call.js?v=${version}`));
+  assert.ok(voiceSource.includes(`./voice-call-core.js?v=${version}`));
   assert.ok(engineSource.includes(`./i18n.js?v=${version}`));
   assert.match(gameSource, /new URL\(import\.meta\.url\)\.searchParams\.get\("v"\)/);
   assert.match(indexHtml, /data-lang="ko"[^>]+href="\.\/\?lang=ko"/);
@@ -60,6 +64,43 @@ test("자유 입력 채팅은 서버 프록시만 사용하고 브라우저에 �
   assert.match(styles, /\.game-room-view \.chat-dock \.chat-suggestion \{[\s\S]+width: 100%[\s\S]+min-height: 48px/);
   assert.match(styles, /\.game-room-view \.chat-dock \.chat-suggestion span \{[\s\S]+white-space: normal/);
   assert.doesNotMatch(`${gameSource}\n${adapterSource}\n${indexHtml}`, /OPENAI_API_KEY|api\.openai\.com/);
+});
+
+test("보이스콜 모드는 Figma 통화 구조·접근성·안전한 임시 시크릿 흐름을 유지한다", async () => {
+  const [gameSource, voiceSource, coreSource, voiceStyles, indexHtml, soundSource] = await Promise.all([
+    readProjectFile("game.js"),
+    readProjectFile("voice-call.js"),
+    readProjectFile("voice-call-core.js"),
+    readProjectFile("voice-call.css"),
+    readProjectFile("index.html"),
+    readProjectFile("sound.js"),
+  ]);
+
+  assert.match(gameSource, /data-action="start"[^>]*>\$\{ui\.voice\.playText\}/);
+  assert.match(gameSource, /data-action="start-voice"[^>]*>\$\{ui\.voice\.playVoice\}/);
+  assert.match(gameSource, /function renderVoiceConsent/);
+  assert.match(gameSource, /class="voice-active-avatar"/);
+  assert.match(gameSource, /class="voice-secondary-avatars"/);
+  assert.match(gameSource, /data-action="voice-toggle-mute"/);
+  assert.match(gameSource, /data-action="voice-toggle-pause"/);
+  assert.match(gameSource, /data-action="voice-toggle-captions"/);
+  assert.match(gameSource, /data-action="voice-end"/);
+  assert.match(voiceSource, /mediaDevices\.getUserMedia/);
+  assert.match(voiceSource, /track\.enabled = !muted/);
+  assert.match(voiceSource, /\/api\/realtime\/client-secret/);
+  assert.match(voiceSource, /conversation\.item\.input_audio_transcription\.completed/);
+  assert.match(voiceSource, /input_audio_buffer\.speech_started/);
+  assert.match(voiceSource, /type: "response\.cancel"/);
+  assert.match(voiceSource, /type: "output_audio_buffer\.clear"/);
+  assert.match(coreSource, /completedIds\.has\(utteranceId\)/);
+  assert.match(voiceStyles, /width: clamp\(188px, 55vw, 220px\)/);
+  assert.match(voiceStyles, /transition:[^;]*320ms/);
+  assert.match(voiceStyles, /@media \(prefers-reduced-motion: reduce\)/);
+  assert.match(indexHtml, /voice-call\.css/);
+  assert.match(soundSource, /setDucking/);
+  assert.doesNotMatch(`${gameSource}\n${voiceSource}\n${coreSource}\n${indexHtml}`, /OPENAI_API_KEY|sk-[A-Za-z0-9_-]{20,}/);
+  const openAiUrls = [...voiceSource.matchAll(/https:\/\/api\.openai\.com[^"'`\s]*/g)].map((match) => match[0]);
+  assert.deepEqual(openAiUrls, ["https://api.openai.com/v1/realtime/calls"]);
 });
 
 test("Pixabay 배경음은 로컬 에셋으로 대기실·게임 장면, 음소거와 음량을 제어한다", async () => {
@@ -111,9 +152,13 @@ test("하드 모드는 빠른 초안을 숨기고 일반 모드는 기존 초안
   ]);
   assert.match(gameSource, /function chatSuggestions\(stage\) \{\s*if \(state\.difficultyMode === "hard"\) return "";/);
   assert.match(gameSource, /\$\{chatSuggestions\(stage\)\}/);
-  assert.match(gameSource, /"hard-defense-1": renderChat/);
-  assert.match(gameSource, /"hard-defense-2": renderChat/);
-  assert.match(gameSource, /"hard-final": renderChat/);
+  assert.match(
+    gameSource,
+    /function renderDiscussion\(\) \{\s*return playMode === "voice" \? renderVoiceCall\(\) : renderChat\(\);\s*\}/,
+  );
+  assert.match(gameSource, /"hard-defense-1": renderDiscussion/);
+  assert.match(gameSource, /"hard-defense-2": renderDiscussion/);
+  assert.match(gameSource, /"hard-final": renderDiscussion/);
   assert.match(gameSource, /class="chat-context__facts"/);
   assert.match(
     styles,
@@ -207,6 +252,15 @@ test("계정 UI와 Supabase 설정은 서버 중개와 RLS를 유지한다", asy
   assert.match(gameSource, /<mars-account-control>/);
   assert.match(gameSource, /<mars-account-save>/);
   assert.match(accountSource, /code_challenge_method/);
+  assert.match(gameSource, /phase: "auth"/);
+  assert.match(gameSource, /<mars-auth-gate initial-view=/);
+  assert.match(accountSource, /signInWithEmail\(email, password\)/);
+  assert.match(accountSource, /signUpWithEmail\(email, password\)/);
+  assert.match(accountSource, /requestPasswordReset\(email\)/);
+  assert.match(accountSource, /mars-net-auth-entry-v1/);
+  assert.match(accountSource, /data-auth-action="google"/);
+  assert.match(accountSource, /data-auth-action="guest"/);
+  assert.doesNotMatch(accountSource, /signInWithApple|Continue with Apple|Apple로/);
   assert.match(accountCore, /mars-net-guest-backup-v1/);
   assert.match(accountSource, /su\.jin\.lee\.developer@gmail\.com/);
   assert.match(serverSource, /PyJWKClient/);
@@ -214,6 +268,9 @@ test("계정 UI와 Supabase 설정은 서버 중개와 RLS를 유지한다", asy
   assert.match(migration, /enable row level security/);
   assert.match(migration, /auth\.uid\(\).*user_id/s);
   assert.match(renderConfig, /key: SUPABASE_SERVICE_ROLE_KEY\s+sync: false/);
+  assert.match(renderConfig, /key: SUPABASE_GOOGLE_ENABLED\s+value: "true"/);
+  assert.match(renderConfig, /key: SUPABASE_EMAIL_ENABLED\s+value: "true"/);
+  assert.doesNotMatch(renderConfig, /SUPABASE_APPLE_ENABLED/);
   assert.doesNotMatch(accountSource, /SUPABASE_SERVICE_ROLE_KEY/);
 });
 

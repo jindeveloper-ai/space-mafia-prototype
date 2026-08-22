@@ -244,7 +244,7 @@ class SupabaseBackend:
         self.publishable_key = os.environ.get("SUPABASE_PUBLISHABLE_KEY", "")
         self.service_key = os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "")
         self.google_enabled = os.environ.get("SUPABASE_GOOGLE_ENABLED", "").lower() in ("1", "true", "yes")
-        self.apple_enabled = os.environ.get("SUPABASE_APPLE_ENABLED", "").lower() in ("1", "true", "yes")
+        self.email_enabled = os.environ.get("SUPABASE_EMAIL_ENABLED", "true").lower() in ("1", "true", "yes")
         self.jwk_client = PyJWKClient(f"{self.url}/auth/v1/.well-known/jwks.json", cache_keys=True) if self.url and PyJWKClient else None
 
     @property
@@ -259,7 +259,7 @@ class SupabaseBackend:
             "publishableKey": self.publishable_key if enabled else "",
             "providers": {
                 "google": bool(enabled and self.google_enabled),
-                "apple": bool(enabled and self.apple_enabled),
+                "email": bool(enabled and self.email_enabled),
             },
         }
 

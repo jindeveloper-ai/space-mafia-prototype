@@ -1,0 +1,284 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+
+import { createVoiceCallController } from "../voice-call.js";
+
+class FakeTarget {
+  constructor() {
+    this.listeners = new Map();
+  }
+
+  addEventListener(type, handler, options = {}) {
+    const wrapped = options.once
+      ? (...args) => {
+          this.listeners.get(type)?.delete(wrapped);
+          handler(...args);
+        }
+      : handler;
+    if (!this.listeners.has(type)) this.listeners.set(type, new Set());
+    this.listeners.get(type).add(wrapped);
+  }
+
+  emit(type, value = {}) {
+    for (const handler of [...(this.listeners.get(type) ?? [])]) handler(value);
+  }
+}
+
+class FakeDataChannel extends FakeTarget {
+  constructor() {
+    super();
+    this.readyState = "open";
+    this.sent = [];
+  }
+
+  send(value) {
+    this.sent.push(JSON.parse(value));
+  }
+
+  close() {
+    this.readyState = "closed";
+  }
+}
+
+class FakePeerConnection {
+  static instances = [];
+
+  constructor() {
+    this.channel = new FakeDataChannel();
+    this.connectionState = "connected";
+    this.closed = false;
+    FakePeerConnection.instances.push(this);
+  }
+
+  createDataChannel() {
+    return this.channel;
+  }
+
+  addTrack(track) {
+    this.track = track;
+  }
+
+  addTransceiver(kind, options) {
+    this.transceiver = { kind, options };
+  }
+
+  async createOffer() {
+    return { type: "offer", sdp: "fake-offer" };
+  }
+
+  async setLocalDescription(offer) {
+    this.localDescription = offer;
+  }
+
+  async setRemoteDescription(answer) {
+    this.remoteDescription = answer;
+  }
+
+  close() {
+    this.closed = true;
+    this.connectionState = "closed";
+  }
+}
+
+class FakeAudio extends FakeTarget {
+  constructor() {
+    super();
+    this.paused = true;
+    this.srcObject = null;
+  }
+
+  async play() {
+    this.paused = false;
+    this.emit("playing");
+  }
+
+  pause() {
+    this.paused = true;
+  }
+
+  remove() {}
+}
+
+function fakeResponse({ ok = true, json = null, text = "fake-answer" } = {}) {
+  return {
+    ok,
+    json: async () => json ?? {},
+    text: async () => text,
+  };
+}
+
+function createHarness({ denyMicrophone = false, failNegotiation = false } = {}) {
+  FakePeerConnection.instances = [];
+  const track = { enabled: true, stopped: false, stop() { this.stopped = true; } };
+  const stream = { getAudioTracks: () => [track], getTracks: () => [track] };
+  const fetchCalls = [];
+  const finalTranscripts = [];
+  const fallbacks = [];
+  const soundDucking = [];
+  const controller = createVoiceCallController({
+    locale: "ko",
+    PeerConnection: FakePeerConnection,
+    AudioElement: FakeAudio,
+    AudioContextClass: null,
+    mediaDevices: {
+      async getUserMedia() {
+        if (denyMicrophone) throw Object.assign(new Error("denied"), { name: "NotAllowedError" });
+        return stream;
+      },
+    },
+    async fetchImpl(url, options) {
+      fetchCalls.push({ url, options });
+      if (url === "/api/realtime/client-secret") {
+        return fakeResponse({ json: { value: "ek_test_ephemeral" } });
+      }
+      return fakeResponse({ ok: !failNegotiation });
+    },
+    async onFinalTranscript(utterance) {
+      finalTranscripts.push(utterance);
+    },
+    onFallback(code) {
+      fallbacks.push(code);
+    },
+    soundController: {
+      setDucking(value) {
+        soundDucking.push(value);
+      },
+    },
+  });
+  return { controller, track, stream, fetchCalls, finalTranscripts, fallbacks, soundDucking };
+}
+
+function createPendingMicrophoneHarness() {
+  const track = { stopped: false, stop() { this.stopped = true; } };
+  let resolveMedia;
+  const controller = createVoiceCallController({
+    PeerConnection: FakePeerConnection,
+    fetchImpl: async () => fakeResponse({ json: { value: "ek_test_ephemeral" } }),
+    permissionTimeoutMs: 1,
+    mediaDevices: {
+      getUserMedia() {
+        return new Promise((resolve) => { resolveMedia = resolve; });
+      },
+    },
+  });
+  return { controller, track, resolveMedia: (stream) => resolveMedia(stream) };
+}
+
+async function waitFor(predicate, message = "condition") {
+  for (let index = 0; index < 40; index += 1) {
+    if (predicate()) return;
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+  assert.fail(`Timed out waiting for ${message}`);
+}
+
+function emitRealtime(peer, event) {
+  peer.channel.emit("message", { data: JSON.stringify(event) });
+}
+
+test("마이크 권한 거절과 WebRTC 실패는 텍스트 모드 폴백으로 끝난다", async () => {
+  const denied = createHarness({ denyMicrophone: true });
+  assert.equal(await denied.controller.prepare(), false);
+  assert.equal(denied.controller.snapshot().state, "fallback_text");
+  assert.deepEqual(denied.fallbacks, ["microphone_denied"]);
+
+  const failed = createHarness({ failNegotiation: true });
+  assert.equal(await failed.controller.connect(), false);
+  assert.equal(failed.controller.snapshot().state, "fallback_text");
+  assert.equal(failed.track.stopped, true);
+  assert.deepEqual(failed.soundDucking, [true, false]);
+});
+
+test("마이크 권한 응답이 멈춰도 대기 화면에 갇히지 않고 늦게 열린 트랙을 닫는다", async () => {
+  const harness = createPendingMicrophoneHarness();
+  assert.equal(await harness.controller.prepare(), false);
+  assert.equal(harness.controller.snapshot().state, "fallback_text");
+  assert.equal(harness.controller.snapshot().error, "microphone_timeout");
+  harness.resolveMedia({ getTracks: () => [harness.track] });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(harness.track.stopped, true);
+});
+
+test("확정 자막만 발화 ID당 한 번 판정하고 음소거는 마이크 트랙을 끈다", async () => {
+  const harness = createHarness();
+  assert.equal(await harness.controller.connect(), true);
+  const transcriptionPeer = FakePeerConnection.instances[0];
+  assert.equal(harness.track.enabled, true);
+
+  emitRealtime(transcriptionPeer, {
+    type: "conversation.item.input_audio_transcription.delta",
+    item_id: "u1",
+    delta: "미나",
+  });
+  assert.equal(harness.finalTranscripts.length, 0);
+  emitRealtime(transcriptionPeer, {
+    type: "conversation.item.input_audio_transcription.completed",
+    item_id: "u1",
+    transcript: "미나를 의심해",
+  });
+  emitRealtime(transcriptionPeer, {
+    type: "conversation.item.input_audio_transcription.completed",
+    item_id: "u1",
+    transcript: "중복 발화",
+  });
+  await harness.controller.whenTranscriptsIdle();
+  assert.deepEqual(harness.finalTranscripts, [{ id: "u1", text: "미나를 의심해" }]);
+
+  assert.equal(harness.controller.setMuted(true), true);
+  assert.equal(harness.track.enabled, false);
+  assert.equal(harness.controller.setMuted(false), false);
+  assert.equal(harness.track.enabled, true);
+  harness.controller.end();
+  assert.equal(harness.track.stopped, true);
+  assert.equal(transcriptionPeer.closed, true);
+  assert.deepEqual(harness.soundDucking, [true, false]);
+});
+
+test("미나·주노·노엘은 실제 오디오 이벤트에 맞춰 한 명씩 말하고 최대 동시 세션은 2개다", async () => {
+  const harness = createHarness();
+  await harness.controller.connect();
+  const queued = [
+    harness.controller.speak("mina", "미나 대사"),
+    harness.controller.speak("juno", "주노 대사"),
+    harness.controller.speak("noel", "노엘 대사"),
+  ];
+
+  for (const [index, speakerId] of ["mina", "juno", "noel"].entries()) {
+    await waitFor(() => FakePeerConnection.instances.length === index + 2, `${speakerId} output session`);
+    const peer = FakePeerConnection.instances[index + 1];
+    assert.equal(peer.transceiver.options.direction, "recvonly");
+    assert.equal(harness.controller.snapshot().activeSpeakerId, null);
+    peer.ontrack({ streams: [{ id: `${speakerId}-stream` }] });
+    await peer.channel.sent.find((event) => event.type === "response.create");
+    peer.channel.emit("message", { data: JSON.stringify({ type: "output_audio_buffer.started" }) });
+    assert.equal(harness.controller.snapshot().activeSpeakerId, speakerId);
+    peer.channel.emit("message", { data: JSON.stringify({ type: "output_audio_buffer.stopped" }) });
+    assert.deepEqual(await queued[index], { completed: true, reason: "completed", transcript: "" });
+  }
+
+  const final = harness.controller.end();
+  assert.equal(final.metrics.speechSessions, 3);
+  assert.equal(final.metrics.transcriptionSessions, 1);
+  assert.equal(final.metrics.maxConcurrentSessions, 2);
+  assert.equal(FakePeerConnection.instances.every((peer) => peer.closed), true);
+});
+
+test("플레이어가 끼어들면 현재 AI 음성이 즉시 중단되고 뒤 발화도 취소된다", async () => {
+  const harness = createHarness();
+  await harness.controller.connect();
+  const transcriptionPeer = FakePeerConnection.instances[0];
+  const mina = harness.controller.speak("mina", "끝까지 말하면 안 되는 대사");
+  const juno = harness.controller.speak("juno", "대기 중인 대사");
+  await waitFor(() => FakePeerConnection.instances.length === 2, "Mina output session");
+  const outputPeer = FakePeerConnection.instances[1];
+  outputPeer.ontrack({ streams: [{ id: "mina-stream" }] });
+  emitRealtime(outputPeer, { type: "output_audio_buffer.started" });
+
+  emitRealtime(transcriptionPeer, { type: "input_audio_buffer.speech_started" });
+  assert.equal(harness.controller.snapshot().state, "player_speaking");
+  assert.equal(outputPeer.channel.sent.some((event) => event.type === "response.cancel"), true);
+  assert.equal(outputPeer.channel.sent.some((event) => event.type === "output_audio_buffer.clear"), true);
+  assert.deepEqual(await mina, { completed: false, reason: "barge_in", transcript: "" });
+  assert.deepEqual(await juno, { completed: false, reason: "barge_in" });
+  harness.controller.end();
+});

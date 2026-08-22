@@ -3117,12 +3117,14 @@ body:is(
   object-fit: cover;
 }
 
+body[data-phase="auth"],
 body[data-phase="welcome"],
 body[data-phase="profile"],
 body[data-phase="home"] {
   background: #010101;
 }
 
+body[data-phase="auth"] .page-shell,
 body[data-phase="welcome"] .page-shell,
 body[data-phase="profile"] .page-shell,
 body[data-phase="home"] .page-shell {
@@ -3130,15 +3132,18 @@ body[data-phase="home"] .page-shell {
   background: #010101;
 }
 
+body[data-phase="auth"] .topbar,
 body[data-phase="welcome"] .topbar,
 body[data-phase="profile"] .topbar,
 body[data-phase="home"] .topbar,
+body[data-phase="auth"] footer,
 body[data-phase="welcome"] footer,
 body[data-phase="profile"] footer,
 body[data-phase="home"] footer {
   display: none;
 }
 
+body[data-phase="auth"] .game-card,
 body[data-phase="welcome"] .game-card,
 body[data-phase="profile"] .game-card,
 body[data-phase="home"] .game-card {
@@ -3675,6 +3680,7 @@ body[data-phase="home"] .game-card {
 }
 
 @media (min-width: 600px) {
+  body[data-phase="auth"] .page-shell,
   body[data-phase="welcome"] .page-shell,
   body[data-phase="profile"] .page-shell,
   body[data-phase="home"] .page-shell {
@@ -4135,6 +4141,7 @@ body:is(
   overscroll-behavior: contain;
 }
 
+body[data-phase="auth"] .game-card,
 body[data-phase="welcome"] .game-card,
 body[data-phase="profile"] .game-card,
 body[data-phase="home"] .game-card,
@@ -4273,7 +4280,7 @@ body {
   white-space: nowrap;
 }
 
-/* v0.16.4 — fixed 390px frame and long-chat usability fixes. */
+/* v0.17.1 — fixed 390px frame, long-chat usability, and voice-call mode. */
 .game-room-view.is-setup {
   overflow-y: auto;
   overscroll-behavior: contain;

@@ -311,6 +311,83 @@ test("Luna 구조화 판정 뒤 세 캐릭터를 격리된 요청으로 병렬 �
   }
 });
 
+test("음성 자유발화는 구조화된 ID와 신뢰도를 반환하고 낮은 신뢰도에는 되묻기만 한다", async () => {
+  const requests = [];
+  const upstream = http.createServer((request, response) => {
+    let body = "";
+    request.setEncoding("utf8");
+    request.on("data", (chunk) => { body += chunk; });
+    request.on("end", () => {
+      const parsed = JSON.parse(body);
+      requests.push(parsed);
+      response.writeHead(200, { "Content-Type": "application/json" });
+      response.end(JSON.stringify({
+        output: [{
+          type: "message",
+          content: [{
+            type: "output_text",
+            text: JSON.stringify({
+              accusedId: "noel",
+              claimId: "changed",
+              mentionedFactId: "contradiction",
+              certainty: "medium",
+              deflection: false,
+              recordCheck: false,
+              confidence: 0.41,
+              targetExplicit: true,
+              claimExplicit: false,
+            }),
+          }],
+        }],
+      }));
+    });
+  });
+  upstream.listen(0, "127.0.0.1");
+  await once(upstream, "listening");
+  const { server, baseUrl } = await startPrototype({
+    OPENAI_API_KEY: "test-only-key",
+    OPENAI_API_BASE: `http://127.0.0.1:${upstream.address().port}/v1`,
+  });
+
+  try {
+    const payload = {
+      ...chatPayload("accusation"),
+      inputMode: "voice",
+      utteranceId: "voice-utterance-7",
+    };
+    const response = await fetch(`${baseUrl}/api/chat`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const result = await response.json();
+    assert.equal(response.status, 200);
+    assert.equal(result.mode, "live");
+    assert.equal(result.clarification, "claim");
+    assert.deepEqual(result.replies, []);
+    assert.equal(result.interpretation.utteranceId, "voice-utterance-7");
+    assert.equal(result.interpretation.accusedId, "noel");
+    assert.equal(result.interpretation.mentionedFactId, "contradiction");
+    assert.equal(requests.length, 1, "되묻기는 캐릭터 답변 API 세 건을 추가하지 않습니다.");
+    const schema = requests[0].text.format.schema;
+    assert.ok(["mentionedFactId", "certainty", "deflection", "recordCheck", "confidence", "targetExplicit", "claimExplicit"]
+      .every((field) => schema.required.includes(field)));
+
+    const missingId = { ...payload };
+    delete missingId.utteranceId;
+    const invalid = await fetch(`${baseUrl}/api/chat`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(missingId),
+    });
+    assert.equal(invalid.status, 400);
+  } finally {
+    await stopProcess(server);
+    upstream.close();
+    await once(upstream, "close");
+  }
+});
+
 test("일반 한 판은 8회, 하드 긴 회의는 최대 13회만 모델을 호출한다", async () => {
   const requests = [];
   const upstream = http.createServer((request, response) => {
