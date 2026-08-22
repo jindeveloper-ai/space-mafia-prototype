@@ -19,15 +19,15 @@ import {
   plantEvidence,
   resolveVote,
   startGame,
-} from "./game-engine.js?v=0.18.3";
-import { getCopy, normalizeLocale } from "./i18n.js?v=0.18.3";
+} from "./game-engine.js?v=0.18.4";
+import { getCopy, normalizeLocale } from "./i18n.js?v=0.18.4";
 import {
   buildChatPayload,
   fallbackAccusation,
   fallbackResponse,
   MAX_CHAT_LENGTH,
   normalizeInterpretation,
-} from "./chat-adapter.js?v=0.18.3";
+} from "./chat-adapter.js?v=0.18.4";
 import {
   acceptPersonalQuest,
   awardCrewLevels,
@@ -42,16 +42,16 @@ import {
   setEquippedJob,
   setDifficultyMode,
   settlePersonalQuest,
-} from "./progression.js?v=0.18.3";
-import { accountController, createMutationId } from "./account-client.js?v=0.18.3";
-import { createVoiceCallController } from "./voice-call.js?v=0.18.3";
+} from "./progression.js?v=0.18.4";
+import { accountController, createMutationId } from "./account-client.js?v=0.18.4";
+import { createVoiceCallController } from "./voice-call.js?v=0.18.4";
 import {
   beginVoiceTurnFinalization,
   createVoiceTurn,
   expireVoiceTurn,
   recordVoiceTurnCandidate,
   voiceTurnSecondsLeft,
-} from "./voice-turn.js?v=0.18.3";
+} from "./voice-turn.js?v=0.18.4";
 
 const app = document.querySelector("#app");
 const assetVersion = new URL(import.meta.url).searchParams.get("v");
@@ -2383,6 +2383,7 @@ async function handleVoiceDiscussionSubmit(stage, rawMessage, options = {}) {
   appendContextMedia("game", message);
   chatPending = true;
   chatNotice = null;
+  if (playMode === "voice") voiceController?.setInputEnabled(false);
   render();
 
   let remote = null;
@@ -2398,6 +2399,7 @@ async function handleVoiceDiscussionSubmit(stage, rawMessage, options = {}) {
   }
   if (!voiceTurn || voiceTurn.id !== activeTurnId) {
     chatPending = false;
+    if (voiceTurn && !voiceTurn.expired) voiceController?.setInputEnabled(true);
     return;
   }
 
@@ -2409,6 +2411,7 @@ async function handleVoiceDiscussionSubmit(stage, rawMessage, options = {}) {
     const reply = { speakerId, text: clarification };
     await revealReplies([reply], stage);
     chatPending = false;
+    if (!voiceTurn?.expired) voiceController?.setInputEnabled(true);
     render();
     if (voiceTurn?.expired) await finalizeVoiceDiscussionTurn();
     return;
@@ -2436,6 +2439,7 @@ async function handleVoiceDiscussionSubmit(stage, rawMessage, options = {}) {
   const fallbackReplies = voiceDiscussionFallbackReplies(stage, projectedState, interpretation);
   await revealReplies(voiceDiscussionReplyPair(liveReplies, fallbackReplies), stage);
   chatPending = false;
+  if (!voiceTurn?.expired) voiceController?.setInputEnabled(true);
   render();
   if (voiceTurn?.expired) await finalizeVoiceDiscussionTurn();
 }
