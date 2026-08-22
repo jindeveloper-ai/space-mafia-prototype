@@ -32,6 +32,9 @@ class RealtimeConfigTests(unittest.TestCase):
             noel["audio"]["output"]["voice"],
         }
         self.assertEqual(len(voices), 3)
+        self.assertEqual(mina["audio"]["output"]["voice"], "marin")
+        self.assertEqual(juno["audio"]["output"]["voice"], "cedar")
+        self.assertEqual(noel["audio"]["output"]["voice"], "verse")
         self.assertEqual(mina["model"], "gpt-realtime-2.1-mini")
         self.assertNotIn("api_key", mina)
 
@@ -48,20 +51,33 @@ class RealtimeConfigTests(unittest.TestCase):
                 {"sender": "character", "body": "그 표는 좀 억울했음ㅋㅋ"},
             ],
             "lastMatch": {"outcome": "win", "accusedId": "juno", "stars": 2},
+            "relationshipDays": 4,
         })
         self.assertEqual(session["type"], "realtime")
         self.assertEqual(session["audio"]["input"]["turn_detection"]["type"], "semantic_vad")
         self.assertEqual(session["output_modalities"], ["audio"])
         self.assertIn("still lives on Earth", session["instructions"])
         self.assertIn("second-generation", session["instructions"])
+        self.assertIn("natural Korean banmal", session["instructions"])
+        self.assertIn("RELATIONSHIP_DAYS=4", session["instructions"])
+        self.assertIn("familiar phone friends", session["instructions"])
         self.assertIn("어제 경기 기억나?", session["instructions"])
         self.assertNotIn("api_key", session)
+
+    def test_friend_call_tone_warms_by_distinct_call_days_without_inventing_memories(self):
+        first = _session_config("friend-call", "ko", "juno", {"relationshipDays": 0})
+        close = _session_config("friend-call", "ko", "noel", {"relationshipDays": 9})
+        self.assertIn("first voice call", first["instructions"])
+        self.assertIn("slightly hesitant", first["instructions"])
+        self.assertIn("close long-running friends", close["instructions"])
+        self.assertIn("Never invent a prior call", close["instructions"])
 
     def test_friend_call_context_is_bounded_and_structured(self):
         context = sanitize_friend_call_context({
             "playerName": "x" * 100,
             "recentChat": [{"sender": "player", "body": str(index) * 300} for index in range(12)],
             "lastMatch": {"outcome": "admin", "accusedId": "intruder", "stars": 99, "secret": "drop"},
+            "relationshipDays": 999,
         }, "juno")
         self.assertEqual(len(context["playerName"]), 12)
         self.assertEqual(len(context["recentChat"]), 8)
@@ -73,6 +89,7 @@ class RealtimeConfigTests(unittest.TestCase):
             "claimId": None,
             "stars": 3,
         })
+        self.assertEqual(context["relationshipDays"], 30)
         self.assertNotIn("secret", context["lastMatch"])
 
     def test_safety_identifier_is_stable_hash_without_raw_ip(self):

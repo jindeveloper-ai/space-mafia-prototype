@@ -569,6 +569,28 @@ body[data-play-mode="voice"]:is(
   padding: 8px 24px 8px;
 }
 
+.call-effects-toggle {
+  display: inline-flex;
+  width: max-content;
+  max-width: calc(100% - 48px);
+  min-height: 32px;
+  align-items: center;
+  justify-self: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border: 1px solid #4a4a4a;
+  border-radius: 999px;
+  background: transparent;
+  color: #aaa;
+  font: inherit;
+  font-size: 0.68rem;
+}
+
+.call-effects-toggle[aria-pressed="true"] {
+  border-color: #6f668f;
+  color: #c9c1ee;
+}
+
 .voice-talk {
   display: grid;
   width: calc(100% - 48px);

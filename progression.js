@@ -48,6 +48,13 @@ function safeFriendCallUsage(raw) {
   }));
 }
 
+function safeFriendCallDates(raw) {
+  return Object.fromEntries(CREW_IDS.map((id) => [
+    id,
+    uniqueStrings(raw?.[id], isDateKey, 30).sort(),
+  ]));
+}
+
 function safeActiveQuest(raw) {
   if (!raw || typeof raw !== "object") return null;
   const characterId = CREW_IDS.includes(raw.characterId) ? raw.characterId : null;
@@ -94,12 +101,23 @@ export function createProgression(raw = null) {
   const source = raw && typeof raw === "object" && [1, 2, PROGRESSION_VERSION].includes(raw.version) ? raw : {};
   const clues = safeClues(source.clues);
   const unlockedJobs = uniqueStrings(source.unlockedJobs, (id) => id === PRIVATE_DETECTIVE_ID, 1);
+  const friendCallUsage = safeFriendCallUsage(source.friendCallUsage);
+  const storedFriendCallDates = safeFriendCallDates(source.friendCallDates);
+  const friendCallDates = Object.fromEntries(CREW_IDS.map((id) => [
+    id,
+    uniqueStrings(
+      [...storedFriendCallDates[id], friendCallUsage[id]?.date].filter(Boolean),
+      isDateKey,
+      30,
+    ).sort(),
+  ]));
   if (clues.length >= 5 && !unlockedJobs.includes(PRIVATE_DETECTIVE_ID)) unlockedJobs.push(PRIVATE_DETECTIVE_ID);
   return {
     version: PROGRESSION_VERSION,
     affinity: safeAffinity(source.affinity),
     crewLevels: safeCrewLevels(source.crewLevels),
-    friendCallUsage: safeFriendCallUsage(source.friendCallUsage),
+    friendCallUsage,
+    friendCallDates,
     difficultyMode: DIFFICULTY_MODES.includes(source.difficultyMode) ? source.difficultyMode : "normal",
     leveledRoundIds: uniqueStrings(source.leveledRoundIds, (id) => id.length <= 100, 100),
     activeQuest: safeActiveQuest(source.activeQuest),
@@ -134,6 +152,10 @@ export function recordFriendCallUsage(progress, characterId, seconds, date = loc
         date,
         seconds: Math.min(FRIEND_CALL_DAILY_SECONDS, used + Math.floor(seconds)),
       },
+    },
+    friendCallDates: {
+      ...current.friendCallDates,
+      [characterId]: uniqueStrings([...current.friendCallDates[characterId], date], isDateKey, 30).sort(),
     },
   };
 }

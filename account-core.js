@@ -110,12 +110,17 @@ export function mergeProgression(localRaw, cloudRaw, normalizeProgression = (val
     }
     return [id, localEntry.date > cloudEntry.date ? localEntry : cloudEntry];
   }));
+  const friendCallDates = Object.fromEntries(CREW_IDS.map((id) => [
+    id,
+    uniqueStrings([...(local?.friendCallDates?.[id] ?? []), ...(cloud?.friendCallDates?.[id] ?? [])], 30).sort(),
+  ]));
   return normalizeProgression({
     ...local,
     ...cloud,
     affinity: maxByCrew("affinity"),
     crewLevels: maxByCrew("crewLevels"),
     friendCallUsage,
+    friendCallDates,
     leveledRoundIds: uniqueStrings([...(local?.leveledRoundIds ?? []), ...(cloud?.leveledRoundIds ?? [])], 100),
     activeQuest: preferredActiveQuest,
     rewardedQuestIds: uniqueStrings([...(local?.rewardedQuestIds ?? []), ...(cloud?.rewardedQuestIds ?? [])], 200),

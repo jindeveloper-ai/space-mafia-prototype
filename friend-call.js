@@ -1,3 +1,5 @@
+import { createCallAudioEffectsController } from "./call-audio-effects.js?v=0.20.2";
+
 const REALTIME_CALLS_URL = "https://api.openai.com/v1/realtime/calls";
 const ANSWER_DELAY_MS = Object.freeze({ mina: 1_800, juno: 2_700, noel: 2_200 });
 
@@ -39,6 +41,10 @@ export function createFriendCallController(options = {}) {
   const setRepeating = options.setRepeating ?? globalThis.setInterval.bind(globalThis);
   const clearRepeating = options.clearRepeating ?? globalThis.clearInterval.bind(globalThis);
   const now = options.now ?? Date.now;
+  const audioEffects = options.audioEffectsController ?? createCallAudioEffectsController({
+    AudioContextClass,
+    enabled: options.callEffectsEnabled,
+  });
 
   let phase = "idle";
   let micStream = null;
@@ -62,6 +68,7 @@ export function createFriendCallController(options = {}) {
       phase,
       connected: Boolean(connection),
       muted,
+      callEffectsEnabled: audioEffects.snapshot().enabled,
       captionText,
       playerTranscript,
       remainingSeconds,
@@ -141,6 +148,7 @@ export function createFriendCallController(options = {}) {
   }
 
   function closeConnection() {
+    connection?.effectAttachment?.detach?.();
     try { connection?.channel?.close?.(); } catch { /* Already closed. */ }
     try { connection?.peer?.close?.(); } catch { /* Already closed. */ }
     try {
@@ -221,6 +229,7 @@ export function createFriendCallController(options = {}) {
     const peer = new PeerConnection();
     const channel = peer.createDataChannel("oai-events");
     const audio = AudioElement ? new AudioElement() : null;
+    let effectAttachment = null;
     if (audio) {
       audio.autoplay = true;
       audio.playsInline = true;
@@ -232,6 +241,8 @@ export function createFriendCallController(options = {}) {
       const remoteStream = event.streams?.[0];
       if (!audio || !remoteStream) return;
       audio.srcObject = remoteStream;
+      effectAttachment?.detach?.();
+      effectAttachment = audioEffects.attach(remoteStream, { characterId, audioElement: audio });
       void audio.play?.().catch?.(() => {});
     };
     const track = stream.getAudioTracks?.()[0] ?? stream.getTracks?.()[0];
@@ -249,8 +260,9 @@ export function createFriendCallController(options = {}) {
       if (!response.ok) throw new Error("friend_call_negotiation_failed");
       await peer.setRemoteDescription({ type: "answer", sdp: await response.text() });
       await waitForChannel(channel, setTimer, clearTimer);
-      connection = { peer, channel, audio };
+      connection = { peer, channel, audio, effectAttachment };
     } catch (error) {
+      effectAttachment?.detach?.();
       try { channel.close?.(); } catch { /* Already closed. */ }
       try { peer.close?.(); } catch { /* Already closed. */ }
       throw error;
@@ -274,6 +286,7 @@ export function createFriendCallController(options = {}) {
       const minimumWait = new Promise((resolve) => setTimer(resolve, ANSWER_DELAY_MS[characterId]));
       await Promise.all([negotiate(micStream), minimumWait]);
       stopRinging();
+      audioEffects.setActive(true);
       setPhase("answered");
       startQuotaClock();
       const exactHello = locale === "ko" ? "여보세요?" : "Hello?";
@@ -302,6 +315,12 @@ export function createFriendCallController(options = {}) {
     return muted;
   }
 
+  function setCallEffectsEnabled(nextEnabled) {
+    const value = audioEffects.setEnabled(nextEnabled);
+    notify();
+    return value;
+  }
+
   function sendText(message) {
     const text = String(message ?? "").trim().slice(0, 280);
     if (!text || !connection || disposed) return false;
@@ -318,10 +337,12 @@ export function createFriendCallController(options = {}) {
     if (quotaTimer !== null) clearRepeating(quotaTimer);
     quotaTimer = null;
     stopRinging();
+    audioEffects.setActive(false);
     flushUsage();
     closeConnection();
     micStream?.getTracks?.().forEach((track) => track.stop?.());
     micStream = null;
+    audioEffects.dispose();
     if (markDisposed) disposed = true;
     phase = reason === "error" ? "error" : "ended";
     notify();
@@ -329,5 +350,5 @@ export function createFriendCallController(options = {}) {
     return snapshot();
   }
 
-  return { end, sendText, setMuted, snapshot, start };
+  return { end, sendText, setCallEffectsEnabled, setMuted, snapshot, start };
 }

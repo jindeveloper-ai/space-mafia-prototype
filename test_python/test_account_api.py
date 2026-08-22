@@ -87,15 +87,28 @@ class AccountDataTests(unittest.TestCase):
                 "mina": {"date": "2050-04-01", "seconds": 999},
                 "juno": {"date": "invalid", "seconds": 50},
             },
+            "friendCallDates": {
+                "mina": ["2050-04-02", "2050-04-01", "2050-04-02", "invalid"],
+            },
         })
         self.assertEqual(sanitized["friendCallUsage"]["mina"], {"date": "2050-04-01", "seconds": 300})
         self.assertIsNone(sanitized["friendCallUsage"]["juno"])
+        self.assertEqual(sanitized["friendCallDates"]["mina"], ["2050-04-01", "2050-04-02"])
 
         merged = merge_progression(
-            {"version": 3, "friendCallUsage": {"mina": {"date": "2050-04-01", "seconds": 200}}},
-            {"version": 3, "friendCallUsage": {"mina": {"date": "2050-04-02", "seconds": 10}}},
+            {
+                "version": 3,
+                "friendCallUsage": {"mina": {"date": "2050-04-01", "seconds": 200}},
+                "friendCallDates": {"mina": ["2050-04-01"]},
+            },
+            {
+                "version": 3,
+                "friendCallUsage": {"mina": {"date": "2050-04-02", "seconds": 10}},
+                "friendCallDates": {"mina": ["2050-04-02"]},
+            },
         )
         self.assertEqual(merged["friendCallUsage"]["mina"], {"date": "2050-04-02", "seconds": 10})
+        self.assertEqual(merged["friendCallDates"]["mina"], ["2050-04-01", "2050-04-02"])
 
 
 class AccountConfigTests(unittest.TestCase):

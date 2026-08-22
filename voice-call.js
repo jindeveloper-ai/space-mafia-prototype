@@ -6,7 +6,8 @@ import {
   estimateVoiceCost,
   recordSessionEnded,
   recordSessionStarted,
-} from "./voice-call-core.js?v=0.20.1";
+} from "./voice-call-core.js?v=0.20.2";
+import { createCallAudioEffectsController } from "./call-audio-effects.js?v=0.20.2";
 
 const REALTIME_CALLS_URL = "https://api.openai.com/v1/realtime/calls";
 const SPEAKER_STYLE = {
@@ -66,6 +67,10 @@ export function createVoiceCallController(options = {}) {
   const locale = options.locale === "en" ? "en" : "ko";
   const metrics = createVoiceMetrics();
   const stateMachine = createVoiceStateMachine(() => options.onUpdate?.(snapshot()));
+  const audioEffects = options.audioEffectsController ?? createCallAudioEffectsController({
+    AudioContextClass,
+    enabled: options.callEffectsEnabled,
+  });
 
   let micStream = null;
   let transcriptionConnection = null;
@@ -116,6 +121,7 @@ export function createVoiceCallController(options = {}) {
       inputEnabled,
       paused,
       captionsEnabled,
+      callEffectsEnabled: audioEffects.snapshot().enabled,
       captionText,
       activeSpeakerId: activeOutput?.item.speakerId ?? activeSpeakerId,
       activeSpeakerIds: speakingOutputs.map((output) => output.item.speakerId),
@@ -415,6 +421,7 @@ export function createVoiceCallController(options = {}) {
   function closeConnection(connection) {
     if (!connection || connection.closed) return;
     connection.closed = true;
+    connection.effectAttachment?.detach?.();
     if (connection.counted) recordSessionEnded(metrics, connection.purpose);
     try {
       connection.channel?.close?.();
@@ -441,7 +448,16 @@ export function createVoiceCallController(options = {}) {
     const peer = new PeerConnection();
     const channel = peer.createDataChannel("oai-events");
     const audio = purpose === "speech" && AudioElement ? new AudioElement() : null;
-    const connection = { purpose, speakerId, peer, channel, audio, counted: false, closed: false };
+    const connection = {
+      purpose,
+      speakerId,
+      peer,
+      channel,
+      audio,
+      effectAttachment: null,
+      counted: false,
+      closed: false,
+    };
 
     if (audio) {
       audio.autoplay = true;
@@ -457,6 +473,12 @@ export function createVoiceCallController(options = {}) {
     peer.ontrack = (event) => {
       const remoteStream = event.streams?.[0];
       if (audio && remoteStream) audio.srcObject = remoteStream;
+      if (audio && remoteStream && purpose === "speech") {
+        connection.effectAttachment = audioEffects.attach(remoteStream, {
+          characterId: speakerId,
+          audioElement: audio,
+        });
+      }
       onTrack(remoteStream, connection);
     };
     if (stream) {
@@ -833,6 +855,7 @@ export function createVoiceCallController(options = {}) {
         stream: micStream,
         onEvent: handleTranscriptionEvent,
       });
+      audioEffects.setActive(true);
       transcriptionConnection.peer.onconnectionstatechange = () => {
         if (!["failed", "disconnected"].includes(transcriptionConnection?.peer.connectionState)) return;
         stateMachine.transition("reconnecting");
@@ -879,6 +902,7 @@ export function createVoiceCallController(options = {}) {
 
   async function setPaused(nextPaused = !paused) {
     paused = Boolean(nextPaused);
+    audioEffects.setPaused(paused);
     const outputs = [...activeOutputs.values()].filter((output) => output.connection?.audio);
     if (!outputs.length) {
       options.onUpdate?.(snapshot());
@@ -900,6 +924,12 @@ export function createVoiceCallController(options = {}) {
     return captionsEnabled;
   }
 
+  function setCallEffectsEnabled(nextEnabled) {
+    const value = audioEffects.setEnabled(nextEnabled);
+    options.onUpdate?.(snapshot());
+    return value;
+  }
+
   async function speak(speakerId, text, options = {}) {
     if (!SPEAKER_STYLE[speakerId] || !String(text ?? "").trim()) return { completed: false, reason: "invalid_speech" };
     return speakerQueue.enqueue({ speakerId, text: String(text).trim(), emotion: options.emotion ?? "neutral" });
@@ -916,6 +946,8 @@ export function createVoiceCallController(options = {}) {
     micStream?.getTracks?.().forEach((track) => track.stop());
     micStream = null;
     stopMeter();
+    audioEffects.setActive(false);
+    audioEffects.dispose();
     void audioContext?.close?.();
     audioContext = null;
     transcriptGate.clear();
@@ -938,6 +970,7 @@ export function createVoiceCallController(options = {}) {
     setInputEnabled,
     setPaused,
     setCaptions,
+    setCallEffectsEnabled,
     end,
     whenTranscriptsIdle: () => transcriptGate.whenIdle(),
   };

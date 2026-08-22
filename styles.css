@@ -4599,6 +4599,10 @@ body {
   padding: 12px 18px 18px;
 }
 
+.friend-call-view .call-effects-toggle {
+  margin: -4px auto 12px;
+}
+
 .friend-call-control,
 .friend-call-hangup {
   display: grid;

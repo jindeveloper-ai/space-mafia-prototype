@@ -36,9 +36,15 @@ test("친구별 보이스톡은 하루 5분을 독립적으로 기록하고 다�
   assert.equal(friendCallSecondsRemaining(progress, "mina", DATE), 0);
   assert.equal(friendCallSecondsRemaining(progress, "juno", DATE), FRIEND_CALL_DAILY_SECONDS);
   assert.equal(friendCallSecondsRemaining(progress, "mina", "2050-04-02"), FRIEND_CALL_DAILY_SECONDS);
+  assert.deepEqual(progress.friendCallDates.mina, [DATE]);
+
+  const nextDayProgress = recordFriendCallUsage(progress, "mina", 10, "2050-04-02");
+  assert.deepEqual(nextDayProgress.friendCallDates.mina, [DATE, "2050-04-02"]);
+  assert.deepEqual(nextDayProgress.friendCallDates.juno, []);
 
   const protectedProgress = recordFriendCallUsage(progress, "mina", 10, "2050-03-31");
   assert.deepEqual(protectedProgress.friendCallUsage.mina, { date: DATE, seconds: FRIEND_CALL_DAILY_SECONDS });
+  assert.deepEqual(protectedProgress.friendCallDates.mina, [DATE]);
 });
 
 function resultState(overrides = {}) {

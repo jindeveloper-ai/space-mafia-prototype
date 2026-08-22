@@ -19,15 +19,15 @@ import {
   plantEvidence,
   resolveVote,
   startGame,
-} from "./game-engine.js?v=0.20.1";
-import { getCopy, normalizeLocale } from "./i18n.js?v=0.20.1";
+} from "./game-engine.js?v=0.20.2";
+import { getCopy, normalizeLocale } from "./i18n.js?v=0.20.2";
 import {
   buildChatPayload,
   fallbackAccusation,
   fallbackResponse,
   MAX_CHAT_LENGTH,
   normalizeInterpretation,
-} from "./chat-adapter.js?v=0.20.1";
+} from "./chat-adapter.js?v=0.20.2";
 import {
   acceptPersonalQuest,
   awardCrewLevels,
@@ -44,17 +44,21 @@ import {
   setEquippedJob,
   setDifficultyMode,
   settlePersonalQuest,
-} from "./progression.js?v=0.20.1";
-import { accountController, createMutationId } from "./account-client.js?v=0.20.1";
-import { createVoiceCallController } from "./voice-call.js?v=0.20.1";
-import { createFriendCallController } from "./friend-call.js?v=0.20.1";
+} from "./progression.js?v=0.20.2";
+import { accountController, createMutationId } from "./account-client.js?v=0.20.2";
+import { createVoiceCallController } from "./voice-call.js?v=0.20.2";
+import { createFriendCallController } from "./friend-call.js?v=0.20.2";
+import {
+  readCallEffectsEnabled,
+  writeCallEffectsEnabled,
+} from "./call-audio-effects.js?v=0.20.2";
 import {
   beginVoiceTurnFinalization,
   createVoiceTurn,
   expireVoiceTurn,
   recordVoiceTurnCandidate,
   voiceTurnSecondsLeft,
-} from "./voice-turn.js?v=0.20.1";
+} from "./voice-turn.js?v=0.20.2";
 
 const app = document.querySelector("#app");
 const assetVersion = new URL(import.meta.url).searchParams.get("v");
@@ -229,6 +233,7 @@ let friendConversationIndex = 0;
 let friendChatLoadingOlder = false;
 let friendCallController = null;
 let friendCallSnapshot = null;
+let callEffectsEnabled = readCallEffectsEnabled();
 let playerProfile = loadPlayerProfile();
 let questOfferCharacterId = null;
 let lastPersonalQuestResult = null;
@@ -329,6 +334,7 @@ function createRoundVoiceController() {
     && new URLSearchParams(window.location.search).get("voiceDebug") === "1";
   voiceController = createVoiceCallController({
     locale,
+    callEffectsEnabled,
     soundController,
     onUpdate() {
       if (playMode === "voice" && (state.phase === "voice-consent" || voiceStageForPhase())) render();
@@ -457,7 +463,13 @@ async function beginFriendCall() {
     return;
   }
   const personId = selectedFriendId;
-  friendCallSnapshot = { characterId: personId, phase: "idle", remainingSeconds: remaining, muted: false };
+  friendCallSnapshot = {
+    characterId: personId,
+    phase: "idle",
+    remainingSeconds: remaining,
+    muted: false,
+    callEffectsEnabled,
+  };
   state = { ...state, phase: "friend-call" };
   render();
   if (accountController.signedIn) await accountController.enqueueState().catch(() => {});
@@ -467,11 +479,13 @@ async function beginFriendCall() {
     playerName: localSnapshot.profile?.name,
     recentChat: localSnapshot.chats?.[personId]?.slice(-8) ?? [],
     lastMatch: localSnapshot.matches?.[localSnapshot.matches.length - 1] ?? null,
+    relationshipDays: localSnapshot.progression?.friendCallDates?.[personId]?.length ?? 0,
   } : null;
   const controller = createFriendCallController({
     characterId: personId,
     locale,
     remainingSeconds: remaining,
+    callEffectsEnabled,
     requestSecret: (payload) => accountController.api(
       "/api/realtime/client-secret",
       {
@@ -1352,6 +1366,7 @@ function renderVoiceCall() {
     muted: false,
     paused: false,
     captionsEnabled: true,
+    callEffectsEnabled,
     captionText: "",
     activeSpeakerId: null,
     activeSpeakerIds: [],
@@ -1461,6 +1476,9 @@ function renderVoiceCall() {
           <span aria-hidden="true">${voice.paused ? "▶" : "Ⅱ"}</span><small>${voice.paused ? ui.voice.resume : ui.voice.pause}</small>
         </button>
       </div>
+      <button class="call-effects-toggle" type="button" data-action="toggle-call-effects" aria-pressed="${voice.callEffectsEnabled}" aria-label="${ui.voice.callEffectsAria}">
+        <span aria-hidden="true">⌁</span>${voice.callEffectsEnabled ? ui.voice.callEffectsOn : ui.voice.callEffectsOff}
+      </button>
       <button class="voice-text-fallback" type="button" data-action="voice-fallback">${ui.voice.textFallback}</button>
     </div>
   `;
@@ -1875,6 +1893,7 @@ function renderFriendCall() {
     phase: "idle",
     remainingSeconds: friendCallSecondsRemaining(progression, person.id, currentDateKey()),
     muted: false,
+    callEffectsEnabled,
     captionText: "",
     playerTranscript: "",
     error: null,
@@ -1910,6 +1929,9 @@ function renderFriendCall() {
         <button type="button" class="friend-call-hangup" data-action="friend-call-end" aria-label="${ui.friendCall.end}"><span aria-hidden="true">⌕</span></button>
         <span class="friend-call-control is-passive"><span aria-hidden="true">${call.phase === "player_speaking" ? "●" : "○"}</span><small>${ui.friendCall.micStatus[call.phase] ?? ui.friendCall.micStatus.listening}</small></span>
       </footer>
+      <button class="call-effects-toggle" type="button" data-action="toggle-call-effects" aria-pressed="${Boolean(call.callEffectsEnabled)}" aria-label="${ui.friendCall.callEffectsAria}">
+        <span aria-hidden="true">⌁</span>${call.callEffectsEnabled ? ui.friendCall.callEffectsOn : ui.friendCall.callEffectsOff}
+      </button>
       ${canText ? `
         <form class="friend-call-text" data-chat-stage="friend-call">
           <label class="visually-hidden" for="friend-call-message">${ui.friendCall.textFallback}</label>
@@ -3002,6 +3024,13 @@ app.addEventListener("click", (event) => {
     return;
   }
   if (action === "friend-call-end") return endFriendCall();
+  if (action === "toggle-call-effects") {
+    callEffectsEnabled = writeCallEffectsEnabled(!callEffectsEnabled);
+    friendCallController?.setCallEffectsEnabled(callEffectsEnabled);
+    voiceController?.setCallEffectsEnabled(callEffectsEnabled);
+    render();
+    return;
+  }
   if (action === "accept-personal-quest") {
     saveProgression(acceptPersonalQuest(progression, button.dataset.id, { date: currentDateKey() }));
     questOfferCharacterId = null;

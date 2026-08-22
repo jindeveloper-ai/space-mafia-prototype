@@ -299,6 +299,9 @@ async def realtime_client_secret(request: Request):
                 "playerName": snapshot.get("profile", {}).get("name"),
                 "recentChat": snapshot.get("chats", {}).get(speaker_id, [])[-8:],
                 "lastMatch": snapshot.get("matches", [])[-1] if snapshot.get("matches") else None,
+                "relationshipDays": len(
+                    snapshot.get("progression", {}).get("friendCallDates", {}).get(speaker_id, [])
+                ),
             }
         else:
             requested_remaining = payload.get("remainingSeconds")

@@ -85,7 +85,9 @@ def sanitize_progression(raw: Any) -> dict[str, Any]:
     affinity = source.get("affinity") if _is_dict(source.get("affinity")) else {}
     levels = source.get("crewLevels") if _is_dict(source.get("crewLevels")) else {}
     call_usage_source = source.get("friendCallUsage") if _is_dict(source.get("friendCallUsage")) else {}
+    call_dates_source = source.get("friendCallDates") if _is_dict(source.get("friendCallDates")) else {}
     friend_call_usage = {}
+    friend_call_dates = {}
     for crew_id in CREW_IDS:
         entry = call_usage_source.get(crew_id) if _is_dict(call_usage_source.get(crew_id)) else {}
         date = entry.get("date") if isinstance(entry.get("date"), str) and DATE_PATTERN.fullmatch(entry["date"]) else None
@@ -93,6 +95,8 @@ def sanitize_progression(raw: Any) -> dict[str, Any]:
             "date": date,
             "seconds": _bounded_int(entry.get("seconds"), 0, 300, 0),
         } if date else None
+        stored_dates = _unique_strings(call_dates_source.get(crew_id), 30, DATE_PATTERN)
+        friend_call_dates[crew_id] = sorted(set([*stored_dates, date] if date else stored_dates))[-30:]
     clues = []
     for clue in source.get("clues", []) if isinstance(source.get("clues"), list) else []:
         if not _is_dict(clue) or not re.fullmatch(r"private-detective-[1-5]", str(clue.get("id", ""))):
@@ -120,6 +124,7 @@ def sanitize_progression(raw: Any) -> dict[str, Any]:
         "affinity": {crew_id: _bounded_int(affinity.get(crew_id), 0, 999, 0) for crew_id in CREW_IDS},
         "crewLevels": {crew_id: _bounded_int(levels.get(crew_id), 1, 50, {"mina": 2, "juno": 4, "noel": 3}[crew_id]) for crew_id in CREW_IDS},
         "friendCallUsage": friend_call_usage,
+        "friendCallDates": friend_call_dates,
         "difficultyMode": "hard" if source.get("difficultyMode") == "hard" else "normal",
         "leveledRoundIds": _unique_strings(source.get("leveledRoundIds"), 100),
         "activeQuest": active_quest,
@@ -214,6 +219,10 @@ def merge_progression(local_raw: Any, cloud_raw: Any) -> dict[str, Any]:
         "affinity": {crew_id: max(local["affinity"][crew_id], cloud["affinity"][crew_id]) for crew_id in CREW_IDS},
         "crewLevels": {crew_id: max(local["crewLevels"][crew_id], cloud["crewLevels"][crew_id]) for crew_id in CREW_IDS},
         "friendCallUsage": friend_call_usage,
+        "friendCallDates": {
+            crew_id: sorted(set([*local["friendCallDates"][crew_id], *cloud["friendCallDates"][crew_id]]))[-30:]
+            for crew_id in CREW_IDS
+        },
         "leveledRoundIds": list(dict.fromkeys([*local["leveledRoundIds"], *cloud["leveledRoundIds"]]))[-100:],
         "activeQuest": cloud.get("activeQuest") or local.get("activeQuest"),
         "rewardedQuestIds": list(dict.fromkeys([*local["rewardedQuestIds"], *cloud["rewardedQuestIds"]]))[-200:],

@@ -43,13 +43,22 @@ test("cloud active quest wins while an equipped job must be unlocked", () => {
   assert.equal(merged.progression.equippedJob, null);
 });
 
-test("friend call usage merge keeps the latest day and the greatest same-day usage", () => {
+test("friend call usage merge keeps quota state and distinct relationship days", () => {
   const sameDay = mergeProgression(
-    createProgression({ version: 3, friendCallUsage: { mina: { date: "2050-04-01", seconds: 80 } } }),
-    createProgression({ version: 3, friendCallUsage: { mina: { date: "2050-04-01", seconds: 120 } } }),
+    createProgression({
+      version: 3,
+      friendCallUsage: { mina: { date: "2050-04-01", seconds: 80 } },
+      friendCallDates: { mina: ["2050-04-01"] },
+    }),
+    createProgression({
+      version: 3,
+      friendCallUsage: { mina: { date: "2050-04-01", seconds: 120 } },
+      friendCallDates: { mina: ["2050-04-01", "2050-04-02"] },
+    }),
     createProgression,
   );
   assert.deepEqual(sameDay.friendCallUsage.mina, { date: "2050-04-01", seconds: 120 });
+  assert.deepEqual(sameDay.friendCallDates.mina, ["2050-04-01", "2050-04-02"]);
 
   const laterDay = mergeProgression(
     sameDay,
@@ -57,6 +66,7 @@ test("friend call usage merge keeps the latest day and the greatest same-day usa
     createProgression,
   );
   assert.deepEqual(laterDay.friendCallUsage.mina, { date: "2050-04-03", seconds: 20 });
+  assert.deepEqual(laterDay.friendCallDates.mina, ["2050-04-01", "2050-04-02", "2050-04-03"]);
 });
 
 test("chat and match sanitizers deduplicate stable client identifiers", () => {
