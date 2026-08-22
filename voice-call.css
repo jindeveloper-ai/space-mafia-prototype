@@ -333,6 +333,104 @@ body[data-play-mode="voice"]:is(
   font-size: 0.88rem;
 }
 
+.voice-input-indicator {
+  display: grid;
+  width: min(100%, 330px);
+  grid-template-columns: 42px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  margin-top: 8px;
+  padding: 8px 10px;
+  border: 1px solid #353535;
+  border-radius: 14px;
+  background: #171717;
+}
+
+.voice-input-indicator__icon {
+  position: relative;
+  display: grid;
+  width: 38px;
+  height: 38px;
+  place-items: center;
+  border: 1px solid #4a4a4a;
+  border-radius: 50%;
+  background: #252525;
+  color: #a8a8a8;
+  transition: border-color 120ms linear, background 120ms linear, color 120ms linear;
+}
+
+.voice-input-indicator__icon svg {
+  width: 20px;
+  height: 20px;
+  overflow: visible;
+  fill: none;
+  stroke: currentcolor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.8;
+}
+
+.voice-input-indicator__icon i {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 9px;
+  height: 9px;
+  border: 2px solid #171717;
+  border-radius: 50%;
+  background: #777;
+  transform: scale(calc(0.9 + (var(--voice-input-level, 0) * 0.8)));
+  transition: background 100ms linear, transform 80ms linear;
+}
+
+.voice-input-indicator > span:last-child {
+  min-width: 0;
+}
+
+.voice-input-indicator strong,
+.voice-input-indicator small {
+  display: block;
+}
+
+.voice-input-indicator strong {
+  font-size: 0.74rem;
+}
+
+.voice-input-indicator small {
+  margin-top: 2px;
+  color: #9f9f9f;
+  font-size: 0.62rem;
+  line-height: 1.3;
+}
+
+.voice-input-indicator[data-input-state="listening"] .voice-input-indicator__icon {
+  border-color: #777;
+  color: #fff;
+}
+
+.voice-input-indicator[data-signal="active"] .voice-input-indicator__icon,
+.voice-input-indicator[data-input-state="speaking"] .voice-input-indicator__icon {
+  border-color: #7ee2a8;
+  background: #123421;
+  color: #b7f5ce;
+  box-shadow: 0 0 0 calc(2px + (var(--voice-input-level, 0) * 5px)) rgb(126 226 168 / 18%);
+}
+
+.voice-input-indicator[data-signal="active"] .voice-input-indicator__icon i,
+.voice-input-indicator[data-input-state="speaking"] .voice-input-indicator__icon i {
+  background: #7ee2a8;
+}
+
+.voice-input-indicator[data-input-state="processing"] .voice-input-indicator__icon {
+  border-color: #bdb3ff;
+  color: #d8d1ff;
+}
+
+.voice-input-indicator[data-input-state="muted"] .voice-input-indicator__icon {
+  border-color: #ffb4ab;
+  color: #ffb4ab;
+}
+
 .voice-turn-timer {
   display: grid;
   width: min(100%, 330px);

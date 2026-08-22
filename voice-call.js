@@ -6,7 +6,7 @@ import {
   estimateVoiceCost,
   recordSessionEnded,
   recordSessionStarted,
-} from "./voice-call-core.js?v=0.18.0";
+} from "./voice-call-core.js?v=0.18.1";
 
 const REALTIME_CALLS_URL = "https://api.openai.com/v1/realtime/calls";
 const SPEAKER_STYLE = {
@@ -18,9 +18,16 @@ const LOCAL_VAD_START_LEVEL = 0.016;
 const LOCAL_VAD_STOP_LEVEL = 0.009;
 const LOCAL_VAD_START_MS = 180;
 const LOCAL_VAD_STOP_MS = 720;
+const PLAYBACK_START_TIMEOUT_MS = 8_000;
 const RECOVERABLE_TRANSCRIPTION_ERRORS = new Set([
   "input_audio_buffer_commit_empty",
 ]);
+
+function estimatePlaybackDurationMs(text, locale) {
+  const characterCount = [...String(text ?? "")].length;
+  const millisecondsPerCharacter = locale === "ko" ? 150 : 68;
+  return Math.min(32_000, Math.max(1_800, 1_100 + (characterCount * millisecondsPerCharacter)));
+}
 
 function addListener(target, type, handler, options) {
   target?.addEventListener?.(type, handler, options);
@@ -64,6 +71,8 @@ export function createVoiceCallController(options = {}) {
   let audioContext = null;
   let meterFrame = null;
   let meterSource = null;
+  let meterKind = null;
+  let inputLevel = 0;
   let muted = false;
   let inputEnabled = true;
   let paused = false;
@@ -95,6 +104,7 @@ export function createVoiceCallController(options = {}) {
       lastSpeakerId,
       connected: Boolean(transcriptionConnection),
       manualTurnActive,
+      inputLevel,
       audioContextState: audioContext?.state ?? "unavailable",
       error: lastError,
       metrics: { ...metrics, estimatedUsd: estimateVoiceCost(metrics) },
@@ -108,6 +118,7 @@ export function createVoiceCallController(options = {}) {
   }
 
   function stopMeter() {
+    const stoppedKind = meterKind;
     if (meterFrame !== null) cancelFrame?.(meterFrame);
     meterFrame = null;
     try {
@@ -116,7 +127,9 @@ export function createVoiceCallController(options = {}) {
       // A disconnected Web Audio node is already clean.
     }
     meterSource = null;
-    options.onMeter?.(0);
+    meterKind = null;
+    if (stoppedKind === "input") inputLevel = 0;
+    options.onMeter?.(0, { source: stoppedKind ?? "none" });
   }
 
   function resetLocalVad() {
@@ -192,22 +205,37 @@ export function createVoiceCallController(options = {}) {
       analyser.smoothingTimeConstant = 0.72;
       meterSource = audioContext.createMediaStreamSource(stream);
       meterSource.connect(analyser);
-      const samples = new Uint8Array(analyser.fftSize);
+      meterKind = monitorSpeech ? "input" : "output";
+      const floatSamples = typeof analyser.getFloatTimeDomainData === "function"
+        ? new Float32Array(analyser.fftSize)
+        : null;
+      const byteSamples = floatSamples ? null : new Uint8Array(analyser.fftSize);
       const tick = () => {
         let level = 0;
-        if (typeof analyser.getByteTimeDomainData === "function") {
-          analyser.getByteTimeDomainData(samples);
-          const meanSquare = samples.reduce((sum, value) => {
+        if (floatSamples) {
+          analyser.getFloatTimeDomainData(floatSamples);
+          let meanSquare = 0;
+          let peak = 0;
+          for (const value of floatSamples) {
+            meanSquare += value * value;
+            peak = Math.max(peak, Math.abs(value));
+          }
+          meanSquare /= Math.max(1, floatSamples.length);
+          level = Math.min(1, Math.max(Math.sqrt(meanSquare) * 4.5, peak * 1.8));
+        } else if (typeof analyser.getByteTimeDomainData === "function") {
+          analyser.getByteTimeDomainData(byteSamples);
+          const meanSquare = byteSamples.reduce((sum, value) => {
             const normalized = (value - 128) / 128;
             return sum + (normalized * normalized);
-          }, 0) / Math.max(1, samples.length);
+          }, 0) / Math.max(1, byteSamples.length);
           level = Math.min(1, Math.sqrt(meanSquare) * 4);
         } else {
-          analyser.getByteFrequencyData(samples);
-          const average = samples.reduce((sum, value) => sum + value, 0) / Math.max(1, samples.length);
+          analyser.getByteFrequencyData(byteSamples);
+          const average = byteSamples.reduce((sum, value) => sum + value, 0) / Math.max(1, byteSamples.length);
           level = Math.min(1, average / 150);
         }
-        options.onMeter?.(level);
+        if (monitorSpeech) inputLevel = level;
+        options.onMeter?.(level, { source: monitorSpeech ? "input" : "output" });
         if (monitorSpeech) monitorLocalVad(level);
         meterFrame = requestFrame(tick);
       };
@@ -334,6 +362,8 @@ export function createVoiceCallController(options = {}) {
     if (!output || output.finished) return;
     output.finished = true;
     if (output.finishTimer) clearTimer?.(output.finishTimer);
+    if (output.startTimer) clearTimer?.(output.startTimer);
+    if (output.playbackTimer) clearTimer?.(output.playbackTimer);
     closeConnection(output.connection);
     activeOutputs.delete(output.id);
     if (!activeOutputs.size) {
@@ -344,6 +374,16 @@ export function createVoiceCallController(options = {}) {
       stateMachine.transition(paused ? "paused" : "ai_speaking");
     }
     output.resolve({ completed, reason, transcript: output.transcript.trim() });
+  }
+
+  function schedulePlaybackFallback(output) {
+    if (!output?.responseDone || !output.started || output.finished || output.playbackTimer) return;
+    const elapsed = Math.max(0, now() - (output.playbackStartedAt ?? now()));
+    const remaining = Math.max(500, estimatePlaybackDurationMs(output.item.text, locale) - elapsed + 850);
+    output.playbackTimer = setTimer?.(() => {
+      output.playbackTimer = null;
+      finishOutput(output, true, "estimated_playback_complete");
+    }, remaining);
   }
 
   function interruptSpeech(reason = "barge_in") {
@@ -411,15 +451,23 @@ export function createVoiceCallController(options = {}) {
       started: false,
       finished: false,
       finishTimer: null,
+      startTimer: null,
+      playbackTimer: null,
+      playbackStartedAt: null,
+      responseDone: false,
       resolve: null,
     };
     const beginPlayback = (stream = null) => {
       if (output.finished || output.started) return;
       output.started = true;
+      output.playbackStartedAt = now();
+      if (output.startTimer) clearTimer?.(output.startTimer);
+      output.startTimer = null;
       activeSpeakerId = item.speakerId;
       lastSpeakerId = item.speakerId;
       if (stream) startMeter(stream, { monitorSpeech: false });
       stateMachine.transition(paused ? "paused" : "ai_speaking");
+      schedulePlaybackFallback(output);
     };
     let remoteStream = null;
     try {
@@ -444,10 +492,19 @@ export function createVoiceCallController(options = {}) {
             applyUsage(event);
             const completed = event.response?.status === "completed";
             if (!completed) finishOutput(output, false, event.response?.status ?? "failed");
-            else if (!output.started) finishOutput(output, true);
-            // Generation completing does not mean remote playback completed.
-            // Wait for the buffer/audio completion signal instead of cutting
-            // long lines after an arbitrary three-second grace period.
+            else {
+              output.responseDone = true;
+              if (output.started) schedulePlaybackFallback(output);
+              else {
+                output.startTimer = setTimer?.(
+                  () => finishOutput(output, false, "audio_playback_missing"),
+                  PLAYBACK_START_TIMEOUT_MS,
+                );
+              }
+            }
+            // Generation completing can precede WebRTC playback. Never close
+            // the connection until playback starts and then stops (or the
+            // duration-based fallback confirms the line had time to finish).
           }
           if (event.type === "output_audio_buffer.stopped") finishOutput(output, true);
           if (event.type === "error") finishOutput(output, false, "voice_output_failed");

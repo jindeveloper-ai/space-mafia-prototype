@@ -15,7 +15,7 @@ class RealtimeConfigTests(unittest.TestCase):
         self.assertEqual(transcription["languages"], ["ko"])
         self.assertIn("산소실", transcription["keywords"])
         self.assertEqual(transcription["delay"], "low")
-        self.assertNotIn("turn_detection", session["audio"]["input"])
+        self.assertIsNone(session["audio"]["input"]["turn_detection"])
 
     def test_incompatible_legacy_transcription_model_falls_back_to_live_model(self):
         with patch.dict(os.environ, {"OPENAI_TRANSCRIBE_MODEL": "gpt-transcribe"}, clear=False):

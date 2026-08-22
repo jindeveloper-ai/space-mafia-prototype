@@ -1,15 +1,25 @@
 #!/bin/sh
 set -eu
 
+node_executable=""
+
 if command -v node >/dev/null 2>&1; then
-  exec node --check "$@"
+  node_executable="$(command -v node)"
+else
+  for candidate in /opt/homebrew/bin/node /usr/local/bin/node; do
+    if [ -x "$candidate" ]; then
+      node_executable="$candidate"
+      break
+    fi
+  done
 fi
 
-for candidate in /opt/homebrew/bin/node /usr/local/bin/node; do
-  if [ -x "$candidate" ]; then
-    exec "$candidate" --check "$@"
-  fi
-done
+if [ -n "$node_executable" ]; then
+  for javascript_file in "$@"; do
+    "$node_executable" --check "$javascript_file"
+  done
+  exit 0
+fi
 
 echo "node-syntax-check: Node.js is required but was not found in PATH or a standard Homebrew location." >&2
 exit 127

@@ -19,15 +19,15 @@ import {
   plantEvidence,
   resolveVote,
   startGame,
-} from "./game-engine.js?v=0.18.0";
-import { getCopy, normalizeLocale } from "./i18n.js?v=0.18.0";
+} from "./game-engine.js?v=0.18.1";
+import { getCopy, normalizeLocale } from "./i18n.js?v=0.18.1";
 import {
   buildChatPayload,
   fallbackAccusation,
   fallbackResponse,
   MAX_CHAT_LENGTH,
   normalizeInterpretation,
-} from "./chat-adapter.js?v=0.18.0";
+} from "./chat-adapter.js?v=0.18.1";
 import {
   acceptPersonalQuest,
   awardCrewLevels,
@@ -42,16 +42,16 @@ import {
   setEquippedJob,
   setDifficultyMode,
   settlePersonalQuest,
-} from "./progression.js?v=0.18.0";
-import { accountController, createMutationId } from "./account-client.js?v=0.18.0";
-import { createVoiceCallController } from "./voice-call.js?v=0.18.0";
+} from "./progression.js?v=0.18.1";
+import { accountController, createMutationId } from "./account-client.js?v=0.18.1";
+import { createVoiceCallController } from "./voice-call.js?v=0.18.1";
 import {
   beginVoiceTurnFinalization,
   createVoiceTurn,
   expireVoiceTurn,
   recordVoiceTurnCandidate,
   voiceTurnSecondsLeft,
-} from "./voice-turn.js?v=0.18.0";
+} from "./voice-turn.js?v=0.18.1";
 
 const app = document.querySelector("#app");
 const assetVersion = new URL(import.meta.url).searchParams.get("v");
@@ -237,6 +237,7 @@ let playMode = "text";
 let voiceController = null;
 let voiceConsentBusy = false;
 let voiceFallbackNotice = null;
+let voiceInputLevel = 0;
 let voiceTurn = null;
 let voiceTurnTicker = null;
 const voicedOpeningKeys = new Set();
@@ -318,6 +319,7 @@ function startVoiceDiscussionTurn(stage = voiceStageForPhase()) {
 
 function createRoundVoiceController() {
   voiceController?.end();
+  voiceInputLevel = 0;
   const debugVoice = ["127.0.0.1", "localhost"].includes(window.location.hostname)
     && new URLSearchParams(window.location.search).get("voiceDebug") === "1";
   voiceController = createVoiceCallController({
@@ -326,10 +328,15 @@ function createRoundVoiceController() {
     onUpdate() {
       if (playMode === "voice" && (state.phase === "voice-consent" || voiceStageForPhase())) render();
     },
-    onMeter(level) {
+    onMeter(level, meter = {}) {
       const wave = app.querySelector("[data-voice-wave]");
-      if (!wave) return;
-      wave.style.setProperty("--voice-level", level.toFixed(3));
+      if (wave) wave.style.setProperty("--voice-level", level.toFixed(3));
+      if (meter.source !== "input") return;
+      voiceInputLevel = level;
+      const indicator = app.querySelector("[data-voice-input-indicator]");
+      if (!indicator) return;
+      indicator.style.setProperty("--voice-input-level", level.toFixed(3));
+      indicator.dataset.signal = level >= 0.012 ? "active" : "idle";
     },
     async onFinalTranscript(utterance) {
       const stage = voiceStageForPhase();
@@ -389,6 +396,7 @@ function switchVoiceGameToText() {
 
 function endVoiceGame() {
   clearVoiceTurn();
+  voiceInputLevel = 0;
   voiceController?.end();
   voiceController = null;
   playMode = "text";
@@ -1286,6 +1294,18 @@ function renderVoiceCall() {
     && !turnClosed
     && !["connecting", "reconnecting", "processing", "ai_speaking", "paused"].includes(voice.state);
   const inputDisabled = chatPending || turnClosed;
+  const inputState = voice.muted
+    ? "muted"
+    : voice.state === "player_speaking"
+      ? "speaking"
+      : voice.state === "processing"
+        ? "processing"
+        : ["ai_speaking", "paused"].includes(voice.state)
+          ? "ai"
+          : voice.state === "listening"
+            ? "listening"
+            : "connecting";
+  const inputSignal = inputState === "speaking" || voiceInputLevel >= 0.012 ? "active" : "idle";
   return `
     <div class="voice-call-view" data-voice-state="${voice.state}">
       <header class="voice-call-header">
@@ -1306,6 +1326,13 @@ function renderVoiceCall() {
           ${Array.from({ length: 7 }, (_, index) => `<i style="--bar:${index}"></i>`).join("")}
         </div>
         <strong class="voice-status" role="status">${status}</strong>
+        <div class="voice-input-indicator" data-voice-input-indicator data-input-state="${inputState}" data-signal="${inputSignal}" style="--voice-input-level:${voiceInputLevel.toFixed(3)}" role="status" aria-live="polite">
+          <span class="voice-input-indicator__icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" focusable="false"><rect x="8" y="3" width="8" height="12" rx="4"></rect><path d="M5 11a7 7 0 0 0 14 0M12 18v3M9 21h6"></path></svg>
+            <i></i>
+          </span>
+          <span><strong>${ui.voice.inputStatus[inputState]}</strong><small>${ui.voice.inputStatusHint}</small></span>
+        </div>
         <div class="voice-turn-timer ${turnClosed ? "is-closing" : ""}" data-voice-turn-progress style="--voice-turn-progress:${turnProgress.toFixed(3)}">
           <span>${ui.voice.turnLabel(turnCurrent, turnTotal)}</span>
           <strong data-voice-turn-clock>${voiceTurn ? ui.voice.secondsLeft(secondsLeft) : ui.voice.preparingTurn}</strong>

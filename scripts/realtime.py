@@ -75,10 +75,10 @@ def _session_config(purpose: str, locale: str, speaker_id: str | None) -> dict:
                         "languages": [language],
                         "delay": "low",
                     },
-                    # gpt-live-transcribe does not accept server VAD in a
-                    # transcription session. The browser commits turns using
-                    # its microphone level detector; manual controls remain a
-                    # fallback for noisy or restricted environments.
+                    # The browser owns turn boundaries and commits each turn.
+                    # Keep this explicit: omitting the field may restore the
+                    # session default and race with the browser's local VAD.
+                    "turn_detection": None,
                 }
             },
         }

@@ -107,7 +107,7 @@ test("Realtime 시크릿은 동일 출처·짧은 수명·서버 전용 영구 �
     assert.equal(upstream.requests[0].body.session.type, "transcription");
     assert.equal(upstream.requests[0].body.session.audio.input.transcription.model, "gpt-live-transcribe");
     assert.equal(upstream.requests[0].body.session.audio.input.transcription.delay, "low");
-    assert.equal("turn_detection" in upstream.requests[0].body.session.audio.input, false);
+    assert.equal(upstream.requests[0].body.session.audio.input.turn_detection, null);
     assert.equal(upstream.requests[1].body.session.audio.output.voice, "cedar");
 
     const blocked = await secretRequest(app.baseUrl, { purpose: "speech", locale: "ko", speakerId: "mina" }, "https://evil.example");

@@ -4280,7 +4280,7 @@ body {
   white-space: nowrap;
 }
 
-/* v0.18.0 — timed, multi-exchange voice turns and half-duplex call audio. */
+/* v0.18.1 — timed, multi-exchange voice turns and half-duplex call audio. */
 .game-room-view.is-setup {
   overflow-y: auto;
   overscroll-behavior: contain;

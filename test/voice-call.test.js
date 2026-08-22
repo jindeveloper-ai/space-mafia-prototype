@@ -456,6 +456,33 @@ test("response.done 뒤에도 실제 오디오 종료 전에는 긴 대사를 �
   harness.controller.end();
 });
 
+test("response.done이 재생 시작보다 먼저 와도 연결을 닫지 않고 끝까지 재생한다", { concurrency: false }, async () => {
+  const harness = createHarness();
+  await harness.controller.connect();
+  let settled = false;
+  const speech = harness.controller.speak("juno", "생성 완료와 실제 재생 완료는 같은 시점이 아닙니다.");
+  speech.finally(() => { settled = true; });
+  await waitFor(() => FakePeerConnection.instances.length === 2, "Juno output session");
+  const outputPeer = FakePeerConnection.instances[1];
+  await waitFor(
+    () => outputPeer.channel.sent.some((event) => event.type === "response.create"),
+    "Juno response request",
+  );
+
+  emitRealtime(outputPeer, { type: "response.done", response: { status: "completed" } });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(settled, false);
+  assert.equal(outputPeer.closed, false);
+
+  outputPeer.ontrack({ streams: [{ id: "juno-delayed-playback" }] });
+  emitRealtime(outputPeer, { type: "output_audio_buffer.started" });
+  assert.equal(harness.controller.snapshot().activeSpeakerId, "juno");
+  emitRealtime(outputPeer, { type: "output_audio_buffer.stopped" });
+  assert.deepEqual(await speech, { completed: true, reason: "completed", transcript: "" });
+  assert.equal(outputPeer.closed, true);
+  harness.controller.end();
+});
+
 test("AI 답변은 겹치지 않고 앞 화자가 끝난 뒤 다음 화자로 넘어간다", { concurrency: false }, async () => {
   const harness = createHarness();
   await harness.controller.connect();
