@@ -72,7 +72,7 @@ test("match record contains only structured engine output", () => {
     selectedId: "noel",
     voteShiftCount: 2,
     votes: [{ voterId: "mina", candidateId: "noel", reason: "not persisted" }],
-  }, "0.17.5");
+  }, "0.17.6");
   assert.equal(record.stars, 3);
   assert.deepEqual(record.votes, [{ voterId: "mina", candidateId: "noel" }]);
   assert.equal("reason" in record.votes[0], false);

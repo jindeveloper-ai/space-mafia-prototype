@@ -80,9 +80,12 @@ def _session_config(purpose: str, locale: str, speaker_id: str | None) -> dict:
                     # vary too much across microphones and browsers.
                     "turn_detection": {
                         "type": "server_vad",
-                        "threshold": 0.3,
-                        "prefix_padding_ms": 500,
-                        "silence_duration_ms": 700,
+                        # A lower threshold helps laptop microphones and quiet
+                        # speakers. Client-side level detection is a backup,
+                        # so normal server turns remain authoritative.
+                        "threshold": 0.18,
+                        "prefix_padding_ms": 600,
+                        "silence_duration_ms": 650,
                     },
                 }
             },

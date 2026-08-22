@@ -140,6 +140,8 @@ function createHarness({
   failNegotiation = false,
   withAudioContext = false,
   transcriptionTimeoutMs,
+  outputTimeoutMs = 100,
+  controllerOptions = {},
 } = {}) {
   FakePeerConnection.instances = [];
   const track = { enabled: true, stopped: false, stop() { this.stopped = true; } };
@@ -154,6 +156,7 @@ function createHarness({
     AudioElement: FakeAudio,
     AudioContextClass: withAudioContext ? FakeAudioContext : null,
     transcriptionTimeoutMs,
+    outputTimeoutMs,
     mediaDevices: {
       async getUserMedia() {
         if (denyMicrophone) throw Object.assign(new Error("denied"), { name: "NotAllowedError" });
@@ -178,6 +181,7 @@ function createHarness({
         soundDucking.push(value);
       },
     },
+    ...controllerOptions,
   });
   return { controller, track, stream, fetchCalls, finalTranscripts, fallbacks, soundDucking };
 }
@@ -315,6 +319,50 @@ test("서버 VAD가 버튼 없이 발화 시작과 종료를 감지해 확정 �
   harness.controller.end();
 });
 
+test("서버 감지가 늦으면 브라우저 음량 감지가 버튼 없이 발화를 확정한다", async () => {
+  let timestamp = 0;
+  let loud = false;
+  const frames = [];
+  class LocalVadAudioContext extends FakeAudioContext {
+    createAnalyser() {
+      return {
+        fftSize: 512,
+        smoothingTimeConstant: 0,
+        connect() {},
+        getByteTimeDomainData(values) { values.fill(loud ? 132 : 128); },
+      };
+    }
+  }
+  const harness = createHarness({
+    controllerOptions: {
+      AudioContextClass: LocalVadAudioContext,
+      requestFrame(callback) { frames.push(callback); return frames.length; },
+      cancelFrame() {},
+      now: () => timestamp,
+      localVadStartMs: 1,
+      localVadStopMs: 1,
+    },
+  });
+  await harness.controller.connect();
+  const transcriptionPeer = FakePeerConnection.instances[0];
+  const runFrame = (advance, nextLoud) => {
+    timestamp += advance;
+    loud = nextLoud;
+    frames.shift()?.();
+  };
+  runFrame(0, true);
+  runFrame(5, true);
+  assert.equal(harness.controller.snapshot().state, "player_speaking");
+  runFrame(5, false);
+  runFrame(5, false);
+  assert.equal(harness.controller.snapshot().state, "processing");
+  assert.equal(
+    transcriptionPeer.channel.sent.some((event) => event.type === "input_audio_buffer.commit"),
+    true,
+  );
+  harness.controller.end();
+});
+
 test("무음 발화는 처리 중에 갇히지 않고 다시 듣기 상태로 돌아간다", async () => {
   const harness = createHarness({ transcriptionTimeoutMs: 1 });
   await harness.controller.connect();
@@ -323,6 +371,22 @@ test("무음 발화는 처리 중에 갇히지 않고 다시 듣기 상태로 �
   await new Promise((resolve) => setTimeout(resolve, 5));
   assert.equal(harness.controller.snapshot().state, "listening");
   assert.equal(harness.controller.snapshot().error, "no_speech_detected");
+  harness.controller.end();
+});
+
+test("빈 수동 버퍼 오류는 연결을 끊지 않고 자동 듣기로 복귀한다", async () => {
+  const harness = createHarness();
+  await harness.controller.connect();
+  const transcriptionPeer = FakePeerConnection.instances[0];
+  harness.controller.toggleTalking();
+  harness.controller.toggleTalking();
+  emitRealtime(transcriptionPeer, {
+    type: "error",
+    error: { code: "input_audio_buffer_commit_empty" },
+  });
+  assert.equal(harness.controller.snapshot().state, "listening");
+  assert.equal(harness.controller.snapshot().error, "no_speech_detected");
+  assert.equal(transcriptionPeer.closed, false);
   harness.controller.end();
 });
 
@@ -370,7 +434,34 @@ test("미나·주노·노엘은 실제 오디오 이벤트에 맞춰 한 명씩 
   assert.equal(FakePeerConnection.instances.every((peer) => peer.closed), true);
 });
 
-test("플레이어가 끼어들면 현재 AI 음성이 즉시 중단되고 뒤 발화도 취소된다", async () => {
+test("격한 토론은 세 AI 음성을 시차를 두고 겹쳐 재생한다", { concurrency: false }, async () => {
+  const harness = createHarness();
+  await harness.controller.connect();
+  const grouped = harness.controller.speakGroup([
+    { speakerId: "mina", text: "그 기록부터 다시 봐", emotion: "heated" },
+    { speakerId: "juno", text: "반례가 아직 남아 있음", emotion: "skeptical" },
+    { speakerId: "noel", text: "둘 다 방금 말 달라졌는데", emotion: "amused" },
+  ], { staggerMs: 0 });
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  await waitFor(() => FakePeerConnection.instances.length === 4, "overlapping output sessions");
+  const outputPeers = FakePeerConnection.instances.slice(1);
+  await waitFor(
+    () => outputPeers.every((peer) => peer.channel.sent.some((event) => event.type === "response.create")),
+    "overlapping response requests",
+  );
+  outputPeers.forEach((peer, index) => {
+    peer.ontrack({ streams: [{ id: `overlap-${index}` }] });
+    emitRealtime(peer, { type: "output_audio_buffer.started" });
+  });
+  assert.deepEqual(harness.controller.snapshot().activeSpeakerIds.sort(), ["juno", "mina", "noel"]);
+  assert.equal(harness.controller.snapshot().activeEmotion, "amused");
+  outputPeers.forEach((peer) => emitRealtime(peer, { type: "output_audio_buffer.stopped" }));
+  assert.equal((await grouped).every((result) => result.completed), true);
+  const final = harness.controller.end();
+  assert.equal(final.metrics.maxConcurrentSessions, 4);
+});
+
+test("플레이어가 끼어들면 현재 AI 음성이 즉시 중단되고 뒤 발화도 취소된다", { concurrency: false }, async () => {
   const harness = createHarness();
   await harness.controller.connect();
   const transcriptionPeer = FakePeerConnection.instances[0];
@@ -378,6 +469,10 @@ test("플레이어가 끼어들면 현재 AI 음성이 즉시 중단되고 뒤 �
   const juno = harness.controller.speak("juno", "대기 중인 대사");
   await waitFor(() => FakePeerConnection.instances.length === 2, "Mina output session");
   const outputPeer = FakePeerConnection.instances[1];
+  await waitFor(
+    () => outputPeer.channel.sent.some((event) => event.type === "response.create"),
+    "Mina response request",
+  );
   outputPeer.ontrack({ streams: [{ id: "mina-stream" }] });
   emitRealtime(outputPeer, { type: "output_audio_buffer.started" });
 

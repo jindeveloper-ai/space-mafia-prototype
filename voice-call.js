@@ -6,7 +6,7 @@ import {
   estimateVoiceCost,
   recordSessionEnded,
   recordSessionStarted,
-} from "./voice-call-core.js?v=0.17.5";
+} from "./voice-call-core.js?v=0.17.6";
 
 const REALTIME_CALLS_URL = "https://api.openai.com/v1/realtime/calls";
 const SPEAKER_STYLE = {
@@ -14,6 +14,13 @@ const SPEAKER_STYLE = {
   juno: "Use a calm, measured rhythm and make the reasoning easy to follow.",
   noel: "Use a natural, lightly playful rhythm with an observant edge.",
 };
+const LOCAL_VAD_START_LEVEL = 0.035;
+const LOCAL_VAD_STOP_LEVEL = 0.018;
+const LOCAL_VAD_START_MS = 180;
+const LOCAL_VAD_STOP_MS = 720;
+const RECOVERABLE_TRANSCRIPTION_ERRORS = new Set([
+  "input_audio_buffer_commit_empty",
+]);
 
 function addListener(target, type, handler, options) {
   target?.addEventListener?.(type, handler, options);
@@ -35,15 +42,23 @@ export function createVoiceCallController(options = {}) {
   const clearTimer = options.clearTimer ?? globalThis.clearTimeout?.bind(globalThis);
   const requestFrame = options.requestFrame ?? globalThis.requestAnimationFrame?.bind(globalThis);
   const cancelFrame = options.cancelFrame ?? globalThis.cancelAnimationFrame?.bind(globalThis);
+  const now = options.now ?? Date.now;
   const permissionTimeoutMs = options.permissionTimeoutMs ?? 12_000;
   const transcriptionTimeoutMs = options.transcriptionTimeoutMs ?? 8_000;
+  const outputTimeoutMs = options.outputTimeoutMs ?? 45_000;
+  const localVadStartLevel = options.localVadStartLevel ?? LOCAL_VAD_START_LEVEL;
+  const localVadStopLevel = options.localVadStopLevel ?? LOCAL_VAD_STOP_LEVEL;
+  const localVadStartMs = options.localVadStartMs ?? LOCAL_VAD_START_MS;
+  const localVadStopMs = options.localVadStopMs ?? LOCAL_VAD_STOP_MS;
   const locale = options.locale === "en" ? "en" : "ko";
   const metrics = createVoiceMetrics();
   const stateMachine = createVoiceStateMachine(() => options.onUpdate?.(snapshot()));
 
   let micStream = null;
   let transcriptionConnection = null;
-  let currentOutput = null;
+  const activeOutputs = new Map();
+  let outputSequence = 0;
+  let outputEpoch = 0;
   let reconnectTimer = null;
   let transcriptionTimer = null;
   let audioContext = null;
@@ -58,15 +73,23 @@ export function createVoiceCallController(options = {}) {
   let disposed = false;
   let lastError = null;
   let manualTurnActive = false;
+  let localTurnActive = false;
+  let serverTurnActive = false;
+  let localLoudSince = null;
+  let localQuietSince = null;
 
   function snapshot() {
+    const speakingOutputs = [...activeOutputs.values()].filter((output) => output.started && !output.finished);
+    const activeOutput = speakingOutputs.at(-1) ?? null;
     return {
       state: stateMachine.state,
       muted,
       paused,
       captionsEnabled,
       captionText,
-      activeSpeakerId,
+      activeSpeakerId: activeOutput?.item.speakerId ?? activeSpeakerId,
+      activeSpeakerIds: speakingOutputs.map((output) => output.item.speakerId),
+      activeEmotion: activeOutput?.item.emotion ?? "neutral",
       lastSpeakerId,
       connected: Boolean(transcriptionConnection),
       manualTurnActive,
@@ -94,7 +117,42 @@ export function createVoiceCallController(options = {}) {
     options.onMeter?.(0);
   }
 
-  function startMeter(stream) {
+  function resetLocalVad() {
+    localLoudSince = null;
+    localQuietSince = null;
+  }
+
+  function monitorLocalVad(level, timestamp = now()) {
+    if (disposed || muted || !transcriptionConnection || activeOutputs.size || speakerQueue.active) {
+      resetLocalVad();
+      return;
+    }
+    if (stateMachine.state === "listening") {
+      if (level < localVadStartLevel) {
+        localLoudSince = null;
+        return;
+      }
+      localLoudSince ??= timestamp;
+      if (timestamp - localLoudSince < localVadStartMs) return;
+      localTurnActive = true;
+      serverTurnActive = false;
+      localQuietSince = null;
+      beginPlayerTurn();
+      return;
+    }
+    if (!localTurnActive || stateMachine.state !== "player_speaking") return;
+    if (level > localVadStopLevel) {
+      localQuietSince = null;
+      return;
+    }
+    localQuietSince ??= timestamp;
+    if (timestamp - localQuietSince < localVadStopMs) return;
+    localTurnActive = false;
+    resetLocalVad();
+    finishPlayerTurn();
+  }
+
+  function startMeter(stream, { monitorSpeech = false } = {}) {
     stopMeter();
     if (!AudioContextClass || !requestFrame || !stream) return;
     try {
@@ -121,6 +179,7 @@ export function createVoiceCallController(options = {}) {
           level = Math.min(1, average / 150);
         }
         options.onMeter?.(level);
+        if (monitorSpeech) monitorLocalVad(level);
         meterFrame = requestFrame(tick);
       };
       meterFrame = requestFrame(tick);
@@ -242,28 +301,34 @@ export function createVoiceCallController(options = {}) {
     metrics.outputAudioTokens += Number(usage?.output_token_details?.audio_tokens) || 0;
   }
 
-  function finishOutput(completed, reason = completed ? "completed" : "interrupted") {
-    const output = currentOutput;
+  function finishOutput(output, completed, reason = completed ? "completed" : "interrupted") {
     if (!output || output.finished) return;
     output.finished = true;
     if (output.finishTimer) clearTimer?.(output.finishTimer);
     closeConnection(output.connection);
-    currentOutput = null;
-    paused = false;
-    activeSpeakerId = null;
-    if (micStream && transcriptionConnection) startMeter(micStream);
-    if (!disposed && stateMachine.state !== "player_speaking") stateMachine.transition("processing");
+    activeOutputs.delete(output.id);
+    if (!activeOutputs.size) {
+      paused = false;
+      activeSpeakerId = null;
+      if (micStream && transcriptionConnection) startMeter(micStream, { monitorSpeech: true });
+      if (!disposed && stateMachine.state !== "player_speaking") stateMachine.transition("processing");
+    } else if (!disposed && stateMachine.state !== "player_speaking") {
+      stateMachine.transition(paused ? "paused" : "ai_speaking");
+    }
     output.resolve({ completed, reason, transcript: output.transcript.trim() });
   }
 
   function interruptSpeech(reason = "barge_in") {
+    outputEpoch += 1;
     speakerQueue.interrupt(reason);
-    if (!currentOutput) return false;
-    safeSend(currentOutput.connection.channel, { type: "response.cancel" });
-    safeSend(currentOutput.connection.channel, { type: "output_audio_buffer.clear" });
-    currentOutput.connection.audio?.pause?.();
-    finishOutput(false, reason);
-    return true;
+    const outputs = [...activeOutputs.values()];
+    outputs.forEach((output) => {
+      safeSend(output.connection?.channel, { type: "response.cancel" });
+      safeSend(output.connection?.channel, { type: "output_audio_buffer.clear" });
+      output.connection?.audio?.pause?.();
+      finishOutput(output, false, reason);
+    });
+    return outputs.length > 0;
   }
 
   function beginPlayerTurn({ manual = false } = {}) {
@@ -281,6 +346,8 @@ export function createVoiceCallController(options = {}) {
   function finishPlayerTurn({ commit = true } = {}) {
     if (disposed || !transcriptionConnection) return false;
     manualTurnActive = false;
+    localTurnActive = false;
+    resetLocalVad();
     stateMachine.transition("processing");
     const sent = safeSend(transcriptionConnection.channel, {
       type: commit ? "input_audio_buffer.commit" : "input_audio_buffer.clear",
@@ -303,14 +370,24 @@ export function createVoiceCallController(options = {}) {
     return beginPlayerTurn({ manual: true });
   }
 
-  async function playSpeech(item) {
+  async function playSpeech(item, epoch = outputEpoch) {
     if (disposed) return { completed: false, reason: "ended" };
+    const output = {
+      id: `voice-output-${outputSequence += 1}`,
+      connection: null,
+      item,
+      transcript: "",
+      started: false,
+      finished: false,
+      finishTimer: null,
+      resolve: null,
+    };
     const beginPlayback = (stream = null) => {
-      if (!currentOutput || currentOutput.started) return;
-      currentOutput.started = true;
+      if (output.finished || output.started) return;
+      output.started = true;
       activeSpeakerId = item.speakerId;
       lastSpeakerId = item.speakerId;
-      if (stream) startMeter(stream);
+      if (stream) startMeter(stream, { monitorSpeech: false });
       stateMachine.transition(paused ? "paused" : "ai_speaking");
     };
     let remoteStream = null;
@@ -325,42 +402,40 @@ export function createVoiceCallController(options = {}) {
         onEvent(event) {
           if (event.type === "output_audio_buffer.started") beginPlayback(remoteStream);
           if (event.type === "response.output_audio_transcript.delta") {
-            currentOutput.transcript += event.delta ?? "";
-            updateCaption(currentOutput.transcript, item.speakerId);
+            output.transcript += event.delta ?? "";
+            updateCaption(output.transcript, item.speakerId);
           }
           if (event.type === "response.output_audio_transcript.done") {
-            currentOutput.transcript = event.transcript ?? currentOutput.transcript;
-            updateCaption(currentOutput.transcript, item.speakerId);
+            output.transcript = event.transcript ?? output.transcript;
+            updateCaption(output.transcript, item.speakerId);
           }
           if (event.type === "response.done") {
             applyUsage(event);
             const completed = event.response?.status === "completed";
-            if (!completed) finishOutput(false, event.response?.status ?? "failed");
-            else if (!currentOutput.started) finishOutput(true);
+            if (!completed) finishOutput(output, false, event.response?.status ?? "failed");
+            else if (!output.started) finishOutput(output, true);
             else {
-              if (currentOutput.finishTimer) clearTimer?.(currentOutput.finishTimer);
-              currentOutput.finishTimer = setTimer?.(() => finishOutput(true), 3_000);
+              if (output.finishTimer) clearTimer?.(output.finishTimer);
+              output.finishTimer = setTimer?.(() => finishOutput(output, true), 3_000);
             }
           }
-          if (event.type === "output_audio_buffer.stopped") finishOutput(true);
-          if (event.type === "error") finishOutput(false, "voice_output_failed");
+          if (event.type === "output_audio_buffer.stopped") finishOutput(output, true);
+          if (event.type === "error") finishOutput(output, false, "voice_output_failed");
         },
       });
+      output.connection = connection;
+      if (disposed || epoch !== outputEpoch) {
+        closeConnection(connection);
+        return { completed: false, reason: "interrupted" };
+      }
       let resolveOutput;
       const result = new Promise((resolve) => {
         resolveOutput = resolve;
       });
-      currentOutput = {
-        connection,
-        item,
-        transcript: "",
-        started: false,
-        finished: false,
-        finishTimer: null,
-        resolve: resolveOutput,
-      };
+      output.resolve = resolveOutput;
+      activeOutputs.set(output.id, output);
       addListener(connection.audio, "playing", () => beginPlayback(remoteStream));
-      addListener(connection.audio, "error", () => finishOutput(false, "audio_playback_failed"));
+      addListener(connection.audio, "error", () => finishOutput(output, false, "audio_playback_failed"));
       const instruction = [
         SPEAKER_STYLE[item.speakerId],
         "Read the following line exactly once. Do not add or omit words.",
@@ -374,22 +449,22 @@ export function createVoiceCallController(options = {}) {
           instructions: instruction,
         },
       })) throw new Error("voice_channel_closed");
-      currentOutput.finishTimer = setTimer?.(() => finishOutput(false, "voice_output_timeout"), 45_000);
+      output.finishTimer = setTimer?.(() => finishOutput(output, false, "voice_output_timeout"), outputTimeoutMs);
       return await result;
     } catch (error) {
-      if (currentOutput) finishOutput(false, "voice_output_failed");
+      if (activeOutputs.has(output.id)) finishOutput(output, false, "voice_output_failed");
       throw error;
     }
   }
 
   const speakerQueue = createSpeakerQueue(playSpeech, {
     onIdle() {
-      if (!disposed && transcriptionConnection && stateMachine.state !== "player_speaking") {
+      if (!disposed && transcriptionConnection && !activeOutputs.size && stateMachine.state !== "player_speaking") {
         stateMachine.transition("listening");
       }
     },
     onInterrupt() {
-      if (currentOutput) currentOutput.connection.audio?.pause?.();
+      activeOutputs.forEach((output) => output.connection?.audio?.pause?.());
     },
   });
 
@@ -404,9 +479,15 @@ export function createVoiceCallController(options = {}) {
 
   function handleTranscriptionEvent(event) {
     if (event.type === "input_audio_buffer.speech_started") {
-      beginPlayerTurn();
+      serverTurnActive = true;
+      localTurnActive = false;
+      resetLocalVad();
+      beginPlayerTurn({ manual: manualTurnActive });
     }
     if (event.type === "input_audio_buffer.speech_stopped") {
+      serverTurnActive = false;
+      localTurnActive = false;
+      resetLocalVad();
       manualTurnActive = false;
       stateMachine.transition("processing");
       startTranscriptionTimeout();
@@ -418,13 +499,26 @@ export function createVoiceCallController(options = {}) {
       if (transcriptionTimer) clearTimer?.(transcriptionTimer);
       transcriptionTimer = null;
       lastError = null;
+      serverTurnActive = false;
+      localTurnActive = false;
+      resetLocalVad();
       const accepted = transcriptGate.accept({ id: event.item_id, text: event.transcript });
       if (!accepted && !disposed && transcriptionConnection) stateMachine.transition("listening");
     }
     if (event.type === "error") {
       if (transcriptionTimer) clearTimer?.(transcriptionTimer);
       transcriptionTimer = null;
-      lastError = event.error?.code ?? "voice_transcription_failed";
+      const errorCode = event.error?.code ?? "voice_transcription_failed";
+      if (RECOVERABLE_TRANSCRIPTION_ERRORS.has(errorCode)) {
+        lastError = "no_speech_detected";
+        manualTurnActive = false;
+        localTurnActive = false;
+        serverTurnActive = false;
+        resetLocalVad();
+        if (!disposed && transcriptionConnection && !activeOutputs.size) stateMachine.transition("listening");
+        return;
+      }
+      lastError = errorCode;
       stateMachine.transition("reconnecting", lastError);
       scheduleReconnect();
     }
@@ -520,7 +614,7 @@ export function createVoiceCallController(options = {}) {
         scheduleReconnect();
       };
       micStream.getAudioTracks().forEach((track) => { track.enabled = !muted; });
-      startMeter(micStream);
+      startMeter(micStream, { monitorSpeech: true });
       lastError = null;
       stateMachine.transition("listening");
       return true;
@@ -544,22 +638,23 @@ export function createVoiceCallController(options = {}) {
   function setMuted(nextMuted = !muted) {
     muted = Boolean(nextMuted);
     micStream?.getAudioTracks?.().forEach((track) => { track.enabled = !muted; });
-    if (muted && manualTurnActive) finishPlayerTurn({ commit: false });
+    if (muted && (manualTurnActive || localTurnActive || serverTurnActive)) finishPlayerTurn({ commit: false });
     options.onUpdate?.(snapshot());
     return muted;
   }
 
   async function setPaused(nextPaused = !paused) {
     paused = Boolean(nextPaused);
-    if (!currentOutput?.connection.audio) {
+    const outputs = [...activeOutputs.values()].filter((output) => output.connection?.audio);
+    if (!outputs.length) {
       options.onUpdate?.(snapshot());
       return paused;
     }
     if (paused) {
-      currentOutput.connection.audio.pause();
+      outputs.forEach((output) => output.connection.audio.pause());
       stateMachine.transition("paused");
     } else {
-      await currentOutput.connection.audio.play();
+      await Promise.all(outputs.map((output) => output.connection.audio.play()));
       stateMachine.transition("ai_speaking");
     }
     return paused;
@@ -571,9 +666,24 @@ export function createVoiceCallController(options = {}) {
     return captionsEnabled;
   }
 
-  async function speak(speakerId, text) {
+  async function speak(speakerId, text, options = {}) {
     if (!SPEAKER_STYLE[speakerId] || !String(text ?? "").trim()) return { completed: false, reason: "invalid_speech" };
-    return speakerQueue.enqueue({ speakerId, text: String(text).trim() });
+    return speakerQueue.enqueue({ speakerId, text: String(text).trim(), emotion: options.emotion ?? "neutral" });
+  }
+
+  async function speakGroup(items, { staggerMs = 1_050 } = {}) {
+    const epoch = outputEpoch;
+    const jobs = [];
+    for (const [index, item] of items.entries()) {
+      if (index > 0) await new Promise((resolve) => setTimer?.(resolve, staggerMs));
+      if (disposed || epoch !== outputEpoch) break;
+      jobs.push(playSpeech({
+        speakerId: item.speakerId,
+        text: String(item.text ?? "").trim(),
+        emotion: item.emotion ?? "neutral",
+      }, epoch));
+    }
+    return Promise.all(jobs);
   }
 
   function end({ fallback = false } = {}) {
@@ -603,6 +713,7 @@ export function createVoiceCallController(options = {}) {
     connect,
     reconnect,
     speak,
+    speakGroup,
     interruptSpeech,
     toggleTalking,
     setMuted,

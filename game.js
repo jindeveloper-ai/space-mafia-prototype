@@ -19,15 +19,15 @@ import {
   plantEvidence,
   resolveVote,
   startGame,
-} from "./game-engine.js?v=0.17.5";
-import { getCopy, normalizeLocale } from "./i18n.js?v=0.17.5";
+} from "./game-engine.js?v=0.17.6";
+import { getCopy, normalizeLocale } from "./i18n.js?v=0.17.6";
 import {
   buildChatPayload,
   fallbackAccusation,
   fallbackResponse,
   MAX_CHAT_LENGTH,
   normalizeInterpretation,
-} from "./chat-adapter.js?v=0.17.5";
+} from "./chat-adapter.js?v=0.17.6";
 import {
   acceptPersonalQuest,
   awardCrewLevels,
@@ -42,9 +42,9 @@ import {
   setEquippedJob,
   setDifficultyMode,
   settlePersonalQuest,
-} from "./progression.js?v=0.17.5";
-import { accountController, createMutationId } from "./account-client.js?v=0.17.5";
-import { createVoiceCallController } from "./voice-call.js?v=0.17.5";
+} from "./progression.js?v=0.17.6";
+import { accountController, createMutationId } from "./account-client.js?v=0.17.6";
+import { createVoiceCallController } from "./voice-call.js?v=0.17.6";
 
 const app = document.querySelector("#app");
 const assetVersion = new URL(import.meta.url).searchParams.get("v");
@@ -76,6 +76,23 @@ const CREW_AVATARS = {
   mina: "./assets/images/mina.png",
   juno: "./assets/images/juno.png",
   noel: "./assets/images/noel.png",
+};
+const VOICE_EXPRESSION_STICKERS = {
+  mina: {
+    skeptical: "./assets/images/stickers/mina-inspect-v1.gif",
+    heated: "./assets/images/stickers/mina-deny-v1.gif",
+    amused: "./assets/images/stickers/mina-capture-v1.gif",
+  },
+  juno: {
+    skeptical: "./assets/images/stickers/juno-skeptic-v1.gif",
+    heated: "./assets/images/stickers/juno-compare-v1.gif",
+    amused: "./assets/images/stickers/juno-nod-v1.gif",
+  },
+  noel: {
+    skeptical: "./assets/images/stickers/noel-replay-v1.gif",
+    heated: "./assets/images/stickers/noel-caught-v1.gif",
+    amused: "./assets/images/stickers/noel-laugh-v1.gif",
+  },
 };
 const PROFILE_STORAGE_KEY = "oxygen-room-profile";
 const ARCHIVE_VISIT_STORAGE_KEY = "mars-net-archive-visits-v1";
@@ -275,7 +292,9 @@ async function speakVoiceOpening(controller) {
   const opening = statements[state.caseIndex % Math.max(1, statements.length)];
   if (!opening) return;
   try {
-    const spoken = await controller.speak(opening.id, opening.text);
+    const spoken = await controller.speak(opening.id, opening.text, {
+      emotion: voiceEmotionForReply(opening, "accusation"),
+    });
     if (spoken.completed) voicedOpeningKeys.add(openingKey);
   } catch {
     controller.end({ fallback: true });
@@ -530,6 +549,18 @@ function subquestCard(mode = "active") {
 
 function personAvatar(person, size = "normal") {
   return `<span class="avatar avatar--${size} avatar--${person.id}" aria-hidden="true"><img src="${CREW_AVATARS[person.id]}" alt="" /></span>`;
+}
+
+function voiceEmotionForReply(reply, stage = "accusation") {
+  const text = String(reply?.text ?? "");
+  if (/(ㅋㅋ|lol|lmao|인정|fair|맞네|okay)/iu.test(text)) return "amused";
+  if (stage.startsWith("hard") || /(!|왜|아니|근데|말이 안|no way|wait|but)/iu.test(text)) return "heated";
+  return "skeptical";
+}
+
+function voiceAvatar(person, emotion = "neutral") {
+  const source = VOICE_EXPRESSION_STICKERS[person.id]?.[emotion] ?? CREW_AVATARS[person.id];
+  return `<span class="avatar avatar--large avatar--${person.id} voice-expression is-${emotion}" aria-hidden="true"><img src="${source}" alt="" /></span>`;
 }
 
 function characterProfileButton(person, size, origin) {
@@ -1161,13 +1192,18 @@ function renderVoiceCall() {
     captionsEnabled: true,
     captionText: "",
     activeSpeakerId: null,
+    activeSpeakerIds: [],
+    activeEmotion: "neutral",
     lastSpeakerId: "mina",
   };
   const speakerId = voice.activeSpeakerId ?? voice.lastSpeakerId ?? "mina";
   const speaker = crewMember(speakerId);
-  const status = voice.activeSpeakerId
-    ? ui.voice.speaking(speaker.name)
-    : ui.voice.status[voice.state] ?? ui.voice.status.processing;
+  const speakingNames = (voice.activeSpeakerIds ?? []).map((id) => crewMember(id)?.name).filter(Boolean);
+  const status = speakingNames.length > 1
+    ? ui.voice.speakingTogether(speakingNames)
+    : voice.activeSpeakerId
+      ? ui.voice.speaking(speaker.name)
+      : ui.voice.status[voice.state] ?? ui.voice.status.processing;
   const secondaryCrew = crew.filter((person) => person.id !== speakerId);
   const canPause = Boolean(voice.activeSpeakerId) || voice.paused;
   const canTalk = voice.connected && !voice.muted && !["connecting", "reconnecting", "processing"].includes(voice.state);
@@ -1183,8 +1219,8 @@ function renderVoiceCall() {
         <div class="voice-secondary-avatars" aria-hidden="true">
           ${secondaryCrew.map((person) => `<span class="voice-secondary-avatar">${personAvatar(person, "normal")}</span>`).join("")}
         </div>
-        <div class="voice-active-avatar" data-speaker="${speakerId}">
-          ${personAvatar(speaker, "large")}
+        <div class="voice-active-avatar" data-speaker="${speakerId}" data-emotion="${voice.activeEmotion ?? "neutral"}">
+          ${voiceAvatar(speaker, voice.activeEmotion)}
           <span>${speaker.name}</span>
         </div>
         <div class="voice-wave" data-voice-wave aria-hidden="true">
@@ -1203,6 +1239,15 @@ function renderVoiceCall() {
 
       ${voiceFallbackNotice ? `<p class="voice-call-notice">${escapeHtml(voiceFallbackNotice)}</p>` : ""}
       ${voice.state === "reconnecting" || voiceFallbackNotice ? `<button class="voice-reconnect" type="button" data-action="voice-reconnect">${ui.voice.reconnect}</button>` : ""}
+
+      <form class="voice-text-composer chat-composer" data-chat-stage="${voiceStageForPhase()}" data-input-mode="voice-text">
+        <span>${ui.voice.textInputHint}</span>
+        <div class="chat-composer__row">
+          <label class="visually-hidden" for="player-message">${ui.chatInputLabel}</label>
+          <textarea id="player-message" name="message" maxlength="${MAX_CHAT_LENGTH}" rows="1" placeholder="${ui.voice.textInputPlaceholder}" ${chatPending ? "disabled" : ""} required></textarea>
+          <button class="composer-send" type="submit" aria-label="${ui.chatSend}" ${chatPending ? "disabled" : ""}><span aria-hidden="true">↑</span></button>
+        </div>
+      </form>
 
       <button class="voice-talk ${voice.manualTurnActive ? "is-active" : ""}" type="button" data-action="voice-toggle-talk" aria-pressed="${voice.manualTurnActive}" ${canTalk ? "" : "disabled"}>
         <strong>${voice.manualTurnActive ? ui.voice.talkStop : ui.voice.talkStart}</strong>
@@ -2037,12 +2082,32 @@ function typingDuration(reply) {
 }
 
 async function revealReplies(replies, stage) {
-  for (const reply of orderedReplies(replies, stage)) {
+  const ordered = orderedReplies(replies, stage).map((reply) => ({
+    ...reply,
+    emotion: voiceEmotionForReply(reply, stage),
+  }));
+  if (playMode === "voice" && voiceController && ordered.length > 1) {
+    typingSpeakerId = ordered[0].speakerId;
+    render();
+    try {
+      const staggerMs = stage.startsWith("hard") ? 650 : 1_050;
+      await voiceController.speakGroup(ordered, { staggerMs });
+      ordered.forEach(({ emotion, ...reply }) => chatLog.push(reply));
+    } catch {
+      voiceController?.end({ fallback: true });
+      voiceFallbackNotice = ui.voice.fallbackNotice;
+      chatNotice = ui.voice.fallbackNotice;
+    }
+    typingSpeakerId = null;
+    render();
+    return;
+  }
+  for (const reply of ordered) {
     typingSpeakerId = reply.speakerId;
     render();
     if (playMode === "voice" && voiceController) {
       try {
-        const spoken = await voiceController.speak(reply.speakerId, reply.text);
+        const spoken = await voiceController.speak(reply.speakerId, reply.text, { emotion: reply.emotion });
         if (!spoken.completed) {
           typingSpeakerId = null;
           render();
@@ -2059,7 +2124,8 @@ async function revealReplies(replies, stage) {
       await wait(typingDuration(reply));
     }
     typingSpeakerId = null;
-    chatLog.push(reply);
+    const { emotion, ...visibleReply } = reply;
+    chatLog.push(visibleReply);
     render();
     await wait(140);
   }
@@ -2575,7 +2641,9 @@ app.addEventListener("submit", (event) => {
   event.preventDefault();
   const message = new FormData(form).get("message");
   if (form.dataset.chatStage === "friend") handleFriendSubmit(message);
-  else handleChatSubmit(form.dataset.chatStage, message);
+  else handleChatSubmit(form.dataset.chatStage, message, {
+    inputMode: form.dataset.inputMode === "voice-text" ? "text" : undefined,
+  });
 });
 
 app.addEventListener("input", (event) => {

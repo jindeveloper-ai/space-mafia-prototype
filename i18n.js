@@ -259,6 +259,8 @@ const COPY = {
         talkStop: "수동 입력 끝내기",
         talkStartHint: "평소에는 누르지 않아도 됩니다. 자동 인식이 안 될 때만 사용하세요.",
         talkStopHint: "수동 입력을 마쳤다면 눌러서 전송하세요",
+        textInputHint: "음성 인식이 답답하면 채팅으로 바로 입력",
+        textInputPlaceholder: "같은 회의에 채팅으로 말하기",
         status: {
           idle: "통화 준비됨",
           requesting_permission: "마이크 권한을 확인하는 중",
@@ -273,6 +275,7 @@ const COPY = {
           fallback_text: "텍스트 모드로 계속합니다",
         },
         speaking: (name) => `${withJosa(name, "이", "가")} 말하는 중`,
+        speakingTogether: (names) => `${names.join("·")} 겹쳐 말하는 중`,
         waitingCaption: "말을 시작하면 확정 자막이 여기에 표시됩니다.",
         clarificationTarget: "지금 미나, 주노, 노엘 중 누구를 의심한 거야?",
         clarificationClaim: "산소실 목격, 기계 조작, 시간 진술 중 어느 쪽을 말하는 거야?",
@@ -954,6 +957,8 @@ const COPY = {
         talkStop: "Finish manual input",
         talkStartHint: "You normally do not need this. Use it only if automatic detection misses you.",
         talkStopHint: "Tap when you are done to send the manual input",
+        textInputHint: "If speech recognition stalls, type into the same meeting",
+        textInputPlaceholder: "Type into this voice meeting",
         status: {
           idle: "Call ready",
           requesting_permission: "Checking microphone permission",
@@ -968,6 +973,7 @@ const COPY = {
           fallback_text: "Continuing in text mode",
         },
         speaking: (name) => `${name} is speaking`,
+        speakingTogether: (names) => `${names.join(" · ")} are talking over each other`,
         waitingCaption: "Your finalized caption will appear here when you speak.",
         clarificationTarget: "Are you accusing Mina, Juno, or Noel?",
         clarificationClaim: "Do you mean the oxygen-room sighting, purifier tampering, or the changed timeline?",

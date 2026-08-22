@@ -109,9 +109,9 @@ test("Realtime 시크릿은 동일 출처·짧은 수명·서버 전용 영구 �
     assert.equal("delay" in upstream.requests[0].body.session.audio.input.transcription, false);
     assert.deepEqual(upstream.requests[0].body.session.audio.input.turn_detection, {
       type: "server_vad",
-      threshold: 0.3,
-      prefix_padding_ms: 500,
-      silence_duration_ms: 700,
+      threshold: 0.18,
+      prefix_padding_ms: 600,
+      silence_duration_ms: 650,
     });
     assert.equal(upstream.requests[1].body.session.audio.output.voice, "cedar");
 
