@@ -1,0 +1,72 @@
+{
+  "$schema": "https://repomix.com/schemas/latest/schema.json",
+  "input": {
+    "maxFileSize": 1000000
+  },
+  "output": {
+    "filePath": "/tmp/mars-net-repomix.xml",
+    "style": "xml",
+    "parsableStyle": true,
+    "compress": true,
+    "fileSummary": true,
+    "directoryStructure": true,
+    "files": true,
+    "removeComments": false,
+    "removeEmptyLines": false,
+    "topFilesLength": 20,
+    "tokenCountTree": 500,
+    "showLineNumbers": false,
+    "truncateBase64": true,
+    "includeEmptyDirectories": false,
+    "git": {
+      "sortByChanges": true,
+      "sortByChangesMaxCommits": 50,
+      "includeDiffs": false,
+      "includeLogs": false,
+      "includeLogsCount": 1
+    }
+  },
+  "include": [
+    "*.js",
+    "*.html",
+    "*.css",
+    "*.json",
+    "*.yaml",
+    "*.yml",
+    "*.md",
+    "requirements*.txt",
+    "scripts/**/*.py",
+    "test/**/*.js",
+    "test_python/**/*.py",
+    "supabase/**/*.sql",
+    "docs/**/*.md"
+  ],
+  "ignore": {
+    "useGitignore": true,
+    "useDefaultPatterns": true,
+    "customPatterns": [
+      ".git/**",
+      "node_modules/**",
+      ".venv/**",
+      ".serena/**",
+      ".codex/**",
+      ".ruff_cache/**",
+      "validation-reports/**",
+      "**/__pycache__/**",
+      "**/*.log",
+      ".env",
+      ".env.*",
+      "repomix-output.*",
+      "assets/**",
+      "docs/legacy/**",
+      "legacy/**",
+      "**/*.{png,jpg,jpeg,gif,webp,svg,mp3,wav,pcm,mp4,webm,mov}"
+    ]
+  },
+  "security": {
+    "enableSecurityCheck": true
+  },
+  "tokenCount": {
+    "encoding": "o200k_base"
+  }
+}

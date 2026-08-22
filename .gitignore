@@ -8,4 +8,5 @@ __pycache__/
 *.webm
 *.wav
 *.pcm
+repomix-output.*
 .venv/
