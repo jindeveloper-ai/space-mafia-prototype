@@ -6,7 +6,7 @@ import {
   estimateVoiceCost,
   recordSessionEnded,
   recordSessionStarted,
-} from "./voice-call-core.js?v=0.18.1";
+} from "./voice-call-core.js?v=0.18.2";
 
 const REALTIME_CALLS_URL = "https://api.openai.com/v1/realtime/calls";
 const SPEAKER_STYLE = {
@@ -14,8 +14,8 @@ const SPEAKER_STYLE = {
   juno: "Use a calm, measured rhythm and make the reasoning easy to follow.",
   noel: "Use a natural, lightly playful rhythm with an observant edge.",
 };
-const LOCAL_VAD_START_LEVEL = 0.016;
-const LOCAL_VAD_STOP_LEVEL = 0.009;
+const LOCAL_VAD_START_LEVEL = 0.006;
+const LOCAL_VAD_STOP_LEVEL = 0.003;
 const LOCAL_VAD_START_MS = 180;
 const LOCAL_VAD_STOP_MS = 720;
 const PLAYBACK_START_TIMEOUT_MS = 8_000;
@@ -70,8 +70,17 @@ export function createVoiceCallController(options = {}) {
   let transcriptionTimer = null;
   let audioContext = null;
   let meterFrame = null;
+  let meterGeneration = 0;
   let meterSource = null;
+  let meterAnalyser = null;
+  let meterSink = null;
   let meterKind = null;
+  let meterBackend = "none";
+  let meterError = null;
+  let rtcInputLevel = 0;
+  let rtcMeterPending = false;
+  let rtcMeterSampledAt = Number.NEGATIVE_INFINITY;
+  let rtcEnergySample = null;
   let inputLevel = 0;
   let muted = false;
   let inputEnabled = true;
@@ -106,6 +115,12 @@ export function createVoiceCallController(options = {}) {
       manualTurnActive,
       inputLevel,
       audioContextState: audioContext?.state ?? "unavailable",
+      meterBackend,
+      meterError,
+      microphone: (() => {
+        const track = micStream?.getAudioTracks?.()[0];
+        return track ? { enabled: track.enabled, muted: track.muted, readyState: track.readyState } : null;
+      })(),
       error: lastError,
       metrics: { ...metrics, estimatedUsd: estimateVoiceCost(metrics) },
     };
@@ -118,6 +133,7 @@ export function createVoiceCallController(options = {}) {
   }
 
   function stopMeter() {
+    meterGeneration += 1;
     const stoppedKind = meterKind;
     if (meterFrame !== null) cancelFrame?.(meterFrame);
     meterFrame = null;
@@ -126,10 +142,23 @@ export function createVoiceCallController(options = {}) {
     } catch {
       // A disconnected Web Audio node is already clean.
     }
+    try {
+      meterAnalyser?.disconnect?.();
+      meterSink?.disconnect?.();
+    } catch {
+      // A disconnected Web Audio node is already clean.
+    }
     meterSource = null;
+    meterAnalyser = null;
+    meterSink = null;
     meterKind = null;
+    meterBackend = "none";
+    rtcInputLevel = 0;
+    rtcMeterPending = false;
+    rtcMeterSampledAt = Number.NEGATIVE_INFINITY;
+    rtcEnergySample = null;
     if (stoppedKind === "input") inputLevel = 0;
-    options.onMeter?.(0, { source: stoppedKind ?? "none" });
+    options.onMeter?.(0, { source: stoppedKind ?? "none", backend: "none", error: meterError });
   }
 
   function resetLocalVad() {
@@ -140,6 +169,43 @@ export function createVoiceCallController(options = {}) {
   function setMicTrackEnabled(enabled) {
     micStream?.getAudioTracks?.().forEach((track) => {
       track.enabled = Boolean(enabled);
+    });
+  }
+
+  function getInputSender() {
+    return transcriptionConnection?.peer?.getSenders?.().find((sender) => sender.track?.kind === "audio") ?? null;
+  }
+
+  function sampleRtcInputLevel(timestamp, generation) {
+    const sender = getInputSender();
+    if (!sender?.getStats || rtcMeterPending || timestamp - rtcMeterSampledAt < 90) return;
+    rtcMeterPending = true;
+    rtcMeterSampledAt = timestamp;
+    void sender.getStats().then((reports) => {
+      if (generation !== meterGeneration || meterKind !== "input") return;
+      let nextLevel = 0;
+      reports?.forEach?.((report) => {
+        if (report.type !== "media-source" || (report.kind ?? report.mediaType) !== "audio") return;
+        if (Number.isFinite(report.audioLevel)) {
+          nextLevel = Math.max(nextLevel, Math.min(1, report.audioLevel * 5));
+        }
+        if (!Number.isFinite(report.totalAudioEnergy) || !Number.isFinite(report.totalSamplesDuration)) return;
+        if (rtcEnergySample) {
+          const energyDelta = report.totalAudioEnergy - rtcEnergySample.energy;
+          const durationDelta = report.totalSamplesDuration - rtcEnergySample.duration;
+          if (energyDelta >= 0 && durationDelta > 0) {
+            nextLevel = Math.max(nextLevel, Math.min(1, Math.sqrt(energyDelta / durationDelta) * 5));
+          }
+        }
+        rtcEnergySample = { energy: report.totalAudioEnergy, duration: report.totalSamplesDuration };
+      });
+      rtcInputLevel = nextLevel;
+      if (nextLevel > 0 && meterBackend === "web-audio") meterBackend = "web-audio+webrtc";
+      if (nextLevel > 0 && meterBackend === "none") meterBackend = "webrtc";
+    }).catch(() => {
+      // Web Audio remains the primary meter when WebRTC stats are unavailable.
+    }).finally(() => {
+      if (generation === meterGeneration) rtcMeterPending = false;
     });
   }
 
@@ -196,24 +262,53 @@ export function createVoiceCallController(options = {}) {
 
   function startMeter(stream, { monitorSpeech = false } = {}) {
     stopMeter();
-    if (!AudioContextClass || !requestFrame || !stream) return;
+    if (!requestFrame || !stream) return;
+    const generation = meterGeneration;
+    meterKind = monitorSpeech ? "input" : "output";
+    meterError = null;
+    let floatSamples = null;
+    let byteSamples = null;
+    if (AudioContextClass) {
+      try {
+        audioContext ??= new AudioContextClass();
+        void audioContext.resume?.().catch?.(() => {
+          meterError = "audio_context_suspended";
+        });
+        meterAnalyser = audioContext.createAnalyser();
+        meterAnalyser.fftSize = 512;
+        meterAnalyser.smoothingTimeConstant = 0.72;
+        meterSource = audioContext.createMediaStreamSource(stream);
+        meterSource.connect(meterAnalyser);
+        // Chrome can leave an analyser-only graph unprocessed. A zero-gain sink
+        // keeps the graph live without playing the microphone through speakers.
+        if (audioContext.createGain && audioContext.destination) {
+          meterSink = audioContext.createGain();
+          meterSink.gain.value = 0;
+          meterAnalyser.connect(meterSink);
+          meterSink.connect(audioContext.destination);
+        }
+        meterBackend = "web-audio";
+        floatSamples = typeof meterAnalyser.getFloatTimeDomainData === "function"
+          ? new Float32Array(meterAnalyser.fftSize)
+          : null;
+        byteSamples = floatSamples ? null : new Uint8Array(meterAnalyser.fftSize);
+      } catch {
+        meterError = "audio_meter_unavailable";
+        meterSource = null;
+        meterAnalyser = null;
+        meterSink = null;
+      }
+    }
+    if (!meterAnalyser && (!monitorSpeech || !getInputSender()?.getStats)) {
+      stopMeter();
+      meterError = "audio_meter_unavailable";
+      return;
+    }
     try {
-      audioContext ??= new AudioContextClass();
-      void audioContext.resume?.().catch?.(() => {});
-      const analyser = audioContext.createAnalyser();
-      analyser.fftSize = 512;
-      analyser.smoothingTimeConstant = 0.72;
-      meterSource = audioContext.createMediaStreamSource(stream);
-      meterSource.connect(analyser);
-      meterKind = monitorSpeech ? "input" : "output";
-      const floatSamples = typeof analyser.getFloatTimeDomainData === "function"
-        ? new Float32Array(analyser.fftSize)
-        : null;
-      const byteSamples = floatSamples ? null : new Uint8Array(analyser.fftSize);
       const tick = () => {
         let level = 0;
-        if (floatSamples) {
-          analyser.getFloatTimeDomainData(floatSamples);
+        if (floatSamples && meterAnalyser) {
+          meterAnalyser.getFloatTimeDomainData(floatSamples);
           let meanSquare = 0;
           let peak = 0;
           for (const value of floatSamples) {
@@ -222,25 +317,34 @@ export function createVoiceCallController(options = {}) {
           }
           meanSquare /= Math.max(1, floatSamples.length);
           level = Math.min(1, Math.max(Math.sqrt(meanSquare) * 4.5, peak * 1.8));
-        } else if (typeof analyser.getByteTimeDomainData === "function") {
-          analyser.getByteTimeDomainData(byteSamples);
+        } else if (meterAnalyser && typeof meterAnalyser.getByteTimeDomainData === "function") {
+          meterAnalyser.getByteTimeDomainData(byteSamples);
           const meanSquare = byteSamples.reduce((sum, value) => {
             const normalized = (value - 128) / 128;
             return sum + (normalized * normalized);
           }, 0) / Math.max(1, byteSamples.length);
           level = Math.min(1, Math.sqrt(meanSquare) * 4);
-        } else {
-          analyser.getByteFrequencyData(byteSamples);
+        } else if (meterAnalyser) {
+          meterAnalyser.getByteFrequencyData(byteSamples);
           const average = byteSamples.reduce((sum, value) => sum + value, 0) / Math.max(1, byteSamples.length);
           level = Math.min(1, average / 150);
         }
+        if (monitorSpeech) {
+          sampleRtcInputLevel(now(), generation);
+          level = Math.max(level, rtcInputLevel);
+        }
         if (monitorSpeech) inputLevel = level;
-        options.onMeter?.(level, { source: monitorSpeech ? "input" : "output" });
+        options.onMeter?.(level, {
+          source: monitorSpeech ? "input" : "output",
+          backend: meterBackend,
+          error: meterError,
+        });
         if (monitorSpeech) monitorLocalVad(level);
         meterFrame = requestFrame(tick);
       };
       meterFrame = requestFrame(tick);
     } catch {
+      meterError = "audio_meter_failed";
       stopMeter();
     }
   }

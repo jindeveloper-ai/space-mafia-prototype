@@ -144,7 +144,14 @@ function createHarness({
   controllerOptions = {},
 } = {}) {
   FakePeerConnection.instances = [];
-  const track = { enabled: true, stopped: false, stop() { this.stopped = true; } };
+  const track = {
+    kind: "audio",
+    enabled: true,
+    muted: false,
+    readyState: "live",
+    stopped: false,
+    stop() { this.stopped = true; this.readyState = "ended"; },
+  };
   const stream = { getAudioTracks: () => [track], getTracks: () => [track] };
   const fetchCalls = [];
   const finalTranscripts = [];
@@ -360,6 +367,53 @@ test("서버 감지가 늦으면 브라우저 음량 감지가 버튼 없이 발
     transcriptionPeer.channel.sent.some((event) => event.type === "input_audio_buffer.commit"),
     true,
   );
+  harness.controller.end();
+});
+
+test("Chrome Web Audio 미터가 0이어도 WebRTC 송신 통계로 음성을 감지한다", async () => {
+  let timestamp = 0;
+  const frames = [];
+  const meterLevels = [];
+  class RtcMeterPeerConnection extends FakePeerConnection {
+    getSenders() {
+      return [{
+        track: this.track,
+        async getStats() {
+          return new Map([["source", {
+            type: "media-source",
+            kind: "audio",
+            audioLevel: 0.08,
+            totalAudioEnergy: 0.08,
+            totalSamplesDuration: 1,
+          }]]);
+        },
+      }];
+    }
+  }
+  const harness = createHarness({
+    controllerOptions: {
+      PeerConnection: RtcMeterPeerConnection,
+      AudioContextClass: null,
+      requestFrame(callback) { frames.push(callback); return frames.length; },
+      cancelFrame() {},
+      now: () => timestamp,
+      localVadStartMs: 1,
+      onMeter(level, meter) {
+        if (meter.source === "input") meterLevels.push(level);
+      },
+    },
+  });
+  await harness.controller.connect();
+  frames.shift()?.();
+  await new Promise((resolve) => setImmediate(resolve));
+  timestamp = 5;
+  frames.shift()?.();
+  timestamp = 10;
+  frames.shift()?.();
+
+  assert.equal(meterLevels.some((level) => level >= 0.4), true);
+  assert.equal(harness.controller.snapshot().state, "player_speaking");
+  assert.equal(harness.controller.snapshot().meterBackend, "webrtc");
   harness.controller.end();
 });
 

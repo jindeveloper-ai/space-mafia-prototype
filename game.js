@@ -19,15 +19,15 @@ import {
   plantEvidence,
   resolveVote,
   startGame,
-} from "./game-engine.js?v=0.18.1";
-import { getCopy, normalizeLocale } from "./i18n.js?v=0.18.1";
+} from "./game-engine.js?v=0.18.2";
+import { getCopy, normalizeLocale } from "./i18n.js?v=0.18.2";
 import {
   buildChatPayload,
   fallbackAccusation,
   fallbackResponse,
   MAX_CHAT_LENGTH,
   normalizeInterpretation,
-} from "./chat-adapter.js?v=0.18.1";
+} from "./chat-adapter.js?v=0.18.2";
 import {
   acceptPersonalQuest,
   awardCrewLevels,
@@ -42,16 +42,16 @@ import {
   setEquippedJob,
   setDifficultyMode,
   settlePersonalQuest,
-} from "./progression.js?v=0.18.1";
-import { accountController, createMutationId } from "./account-client.js?v=0.18.1";
-import { createVoiceCallController } from "./voice-call.js?v=0.18.1";
+} from "./progression.js?v=0.18.2";
+import { accountController, createMutationId } from "./account-client.js?v=0.18.2";
+import { createVoiceCallController } from "./voice-call.js?v=0.18.2";
 import {
   beginVoiceTurnFinalization,
   createVoiceTurn,
   expireVoiceTurn,
   recordVoiceTurnCandidate,
   voiceTurnSecondsLeft,
-} from "./voice-turn.js?v=0.18.1";
+} from "./voice-turn.js?v=0.18.2";
 
 const app = document.querySelector("#app");
 const assetVersion = new URL(import.meta.url).searchParams.get("v");
@@ -63,6 +63,7 @@ const injectedTestDate = ["127.0.0.1", "localhost"].includes(window.location.hos
   ? requestedTestDate
   : null;
 const currentDateKey = () => injectedTestDate ?? localDateKey();
+const VOICE_INPUT_SIGNAL_LEVEL = 0.003;
 const newRoundId = () => globalThis.crypto?.randomUUID?.()
   ?? `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 const copy = getCopy(locale);
@@ -336,7 +337,10 @@ function createRoundVoiceController() {
       const indicator = app.querySelector("[data-voice-input-indicator]");
       if (!indicator) return;
       indicator.style.setProperty("--voice-input-level", level.toFixed(3));
-      indicator.dataset.signal = level >= 0.012 ? "active" : "idle";
+      indicator.dataset.signal = level >= VOICE_INPUT_SIGNAL_LEVEL ? "active" : "idle";
+      indicator.dataset.meterBackend = meter.backend ?? "unknown";
+      if (meter.error) indicator.dataset.meterError = meter.error;
+      else delete indicator.dataset.meterError;
     },
     async onFinalTranscript(utterance) {
       const stage = voiceStageForPhase();
@@ -1305,7 +1309,7 @@ function renderVoiceCall() {
           : voice.state === "listening"
             ? "listening"
             : "connecting";
-  const inputSignal = inputState === "speaking" || voiceInputLevel >= 0.012 ? "active" : "idle";
+  const inputSignal = inputState === "speaking" || voiceInputLevel >= VOICE_INPUT_SIGNAL_LEVEL ? "active" : "idle";
   return `
     <div class="voice-call-view" data-voice-state="${voice.state}">
       <header class="voice-call-header">
@@ -1326,7 +1330,7 @@ function renderVoiceCall() {
           ${Array.from({ length: 7 }, (_, index) => `<i style="--bar:${index}"></i>`).join("")}
         </div>
         <strong class="voice-status" role="status">${status}</strong>
-        <div class="voice-input-indicator" data-voice-input-indicator data-input-state="${inputState}" data-signal="${inputSignal}" style="--voice-input-level:${voiceInputLevel.toFixed(3)}" role="status" aria-live="polite">
+        <div class="voice-input-indicator" data-voice-input-indicator data-input-state="${inputState}" data-signal="${inputSignal}" data-meter-backend="${voice.meterBackend ?? "none"}" ${voice.meterError ? `data-meter-error="${escapeHtml(voice.meterError)}"` : ""} style="--voice-input-level:${voiceInputLevel.toFixed(3)}" role="status" aria-live="polite">
           <span class="voice-input-indicator__icon" aria-hidden="true">
             <svg viewBox="0 0 24 24" focusable="false"><rect x="8" y="3" width="8" height="12" rx="4"></rect><path d="M5 11a7 7 0 0 0 14 0M12 18v3M9 21h6"></path></svg>
             <i></i>
