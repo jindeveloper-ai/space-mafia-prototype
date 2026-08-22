@@ -407,13 +407,13 @@ test("주변 소음이 고정 임계값보다 커도 적응형 무음 판정이 
 
   runFrame(0, 0);
   for (let index = 0; index < 8; index += 1) runFrame(30, 0);
-  for (let index = 0; index < 6; index += 1) runFrame(30, 0.004);
+  for (let index = 0; index < 6; index += 1) runFrame(30, 0.006);
   assert.equal(harness.controller.snapshot().state, "listening");
   runFrame(20, 0.03);
   runFrame(20, 0.03);
   assert.equal(harness.controller.snapshot().state, "player_speaking");
-  runFrame(100, 0.004);
-  runFrame(420, 0.004);
+  runFrame(100, 0.006);
+  runFrame(420, 0.006);
 
   assert.equal(harness.controller.snapshot().state, "processing");
   assert.equal(

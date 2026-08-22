@@ -6,7 +6,7 @@ import {
   estimateVoiceCost,
   recordSessionEnded,
   recordSessionStarted,
-} from "./voice-call-core.js?v=0.18.5";
+} from "./voice-call-core.js?v=0.18.6";
 
 const REALTIME_CALLS_URL = "https://api.openai.com/v1/realtime/calls";
 const SPEAKER_STYLE = {
@@ -18,7 +18,7 @@ const LOCAL_VAD_START_LEVEL = 0.02;
 const LOCAL_VAD_STOP_LEVEL = 0.008;
 const LOCAL_VAD_START_MS = 160;
 const LOCAL_VAD_STOP_MS = 480;
-const LOCAL_VAD_CALIBRATION_MS = 280;
+const LOCAL_VAD_CALIBRATION_MS = 500;
 const LOCAL_VAD_MAX_UTTERANCE_MS = 10_000;
 const LOCAL_VAD_NOISE_ALPHA = 0.16;
 const PLAYBACK_START_TIMEOUT_MS = 8_000;
@@ -252,8 +252,9 @@ export function createVoiceCallController(options = {}) {
       localCalibrationStartedAt ??= timestamp;
       const calibrating = timestamp - localCalibrationStartedAt < localVadCalibrationMs;
       const startThreshold = Math.max(localVadStartLevel, localNoiseFloor * 1.7);
-      if (calibrating || level < startThreshold) {
-        const noiseSample = calibrating ? level : Math.min(level, startThreshold);
+      const likelyLateNoise = level < startThreshold * 1.4;
+      if (calibrating || level < startThreshold || likelyLateNoise) {
+        const noiseSample = calibrating || likelyLateNoise ? level : Math.min(level, startThreshold);
         localNoiseFloor += (noiseSample - localNoiseFloor) * localVadNoiseAlpha;
         localLoudSince = null;
         return;

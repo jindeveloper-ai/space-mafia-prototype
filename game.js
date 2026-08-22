@@ -19,15 +19,15 @@ import {
   plantEvidence,
   resolveVote,
   startGame,
-} from "./game-engine.js?v=0.18.5";
-import { getCopy, normalizeLocale } from "./i18n.js?v=0.18.5";
+} from "./game-engine.js?v=0.18.6";
+import { getCopy, normalizeLocale } from "./i18n.js?v=0.18.6";
 import {
   buildChatPayload,
   fallbackAccusation,
   fallbackResponse,
   MAX_CHAT_LENGTH,
   normalizeInterpretation,
-} from "./chat-adapter.js?v=0.18.5";
+} from "./chat-adapter.js?v=0.18.6";
 import {
   acceptPersonalQuest,
   awardCrewLevels,
@@ -42,16 +42,16 @@ import {
   setEquippedJob,
   setDifficultyMode,
   settlePersonalQuest,
-} from "./progression.js?v=0.18.5";
-import { accountController, createMutationId } from "./account-client.js?v=0.18.5";
-import { createVoiceCallController } from "./voice-call.js?v=0.18.5";
+} from "./progression.js?v=0.18.6";
+import { accountController, createMutationId } from "./account-client.js?v=0.18.6";
+import { createVoiceCallController } from "./voice-call.js?v=0.18.6";
 import {
   beginVoiceTurnFinalization,
   createVoiceTurn,
   expireVoiceTurn,
   recordVoiceTurnCandidate,
   voiceTurnSecondsLeft,
-} from "./voice-turn.js?v=0.18.5";
+} from "./voice-turn.js?v=0.18.6";
 
 const app = document.querySelector("#app");
 const assetVersion = new URL(import.meta.url).searchParams.get("v");
@@ -63,7 +63,7 @@ const injectedTestDate = ["127.0.0.1", "localhost"].includes(window.location.hos
   ? requestedTestDate
   : null;
 const currentDateKey = () => injectedTestDate ?? localDateKey();
-const VOICE_INPUT_SIGNAL_LEVEL = 0.003;
+const VOICE_INPUT_SIGNAL_LEVEL = 0.03;
 const newRoundId = () => globalThis.crypto?.randomUUID?.()
   ?? `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 const copy = getCopy(locale);
