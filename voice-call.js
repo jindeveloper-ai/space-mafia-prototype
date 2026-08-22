@@ -6,7 +6,7 @@ import {
   estimateVoiceCost,
   recordSessionEnded,
   recordSessionStarted,
-} from "./voice-call-core.js?v=0.17.7";
+} from "./voice-call-core.js?v=0.17.8";
 
 const REALTIME_CALLS_URL = "https://api.openai.com/v1/realtime/calls";
 const SPEAKER_STYLE = {
@@ -683,7 +683,11 @@ export function createVoiceCallController(options = {}) {
         emotion: item.emotion ?? "neutral",
       }, epoch));
     }
-    return Promise.all(jobs);
+    const results = await Promise.all(jobs);
+    if (!disposed && transcriptionConnection && !activeOutputs.size && stateMachine.state !== "player_speaking") {
+      stateMachine.transition("listening");
+    }
+    return results;
   }
 
   function end({ fallback = false } = {}) {

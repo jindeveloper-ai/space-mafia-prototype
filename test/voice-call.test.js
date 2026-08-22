@@ -457,6 +457,7 @@ test("격한 토론은 세 AI 음성을 시차를 두고 겹쳐 재생한다", {
   assert.equal(harness.controller.snapshot().activeEmotion, "amused");
   outputPeers.forEach((peer) => emitRealtime(peer, { type: "output_audio_buffer.stopped" }));
   assert.equal((await grouped).every((result) => result.completed), true);
+  assert.equal(harness.controller.snapshot().state, "listening");
   const final = harness.controller.end();
   assert.equal(final.metrics.maxConcurrentSessions, 4);
 });
