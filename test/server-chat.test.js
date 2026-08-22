@@ -346,7 +346,7 @@ test("음성 자유발화는 구조화된 ID와 신뢰도를 반환하고 낮은
                 targetExplicit: true,
                 claimExplicit: false,
               },
-              replies: ["mina"].map((speakerId) => ({
+              replies: ["juno"].map((speakerId) => ({
                 speakerId,
                 message: `${speakerId} reply`,
                 intent: "observe",
@@ -371,6 +371,10 @@ test("음성 자유발화는 구조화된 ID와 신뢰도를 반환하고 낮은
       inputMode: "voice",
       utteranceId: "voice-utterance-7",
     };
+    payload.transcript = [
+      { speakerId: "mina", text: "기록상 노엘이 수상함" },
+      ...payload.transcript,
+    ];
     const response = await fetch(`${baseUrl}/api/chat`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -390,6 +394,11 @@ test("음성 자유발화는 구조화된 ID와 신뢰도를 반환하고 낮은
       .every((field) => schema.required.includes(field)));
     assert.equal(requests[0].text.format.schema.properties.replies.minItems, 1);
     assert.equal(requests[0].text.format.schema.properties.replies.maxItems, 1);
+    assert.deepEqual(
+      requests[0].text.format.schema.properties.replies.items.properties.speakerId.enum,
+      ["juno", "noel"],
+      "직전 화자는 다음 보이스 답변자에서 제외됩니다.",
+    );
 
     const missingId = { ...payload };
     delete missingId.utteranceId;

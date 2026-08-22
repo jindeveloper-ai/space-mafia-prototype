@@ -445,6 +445,19 @@ def group_game_turn(payload):
     interpretation_schema, interpretation_instruction, _, _ = interpretation_contract(payload)
     voice_exchange = payload["inputMode"] == "voice"
     reply_count = 1 if voice_exchange else 3
+    last_voice_speaker = next(
+        (
+            item["speakerId"]
+            for item in reversed(payload["transcript"])
+            if item["speakerId"] in CREW_IDS
+        ),
+        None,
+    )
+    allowed_reply_speakers = [
+        speaker_id
+        for speaker_id in CREW_IDS
+        if not voice_exchange or speaker_id != last_voice_speaker
+    ]
     replies_schema = {
         "type": "array",
         "minItems": reply_count,
@@ -452,7 +465,7 @@ def group_game_turn(payload):
         "items": {
             "type": "object",
             "properties": {
-                "speakerId": {"type": "string", "enum": list(CREW_IDS)},
+                "speakerId": {"type": "string", "enum": allowed_reply_speakers},
                 "message": {"type": "string", "maxLength": 60 if voice_exchange else 110},
                 "intent": {"type": "string", "enum": ["question", "accuse", "defend", "observe"]},
                 "suspectId": {"type": "string", "enum": ["player", *CREW_IDS]},
@@ -480,7 +493,9 @@ def group_game_turn(payload):
         "Put that structured decision in interpretation, then write replies that are consistent with it. "
         f"Write one fast, coherent Mafia {'voice-call' if voice_exchange else 'chat'} exchange. {locale_instruction} "
         f"{WORLD_CONTEXT} {WORLD_BEHAVIOR} {hard_instruction}"
-        f"Use exactly {reply_count} different supplied characters. Across repeated turns, vary who answers. Mina checks records, Juno tests counterexamples, and Noel catches reaction or wording changes. "
+        f"Use exactly {reply_count} different supplied characters. Across repeated turns, vary who answers. "
+        f"For voice, the next speaker must differ from the latest crew speaker ({last_voice_speaker or 'none'}). "
+        "Mina checks records, Juno tests counterexamples, and Noel catches reaction or wording changes. "
         "The first line reacts directly to the player. Every later line must react to both the player and an earlier line so this feels like one live argument, not isolated summaries. "
         "Use one complete short sentence for voice, or one or two for text; at most 52 characters for voice and 100 for text. Use only supplied facts. "
         "A character may use knows_frame and own_fact only for their own line. Never leak another character's private knowledge. "
@@ -500,7 +515,7 @@ def group_game_turn(payload):
             "suspectId": reply.get("suspectId"),
         }
         for reply in replies
-        if isinstance(reply, dict) and reply.get("speakerId") in CREW_IDS
+        if isinstance(reply, dict) and reply.get("speakerId") in allowed_reply_speakers
     ]
     if len(cleaned) != reply_count or len(set(reply["speakerId"] for reply in cleaned)) != reply_count:
         raise ValueError("invalid_character_reply")
