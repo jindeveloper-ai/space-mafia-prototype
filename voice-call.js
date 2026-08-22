@@ -6,7 +6,7 @@ import {
   estimateVoiceCost,
   recordSessionEnded,
   recordSessionStarted,
-} from "./voice-call-core.js?v=0.18.2";
+} from "./voice-call-core.js?v=0.18.3";
 
 const REALTIME_CALLS_URL = "https://api.openai.com/v1/realtime/calls";
 const SPEAKER_STYLE = {
@@ -16,8 +16,11 @@ const SPEAKER_STYLE = {
 };
 const LOCAL_VAD_START_LEVEL = 0.006;
 const LOCAL_VAD_STOP_LEVEL = 0.003;
-const LOCAL_VAD_START_MS = 180;
-const LOCAL_VAD_STOP_MS = 720;
+const LOCAL_VAD_START_MS = 160;
+const LOCAL_VAD_STOP_MS = 480;
+const LOCAL_VAD_CALIBRATION_MS = 280;
+const LOCAL_VAD_MAX_UTTERANCE_MS = 10_000;
+const LOCAL_VAD_NOISE_ALPHA = 0.16;
 const PLAYBACK_START_TIMEOUT_MS = 8_000;
 const RECOVERABLE_TRANSCRIPTION_ERRORS = new Set([
   "input_audio_buffer_commit_empty",
@@ -57,6 +60,9 @@ export function createVoiceCallController(options = {}) {
   const localVadStopLevel = options.localVadStopLevel ?? LOCAL_VAD_STOP_LEVEL;
   const localVadStartMs = options.localVadStartMs ?? LOCAL_VAD_START_MS;
   const localVadStopMs = options.localVadStopMs ?? LOCAL_VAD_STOP_MS;
+  const localVadCalibrationMs = options.localVadCalibrationMs ?? LOCAL_VAD_CALIBRATION_MS;
+  const localVadMaxUtteranceMs = options.localVadMaxUtteranceMs ?? LOCAL_VAD_MAX_UTTERANCE_MS;
+  const localVadNoiseAlpha = options.localVadNoiseAlpha ?? LOCAL_VAD_NOISE_ALPHA;
   const locale = options.locale === "en" ? "en" : "ko";
   const metrics = createVoiceMetrics();
   const stateMachine = createVoiceStateMachine(() => options.onUpdate?.(snapshot()));
@@ -96,6 +102,10 @@ export function createVoiceCallController(options = {}) {
   let serverTurnActive = false;
   let localLoudSince = null;
   let localQuietSince = null;
+  let localSpeechStartedAt = null;
+  let localSpeechPeak = 0;
+  let localNoiseFloor = localVadStopLevel;
+  let localCalibrationStartedAt = null;
 
   function snapshot() {
     const speakingOutputs = [...activeOutputs.values()].filter((output) => output.started && !output.finished);
@@ -164,6 +174,8 @@ export function createVoiceCallController(options = {}) {
   function resetLocalVad() {
     localLoudSince = null;
     localQuietSince = null;
+    localSpeechStartedAt = null;
+    localSpeechPeak = 0;
   }
 
   function setMicTrackEnabled(enabled) {
@@ -225,6 +237,7 @@ export function createVoiceCallController(options = {}) {
     }
     safeSend(transcriptionConnection.channel, { type: "input_audio_buffer.clear" });
     setMicTrackEnabled(true);
+    localCalibrationStartedAt = null;
     startMeter(micStream, { monitorSpeech: true });
     stateMachine.transition("listening");
     return true;
@@ -236,7 +249,12 @@ export function createVoiceCallController(options = {}) {
       return;
     }
     if (stateMachine.state === "listening") {
-      if (level < localVadStartLevel) {
+      localCalibrationStartedAt ??= timestamp;
+      const calibrating = timestamp - localCalibrationStartedAt < localVadCalibrationMs;
+      const startThreshold = Math.max(localVadStartLevel, localNoiseFloor * 1.7);
+      if (calibrating || level < startThreshold) {
+        const noiseSample = calibrating ? level : Math.min(level, startThreshold);
+        localNoiseFloor += (noiseSample - localNoiseFloor) * localVadNoiseAlpha;
         localLoudSince = null;
         return;
       }
@@ -245,12 +263,27 @@ export function createVoiceCallController(options = {}) {
       localTurnActive = true;
       serverTurnActive = false;
       localQuietSince = null;
+      localSpeechStartedAt = timestamp;
+      localSpeechPeak = level;
       beginPlayerTurn();
       return;
     }
     if (!localTurnActive || stateMachine.state !== "player_speaking") return;
-    if (level > localVadStopLevel) {
+    localSpeechPeak = Math.max(localSpeechPeak, level);
+    const adaptiveStopLevel = Math.min(
+      localSpeechPeak * 0.88,
+      Math.max(localVadStopLevel, (localNoiseFloor * 1.45) + 0.001),
+    );
+    const reachedUtteranceLimit = localSpeechStartedAt !== null
+      && timestamp - localSpeechStartedAt >= localVadMaxUtteranceMs;
+    if (!reachedUtteranceLimit && level > adaptiveStopLevel) {
       localQuietSince = null;
+      return;
+    }
+    if (reachedUtteranceLimit) {
+      localTurnActive = false;
+      resetLocalVad();
+      finishPlayerTurn();
       return;
     }
     localQuietSince ??= timestamp;

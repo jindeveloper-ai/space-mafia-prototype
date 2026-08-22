@@ -19,15 +19,15 @@ import {
   plantEvidence,
   resolveVote,
   startGame,
-} from "./game-engine.js?v=0.18.2";
-import { getCopy, normalizeLocale } from "./i18n.js?v=0.18.2";
+} from "./game-engine.js?v=0.18.3";
+import { getCopy, normalizeLocale } from "./i18n.js?v=0.18.3";
 import {
   buildChatPayload,
   fallbackAccusation,
   fallbackResponse,
   MAX_CHAT_LENGTH,
   normalizeInterpretation,
-} from "./chat-adapter.js?v=0.18.2";
+} from "./chat-adapter.js?v=0.18.3";
 import {
   acceptPersonalQuest,
   awardCrewLevels,
@@ -42,16 +42,16 @@ import {
   setEquippedJob,
   setDifficultyMode,
   settlePersonalQuest,
-} from "./progression.js?v=0.18.2";
-import { accountController, createMutationId } from "./account-client.js?v=0.18.2";
-import { createVoiceCallController } from "./voice-call.js?v=0.18.2";
+} from "./progression.js?v=0.18.3";
+import { accountController, createMutationId } from "./account-client.js?v=0.18.3";
+import { createVoiceCallController } from "./voice-call.js?v=0.18.3";
 import {
   beginVoiceTurnFinalization,
   createVoiceTurn,
   expireVoiceTurn,
   recordVoiceTurnCandidate,
   voiceTurnSecondsLeft,
-} from "./voice-turn.js?v=0.18.2";
+} from "./voice-turn.js?v=0.18.3";
 
 const app = document.querySelector("#app");
 const assetVersion = new URL(import.meta.url).searchParams.get("v");
@@ -2242,9 +2242,9 @@ function voiceDiscussionFallbackReplies(stage, projectedState, interpretation) {
 
 function voiceDiscussionReplyPair(replies, fallbackReplies) {
   const source = replies.length ? replies : fallbackReplies;
-  if (source.length <= 2) return source;
+  if (!source.length) return [];
   const offset = (state.caseIndex + (voiceTurn?.playerTurns ?? 0)) % source.length;
-  return [source[offset], source[(offset + 1) % source.length]];
+  return [source[offset]];
 }
 
 function voiceDefaultInterpretation(stage) {

@@ -346,7 +346,7 @@ test("음성 자유발화는 구조화된 ID와 신뢰도를 반환하고 낮은
                 targetExplicit: true,
                 claimExplicit: false,
               },
-              replies: ["mina", "juno"].map((speakerId) => ({
+              replies: ["mina"].map((speakerId) => ({
                 speakerId,
                 message: `${speakerId} reply`,
                 intent: "observe",
@@ -388,8 +388,8 @@ test("음성 자유발화는 구조화된 ID와 신뢰도를 반환하고 낮은
     const schema = requests[0].text.format.schema.properties.interpretation;
     assert.ok(["mentionedFactId", "certainty", "deflection", "recordCheck", "confidence", "targetExplicit", "claimExplicit"]
       .every((field) => schema.required.includes(field)));
-    assert.equal(requests[0].text.format.schema.properties.replies.minItems, 2);
-    assert.equal(requests[0].text.format.schema.properties.replies.maxItems, 2);
+    assert.equal(requests[0].text.format.schema.properties.replies.minItems, 1);
+    assert.equal(requests[0].text.format.schema.properties.replies.maxItems, 1);
 
     const missingId = { ...payload };
     delete missingId.utteranceId;

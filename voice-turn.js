@@ -1,8 +1,8 @@
 export const VOICE_TURN_SECONDS = Object.freeze({
-  accusation: 75,
-  response: 60,
-  "hard-response": 60,
-  "hard-final": 45,
+  accusation: 40,
+  response: 40,
+  "hard-response": 40,
+  "hard-final": 40,
 });
 
 export function createVoiceTurn({ stage, phase, now = Date.now(), durationSeconds = VOICE_TURN_SECONDS[stage] }) {

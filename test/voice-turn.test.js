@@ -11,7 +11,7 @@ import {
 
 test("보이스 토론은 제한 시간 동안 여러 발언을 받고 마지막 명확한 입장을 남긴다", () => {
   let turn = createVoiceTurn({ stage: "accusation", phase: "lie", now: 1_000 });
-  assert.equal(voiceTurnSecondsLeft(turn, 1_000), 75);
+  assert.equal(voiceTurnSecondsLeft(turn, 1_000), 40);
 
   turn = recordVoiceTurnCandidate(turn, {
     message: "미나가 수상해",
@@ -26,7 +26,15 @@ test("보이스 토론은 제한 시간 동안 여러 발언을 받고 마지막
 
   assert.equal(turn.playerTurns, 2);
   assert.deepEqual(turn.candidate.interpretation, { accusedId: "noel", claimId: "machine" });
-  assert.equal(voiceTurnSecondsLeft(turn, 76_000), 0);
+  assert.equal(voiceTurnSecondsLeft(turn, 41_000), 0);
+});
+
+test("모든 보이스 토론 단계는 40초 안에서 여러 번 주고받는다", () => {
+  for (const stage of ["accusation", "response", "hard-response", "hard-final"]) {
+    const turn = createVoiceTurn({ stage, phase: `phase-${stage}`, now: 5_000 });
+    assert.equal(turn.durationSeconds, 40);
+    assert.equal(voiceTurnSecondsLeft(turn, 44_999), 1);
+  }
 });
 
 test("시간이 끝난 보이스 턴은 추가 후보를 받지 않고 한 번만 마감된다", () => {

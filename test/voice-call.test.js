@@ -348,6 +348,7 @@ test("서버 감지가 늦으면 브라우저 음량 감지가 버튼 없이 발
       now: () => timestamp,
       localVadStartMs: 1,
       localVadStopMs: 1,
+      localVadCalibrationMs: 0,
     },
   });
   await harness.controller.connect();
@@ -362,6 +363,103 @@ test("서버 감지가 늦으면 브라우저 음량 감지가 버튼 없이 발
   assert.equal(harness.controller.snapshot().state, "player_speaking");
   runFrame(5, false);
   runFrame(5, false);
+  assert.equal(harness.controller.snapshot().state, "processing");
+  assert.equal(
+    transcriptionPeer.channel.sent.some((event) => event.type === "input_audio_buffer.commit"),
+    true,
+  );
+  harness.controller.end();
+});
+
+test("주변 소음이 고정 임계값보다 커도 적응형 무음 판정이 발화를 바로 확정한다", async () => {
+  let timestamp = 0;
+  let sampleLevel = 0.004;
+  const frames = [];
+  class AdaptiveVadAudioContext extends FakeAudioContext {
+    createAnalyser() {
+      return {
+        fftSize: 512,
+        smoothingTimeConstant: 0,
+        connect() {},
+        getFloatTimeDomainData(values) { values.fill(sampleLevel); },
+      };
+    }
+  }
+  const harness = createHarness({
+    controllerOptions: {
+      AudioContextClass: AdaptiveVadAudioContext,
+      requestFrame(callback) { frames.push(callback); return frames.length; },
+      cancelFrame() {},
+      now: () => timestamp,
+      localVadStartMs: 1,
+      localVadStopMs: 400,
+      localVadCalibrationMs: 200,
+      localVadMaxUtteranceMs: 10_000,
+    },
+  });
+  await harness.controller.connect();
+  const transcriptionPeer = FakePeerConnection.instances[0];
+  const runFrame = (advance, nextLevel) => {
+    timestamp += advance;
+    sampleLevel = nextLevel;
+    frames.shift()?.();
+  };
+
+  runFrame(0, 0.004);
+  for (let index = 0; index < 10; index += 1) runFrame(30, 0.004);
+  runFrame(20, 0.03);
+  runFrame(20, 0.03);
+  assert.equal(harness.controller.snapshot().state, "player_speaking");
+  runFrame(100, 0.004);
+  runFrame(420, 0.004);
+
+  assert.equal(harness.controller.snapshot().state, "processing");
+  assert.equal(
+    transcriptionPeer.channel.sent.some((event) => event.type === "input_audio_buffer.commit"),
+    true,
+  );
+  harness.controller.end();
+});
+
+test("지속 소음으로 무음 판정이 어려워도 10초 안에 발화를 확정한다", async () => {
+  let timestamp = 0;
+  let loud = false;
+  const frames = [];
+  class MaxUtteranceAudioContext extends FakeAudioContext {
+    createAnalyser() {
+      return {
+        fftSize: 512,
+        smoothingTimeConstant: 0,
+        connect() {},
+        getByteTimeDomainData(values) { values.fill(loud ? 132 : 128); },
+      };
+    }
+  }
+  const harness = createHarness({
+    controllerOptions: {
+      AudioContextClass: MaxUtteranceAudioContext,
+      requestFrame(callback) { frames.push(callback); return frames.length; },
+      cancelFrame() {},
+      now: () => timestamp,
+      localVadStartMs: 1,
+      localVadStopMs: 1_000,
+      localVadCalibrationMs: 0,
+      localVadMaxUtteranceMs: 10_000,
+    },
+  });
+  await harness.controller.connect();
+  const transcriptionPeer = FakePeerConnection.instances[0];
+  const runFrame = (advance, nextLoud) => {
+    timestamp += advance;
+    loud = nextLoud;
+    frames.shift()?.();
+  };
+
+  runFrame(0, true);
+  runFrame(5, true);
+  assert.equal(harness.controller.snapshot().state, "player_speaking");
+  runFrame(10_001, true);
+
   assert.equal(harness.controller.snapshot().state, "processing");
   assert.equal(
     transcriptionPeer.channel.sent.some((event) => event.type === "input_audio_buffer.commit"),
@@ -398,6 +496,7 @@ test("Chrome Web Audio 미터가 0이어도 WebRTC 송신 통계로 음성을 �
       cancelFrame() {},
       now: () => timestamp,
       localVadStartMs: 1,
+      localVadCalibrationMs: 0,
       onMeter(level, meter) {
         if (meter.source === "input") meterLevels.push(level);
       },
