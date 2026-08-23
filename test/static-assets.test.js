@@ -429,6 +429,26 @@ test("첫 화면·프로필·홈과 캐릭터 프로필 이미지는 브라우�
   assert.ok(images.every((image) => image.byteLength > 20_000));
 });
 
+test("첫 화면 CRT는 로컬 Replicate 장면을 반복 재생하고 동작 줄이기에서는 정지한다", async () => {
+  const [gameSource, styles, poster, video] = await Promise.all([
+    readProjectFile("game.js"),
+    readProjectFile("styles.css"),
+    readFile(new URL("assets/images/welcome-tv-mafia-scene-v1.png", projectRoot)),
+    readFile(new URL("assets/video/welcome-tv-mafia-loop-v1.mp4", projectRoot)),
+  ]);
+
+  assert.match(gameSource, /class="welcome-tv"/);
+  assert.match(gameSource, /welcome-tv-mafia-loop-v1\.mp4/);
+  assert.match(gameSource, /autoplay muted loop playsinline/);
+  assert.match(gameSource, /if \(reducedMotion\.matches\) \{\s+welcomeVideo\.pause\(\)/);
+  assert.doesNotMatch(gameSource, /replicate\.delivery|api\.replicate\.com/);
+  assert.match(styles, /\.welcome-tv-screen/);
+  assert.match(styles, /\.welcome-tv-scanlines/);
+  assert.match(styles, /@media \(prefers-reduced-motion: reduce\)[\s\S]+\.welcome-tv-video/);
+  assert.ok(poster.byteLength > 100_000);
+  assert.ok(video.byteLength > 100_000);
+});
+
 function assertMatchingLocaleShape(first, second, path = "copy") {
   if (Array.isArray(first) || Array.isArray(second)) {
     assert.ok(Array.isArray(first) && Array.isArray(second), `${path} 배열 타입이 양 언어에서 같아야 합니다.`);

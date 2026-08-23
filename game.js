@@ -19,15 +19,15 @@ import {
   plantEvidence,
   resolveVote,
   startGame,
-} from "./game-engine.js?v=0.20.4";
-import { getCopy, normalizeLocale } from "./i18n.js?v=0.20.4";
+} from "./game-engine.js?v=0.20.5";
+import { getCopy, normalizeLocale } from "./i18n.js?v=0.20.5";
 import {
   buildChatPayload,
   fallbackAccusation,
   fallbackResponse,
   MAX_CHAT_LENGTH,
   normalizeInterpretation,
-} from "./chat-adapter.js?v=0.20.4";
+} from "./chat-adapter.js?v=0.20.5";
 import {
   acceptPersonalQuest,
   awardCrewLevels,
@@ -44,21 +44,21 @@ import {
   setEquippedJob,
   setDifficultyMode,
   settlePersonalQuest,
-} from "./progression.js?v=0.20.4";
-import { accountController, createMutationId } from "./account-client.js?v=0.20.4";
-import { createVoiceCallController } from "./voice-call.js?v=0.20.4";
-import { createFriendCallController } from "./friend-call.js?v=0.20.4";
+} from "./progression.js?v=0.20.5";
+import { accountController, createMutationId } from "./account-client.js?v=0.20.5";
+import { createVoiceCallController } from "./voice-call.js?v=0.20.5";
+import { createFriendCallController } from "./friend-call.js?v=0.20.5";
 import {
   readCallEffectsEnabled,
   writeCallEffectsEnabled,
-} from "./call-audio-effects.js?v=0.20.4";
+} from "./call-audio-effects.js?v=0.20.5";
 import {
   beginVoiceTurnFinalization,
   createVoiceTurn,
   expireVoiceTurn,
   recordVoiceTurnCandidate,
   voiceTurnSecondsLeft,
-} from "./voice-turn.js?v=0.20.4";
+} from "./voice-turn.js?v=0.20.5";
 
 const app = document.querySelector("#app");
 const assetVersion = new URL(import.meta.url).searchParams.get("v");
@@ -1048,15 +1048,29 @@ function chatContext() {
 }
 
 function renderWelcome() {
+  const mediaVersion = encodeURIComponent(assetVersion ?? "dev");
+  const scenePoster = `./assets/images/welcome-tv-mafia-scene-v1.png?v=${mediaVersion}`;
   return `
     <section class="welcome-screen">
       ${screenAudioControl(true)}
       <span class="welcome-pill">${ui.welcomePill}</span>
       <div class="welcome-art" aria-hidden="true">
-        <picture>
-          <source media="(prefers-reduced-motion: reduce)" srcset="./assets/images/mafia-astronaut-v2.png" />
-          <img src="./assets/images/mafia-astronaut-v2.gif" alt="" />
-        </picture>
+        <div class="welcome-tv">
+          <div class="welcome-tv-cabinet">
+            <div class="welcome-tv-screen">
+              <img class="welcome-tv-poster" src="${scenePoster}" alt="" />
+              <video class="welcome-tv-video" data-welcome-video autoplay muted loop playsinline preload="metadata" poster="${scenePoster}">
+                <source src="./assets/video/welcome-tv-mafia-loop-v1.mp4?v=${mediaVersion}" type="video/mp4" />
+              </video>
+              <span class="welcome-tv-scanlines"></span>
+              <span class="welcome-tv-glare"></span>
+            </div>
+            <div class="welcome-tv-controls">
+              <span class="welcome-tv-speaker"><i></i><i></i><i></i><i></i><i></i><i></i></span>
+              <span class="welcome-tv-power"></span>
+            </div>
+          </div>
+        </div>
       </div>
       <div class="welcome-copy">
         <h1 tabindex="-1">${ui.welcomeTitle}</h1>
@@ -2826,6 +2840,14 @@ function render() {
   soundController?.setSuppressed?.(voiceCallActive);
   app.dataset.phase = state.phase;
   app.innerHTML = `${views[state.phase]()}${renderBottomNavigation()}${renderCharacterArchive()}`;
+  const welcomeVideo = app.querySelector("[data-welcome-video]");
+  if (welcomeVideo) {
+    if (reducedMotion.matches) {
+      welcomeVideo.pause();
+    } else {
+      void welcomeVideo.play().catch(() => {});
+    }
+  }
   if (phaseChanged) {
     window.scrollTo(0, 0);
     app.querySelector("h1")?.focus({ preventScroll: true });

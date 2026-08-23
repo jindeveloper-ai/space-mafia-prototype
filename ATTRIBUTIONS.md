@@ -40,6 +40,16 @@ The contextual archive/game illustrations, localized habitat maps, animated reac
 
 The short archive videos in `assets/video/archive/` were created locally from the project-created archive illustrations. They contain no third-party footage or audio. The GIF stickers and welcome animation were likewise assembled locally from project-created source artwork. No runtime image-generation service or third-party media CDN is used by these features.
 
+The welcome-screen television scene was generated offline for this project through the verified `jindeveloper-ai` Replicate account. It is bundled locally and does not call Replicate at runtime:
+
+- `assets/images/welcome-tv-mafia-loop-source-v1.webp` — generated with `openai/gpt-image-2`
+- `assets/images/welcome-tv-mafia-scene-v1.png` — project crop of the generated source
+- `assets/video/welcome-tv-mafia-loop-v1.mp4` — generated with `bytedance/seedance-2.5` from the same project frame, without generated audio or a watermark
+
+## MIT-licensed code reference
+
+- **8bit gaming room /w Nintendo & GTA** by **r4ms3s** — [public CodePen](https://codepen.io/r4ms3s/pen/vJMJmK). CodePen states that public Pens are [MIT licensed](https://blog.codepen.io/documentation/licensing/). MARS.NET references its retro CRT silhouette and scanline concept, then implements a smaller responsive cabinet independently in project HTML and CSS; no Nintendo, GTA, Pac-Man, poster, console, or other third-party artwork is copied.
+
 ## CC BY 4.0 references
 
 - **Chat AI Bot Complete Designs | ChatGPT** by StarrySia — [Figma Community source](https://www.figma.com/community/file/1393434471248075066/chat-ai-bot-complete-designschatgpt), licensed under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/). Referenced for mobile chat-room hierarchy, avatar-led conversation, light/dark parity, and a persistent composer. Adapted into an original multi-character Mafia chat layout.

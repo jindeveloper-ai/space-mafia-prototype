@@ -1,4 +1,4 @@
-import { getFriendCopy } from "./friend-i18n.js?v=0.20.4";
+import { getFriendCopy } from "./friend-i18n.js?v=0.20.5";
 
 const app = document.querySelector("#friend-app");
 const params = new URLSearchParams(window.location.search);

@@ -1,4 +1,4 @@
-import { createCallAudioEffectsController } from "./call-audio-effects.js?v=0.20.4";
+import { createCallAudioEffectsController } from "./call-audio-effects.js?v=0.20.5";
 
 const REALTIME_CALLS_URL = "https://api.openai.com/v1/realtime/calls";
 const ANSWER_DELAY_MS = Object.freeze({ mina: 1_800, juno: 2_700, noel: 2_200 });

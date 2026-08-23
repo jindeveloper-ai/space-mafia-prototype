@@ -11,8 +11,8 @@ import {
   PROGRESSION_STORAGE_KEY,
   sanitizeChats,
   sanitizeMatches,
-} from "./account-core.js?v=0.20.4";
-import { createProgression } from "./progression.js?v=0.20.4";
+} from "./account-core.js?v=0.20.5";
+import { createProgression } from "./progression.js?v=0.20.5";
 
 const AUTH_SESSION_KEY = "mars-net-auth-session-v1";
 const AUTH_TRANSACTION_KEY = "mars-net-auth-transaction-v1";
