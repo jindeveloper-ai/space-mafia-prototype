@@ -1,7 +1,21 @@
 export const CALL_EFFECTS_STORAGE_KEY = "mars-net-call-effects-v1";
+export const CALL_NOISE_ROTATION_STORAGE_KEY = "mars-net-call-noise-rotation-v1";
 
 const DEFAULT_ENABLED = true;
-const PHONE_NOISE_GAIN = 10 ** (-42 / 20);
+const CALL_NOISE_ASSETS = Object.freeze([
+  Object.freeze({
+    id: "fan-573497",
+    url: new URL("./assets/audio/call-fan-noise-573497.mp3", import.meta.url).href,
+    gain: 0.045,
+  }),
+  Object.freeze({
+    id: "air-vent-27167",
+    url: new URL("./assets/audio/call-air-vent-27167.mp3", import.meta.url).href,
+    gain: 0.052,
+  }),
+]);
+const INITIAL_NOISE_INDEX = Object.freeze({ mina: 0, juno: 1, noel: 0, mafia: 1 });
+const FALLBACK_NOISE_GAIN = 10 ** (-42 / 20);
 const CHARACTER_PROFILES = Object.freeze({
   mina: Object.freeze({
     highpassHz: 300,
@@ -47,6 +61,29 @@ function setAudioParam(param, value) {
   if (param && Number.isFinite(value)) param.value = value;
 }
 
+function takeNextNoiseAsset(storage, rotationKey) {
+  const safeKey = String(rotationKey || "call");
+  let state = {};
+  try {
+    const parsed = JSON.parse(storage?.getItem?.(CALL_NOISE_ROTATION_STORAGE_KEY) ?? "{}");
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) state = parsed;
+  } catch {
+    state = {};
+  }
+  const fallbackIndex = INITIAL_NOISE_INDEX[safeKey] ?? 0;
+  const storedIndex = Number(state[safeKey]);
+  const index = Number.isInteger(storedIndex) && storedIndex >= 0
+    ? storedIndex % CALL_NOISE_ASSETS.length
+    : fallbackIndex;
+  state[safeKey] = (index + 1) % CALL_NOISE_ASSETS.length;
+  try {
+    storage?.setItem?.(CALL_NOISE_ROTATION_STORAGE_KEY, JSON.stringify(state));
+  } catch {
+    // A call still gets its first track when private browsing blocks storage.
+  }
+  return CALL_NOISE_ASSETS[index];
+}
+
 export function getCharacterCallEffectProfile(characterId) {
   return CHARACTER_PROFILES[characterId] ?? CHARACTER_PROFILES.juno;
 }
@@ -76,6 +113,9 @@ export function createCallAudioEffectsController(options = {}) {
   const AudioContextClass = options.AudioContextClass
     ?? globalThis.AudioContext
     ?? globalThis.webkitAudioContext;
+  const AudioClass = options.AudioClass ?? globalThis.Audio;
+  const storage = options.storage ?? globalThis.localStorage;
+  const rotationScope = typeof options.rotationScope === "string" ? options.rotationScope : null;
   const random = options.random ?? Math.random;
   let enabled = typeof options.enabled === "boolean" ? options.enabled : DEFAULT_ENABLED;
   let active = false;
@@ -84,6 +124,10 @@ export function createCallAudioEffectsController(options = {}) {
   let audioContext = null;
   let noiseSource = null;
   let noiseGain = null;
+  let noiseElement = null;
+  let selectedNoiseAsset = null;
+  let noiseCharacterId = null;
+  let noiseKind = null;
   const attachments = new Set();
 
   function ensureContext() {
@@ -95,6 +139,12 @@ export function createCallAudioEffectsController(options = {}) {
 
   function stopNoise() {
     try {
+      noiseElement?.pause?.();
+      if (noiseElement) noiseElement.currentTime = 0;
+    } catch {
+      // A detached media element may already be unavailable.
+    }
+    try {
       noiseSource?.stop?.();
     } catch {
       // Buffer sources can only be stopped once.
@@ -103,32 +153,73 @@ export function createCallAudioEffectsController(options = {}) {
     safeDisconnect(noiseGain);
     noiseSource = null;
     noiseGain = null;
+    noiseElement = null;
+    noiseKind = null;
   }
 
-  function startNoise() {
-    if (!active || !enabled || noiseSource) return;
+  function startGeneratedNoise(context) {
+    if (!context?.createBuffer || !context?.createBufferSource || !context?.createGain) return false;
+    const sampleRate = Math.max(8_000, Number(context.sampleRate) || 48_000);
+    const buffer = context.createBuffer(1, sampleRate * 2, sampleRate);
+    const samples = buffer.getChannelData(0);
+    let pink = 0;
+    for (let index = 0; index < samples.length; index += 1) {
+      const white = (random() * 2) - 1;
+      pink = (pink * 0.98) + (white * 0.02);
+      samples[index] = Math.max(-1, Math.min(1, pink * 2.4));
+    }
+    noiseSource = context.createBufferSource();
+    noiseGain = context.createGain();
+    noiseSource.buffer = buffer;
+    noiseSource.loop = true;
+    setAudioParam(noiseGain.gain, FALLBACK_NOISE_GAIN);
+    noiseSource.connect(noiseGain);
+    noiseGain.connect(context.destination);
+    noiseSource.start();
+    noiseKind = "generated-fallback";
+    return true;
+  }
+
+  function startAssetNoise(context) {
+    if (!AudioClass || !context?.createMediaElementSource || !selectedNoiseAsset) return false;
+    const element = new AudioClass(selectedNoiseAsset.url);
+    element.loop = true;
+    element.preload = "auto";
+    element.playsInline = true;
+    const source = context.createMediaElementSource(element);
+    const gain = context.createGain();
+    setAudioParam(gain.gain, selectedNoiseAsset.gain);
+    source.connect(gain);
+    gain.connect(context.destination);
+    noiseElement = element;
+    noiseSource = source;
+    noiseGain = gain;
+    noiseKind = "pixabay-asset";
+    const playResult = element.play?.();
+    void playResult?.catch?.(() => {
+      if (noiseElement !== element) return;
+      stopNoise();
+      if (active && enabled && !disposed) startGeneratedNoise(context);
+    });
+    return true;
+  }
+
+  function startNoise(characterId = noiseCharacterId ?? rotationScope) {
+    if (!active || !enabled || noiseSource || !characterId) return;
     try {
       const context = ensureContext();
-      if (!context?.createBuffer || !context?.createBufferSource || !context?.createGain) return;
-      const sampleRate = Math.max(8_000, Number(context.sampleRate) || 48_000);
-      const buffer = context.createBuffer(1, sampleRate * 2, sampleRate);
-      const samples = buffer.getChannelData(0);
-      let pink = 0;
-      for (let index = 0; index < samples.length; index += 1) {
-        const white = (random() * 2) - 1;
-        pink = (pink * 0.98) + (white * 0.02);
-        samples[index] = Math.max(-1, Math.min(1, pink * 2.4));
-      }
-      noiseSource = context.createBufferSource();
-      noiseGain = context.createGain();
-      noiseSource.buffer = buffer;
-      noiseSource.loop = true;
-      setAudioParam(noiseGain.gain, PHONE_NOISE_GAIN);
-      noiseSource.connect(noiseGain);
-      noiseGain.connect(context.destination);
-      noiseSource.start();
+      if (!context) return;
+      noiseCharacterId ??= characterId;
+      selectedNoiseAsset ??= takeNextNoiseAsset(storage, rotationScope ?? noiseCharacterId);
+      if (!startAssetNoise(context)) startGeneratedNoise(context);
     } catch {
       stopNoise();
+      try {
+        const context = ensureContext();
+        if (context) startGeneratedNoise(context);
+      } catch {
+        stopNoise();
+      }
     }
   }
 
@@ -180,8 +271,9 @@ export function createCallAudioEffectsController(options = {}) {
   function attach(stream, { characterId = "juno", audioElement = null } = {}) {
     const attachment = { stream, characterId, audioElement, nodes: [], output: null };
     attachments.add(attachment);
+    noiseCharacterId ??= characterId;
     buildGraph(attachment);
-    startNoise();
+    startNoise(noiseCharacterId);
     return {
       detach() {
         if (!attachments.delete(attachment)) return;
@@ -192,8 +284,12 @@ export function createCallAudioEffectsController(options = {}) {
 
   function setActive(nextActive) {
     active = Boolean(nextActive) && !disposed;
-    if (active) startNoise();
-    else stopNoise();
+    if (active) startNoise(noiseCharacterId ?? rotationScope);
+    else {
+      stopNoise();
+      selectedNoiseAsset = null;
+      noiseCharacterId = null;
+    }
     return active;
   }
 
@@ -231,6 +327,8 @@ export function createCallAudioEffectsController(options = {}) {
       attachmentCount: attachments.size,
       processedAttachmentCount: [...attachments].filter((item) => item.nodes.length > 0).length,
       noiseActive: Boolean(noiseSource),
+      noiseAssetId: selectedNoiseAsset?.id ?? null,
+      noiseKind,
     };
   }
 
@@ -241,6 +339,8 @@ export function createCallAudioEffectsController(options = {}) {
     for (const attachment of attachments) destroyGraph(attachment);
     attachments.clear();
     stopNoise();
+    selectedNoiseAsset = null;
+    noiseCharacterId = null;
     void audioContext?.close?.().catch?.(() => {});
     audioContext = null;
   }

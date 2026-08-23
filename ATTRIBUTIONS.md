@@ -6,12 +6,19 @@ This project implements its interface independently in HTML and CSS. No Figma as
 
 - The private-chat picker inserts Unicode emoji characters as text and lets each operating system render them with its installed emoji font. No third-party emoji image, font, or CDN asset is bundled. Unicode standards and data are made freely available under the [Unicode Terms of Use](https://www.unicode.org/copyright.html) and the [Unicode License](https://www.unicode.org/license.txt).
 
-## Pixabay music
+## Pixabay audio
 
 The following tracks are bundled as in-product background music. Their Pixabay pages identify them as free for use under the Pixabay Content License.
 
 - Lobby: **Detectives Among Us Dramedy** by **Pastichio_Piano_Music** — [track page](https://pixabay.com/music/comedy-detectives-among-us-dramedy-289364/) (`assets/audio/lobby-detectives-among-us.mp3`)
 - Game: **Sneaky Mystery - Film Noir Spy Music Loop** by **Sonican** — [track page](https://pixabay.com/music/mystery-sneaky-mystery-film-noir-spy-music-loop-442493/) (`assets/audio/game-sneaky-film-noir.mp3`)
+
+The following sound effects alternate between call connections as quiet line ambience in private voice calls and mafia voice mode:
+
+- **Fan Noise to Fall Asleep** by **u_sqbdol9i82** — [sound-effect page](https://pixabay.com/sound-effects/film-special-effects-fan-noise-to-fall-asleep-573497/) (`assets/audio/call-fan-noise-573497.mp3`)
+- **air vent 1** by **patchytherat (Freesound)** — [sound-effect page](https://pixabay.com/sound-effects/technology-air-vent-1-27167/) (`assets/audio/call-air-vent-27167.mp3`)
+
+The call copies are mono, low-bitrate in-product adaptations. The fan recording is shortened to 60 seconds and the 53-second air-vent recording is preserved at its source duration; both loop quietly during a connected call and are not offered as standalone downloads.
 
 The official [Pixabay Content License summary](https://pixabay.com/service/license-summary/) permits free use, use without attribution, and modification, subject to its prohibited uses. In particular, unmodified content must not be sold or distributed on a standalone basis. The full Pixabay license remains legally controlling.
 

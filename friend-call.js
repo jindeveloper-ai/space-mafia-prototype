@@ -1,4 +1,4 @@
-import { createCallAudioEffectsController } from "./call-audio-effects.js?v=0.20.3";
+import { createCallAudioEffectsController } from "./call-audio-effects.js?v=0.20.4";
 
 const REALTIME_CALLS_URL = "https://api.openai.com/v1/realtime/calls";
 const ANSWER_DELAY_MS = Object.freeze({ mina: 1_800, juno: 2_700, noel: 2_200 });
@@ -99,6 +99,7 @@ export function createFriendCallController(options = {}) {
   const relationshipDays = Math.max(0, Math.min(30, Number(options.relationshipDays) || 0));
   const audioEffects = options.audioEffectsController ?? createCallAudioEffectsController({
     AudioContextClass,
+    AudioClass: AudioElement,
     enabled: options.callEffectsEnabled,
   });
 

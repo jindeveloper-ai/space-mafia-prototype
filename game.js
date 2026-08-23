@@ -19,15 +19,15 @@ import {
   plantEvidence,
   resolveVote,
   startGame,
-} from "./game-engine.js?v=0.20.3";
-import { getCopy, normalizeLocale } from "./i18n.js?v=0.20.3";
+} from "./game-engine.js?v=0.20.4";
+import { getCopy, normalizeLocale } from "./i18n.js?v=0.20.4";
 import {
   buildChatPayload,
   fallbackAccusation,
   fallbackResponse,
   MAX_CHAT_LENGTH,
   normalizeInterpretation,
-} from "./chat-adapter.js?v=0.20.3";
+} from "./chat-adapter.js?v=0.20.4";
 import {
   acceptPersonalQuest,
   awardCrewLevels,
@@ -44,21 +44,21 @@ import {
   setEquippedJob,
   setDifficultyMode,
   settlePersonalQuest,
-} from "./progression.js?v=0.20.3";
-import { accountController, createMutationId } from "./account-client.js?v=0.20.3";
-import { createVoiceCallController } from "./voice-call.js?v=0.20.3";
-import { createFriendCallController } from "./friend-call.js?v=0.20.3";
+} from "./progression.js?v=0.20.4";
+import { accountController, createMutationId } from "./account-client.js?v=0.20.4";
+import { createVoiceCallController } from "./voice-call.js?v=0.20.4";
+import { createFriendCallController } from "./friend-call.js?v=0.20.4";
 import {
   readCallEffectsEnabled,
   writeCallEffectsEnabled,
-} from "./call-audio-effects.js?v=0.20.3";
+} from "./call-audio-effects.js?v=0.20.4";
 import {
   beginVoiceTurnFinalization,
   createVoiceTurn,
   expireVoiceTurn,
   recordVoiceTurnCandidate,
   voiceTurnSecondsLeft,
-} from "./voice-turn.js?v=0.20.3";
+} from "./voice-turn.js?v=0.20.4";
 
 const app = document.querySelector("#app");
 const assetVersion = new URL(import.meta.url).searchParams.get("v");

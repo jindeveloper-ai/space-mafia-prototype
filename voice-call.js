@@ -6,8 +6,8 @@ import {
   estimateVoiceCost,
   recordSessionEnded,
   recordSessionStarted,
-} from "./voice-call-core.js?v=0.20.3";
-import { createCallAudioEffectsController } from "./call-audio-effects.js?v=0.20.3";
+} from "./voice-call-core.js?v=0.20.4";
+import { createCallAudioEffectsController } from "./call-audio-effects.js?v=0.20.4";
 
 const REALTIME_CALLS_URL = "https://api.openai.com/v1/realtime/calls";
 const SPEAKER_STYLE = {
@@ -69,7 +69,9 @@ export function createVoiceCallController(options = {}) {
   const stateMachine = createVoiceStateMachine(() => options.onUpdate?.(snapshot()));
   const audioEffects = options.audioEffectsController ?? createCallAudioEffectsController({
     AudioContextClass,
+    AudioClass: AudioElement,
     enabled: options.callEffectsEnabled,
+    rotationScope: "mafia",
   });
 
   let micStream = null;

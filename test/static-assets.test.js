@@ -147,12 +147,15 @@ test("보이스콜 모드는 Figma 통화 구조·접근성·안전한 임시 �
   assert.deepEqual(openAiUrls, ["https://api.openai.com/v1/realtime/calls"]);
 });
 
-test("Pixabay 배경음은 로컬 에셋으로 대기실·게임 장면, 음소거와 음량을 제어한다", async () => {
-  const [indexHtml, soundSource, lobbyTrack, gameTrack] = await Promise.all([
+test("Pixabay 배경음과 통화 노이즈는 로컬 에셋으로 재생된다", async () => {
+  const [indexHtml, soundSource, callEffectSource, lobbyTrack, gameTrack, fanNoise, ventNoise] = await Promise.all([
     readProjectFile("index.html"),
     readProjectFile("sound.js"),
+    readProjectFile("call-audio-effects.js"),
     readFile(new URL("assets/audio/lobby-detectives-among-us.mp3", projectRoot)),
     readFile(new URL("assets/audio/game-sneaky-film-noir.mp3", projectRoot)),
+    readFile(new URL("assets/audio/call-fan-noise-573497.mp3", projectRoot)),
+    readFile(new URL("assets/audio/call-air-vent-27167.mp3", projectRoot)),
   ]);
 
   assert.match(indexHtml, /data-audio-toggle/);
@@ -172,8 +175,13 @@ test("Pixabay 배경음은 로컬 에셋으로 대기실·게임 장면, 음소�
   assert.match(soundSource, /track\.muted = silent/);
   assert.match(soundSource, /dataset\.audioState/);
   assert.doesNotMatch(soundSource, /https?:\/\//);
+  assert.match(callEffectSource, /call-fan-noise-573497\.mp3/);
+  assert.match(callEffectSource, /call-air-vent-27167\.mp3/);
+  assert.doesNotMatch(callEffectSource, /cdn\.pixabay\.com/);
   assert.ok(lobbyTrack.byteLength > 100_000);
   assert.ok(gameTrack.byteLength > 100_000);
+  assert.ok(fanNoise.byteLength > 100_000);
+  assert.ok(ventNoise.byteLength > 100_000);
 });
 
 test("개인 채팅 이모티콘은 외부 이미지 없이 입력창에 삽입된다", async () => {
