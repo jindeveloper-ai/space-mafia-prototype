@@ -2,7 +2,7 @@
 
 ## Work
 
-- Search first. Unknown code: Serena overview → symbol → refs → needed bodies; verify
+- Search first. Unknown code: Serena overview → symbol → reference search → needed bodies; verify
   with `rg`. Read whole files only if short or full config/translation/security/
   cross-feature context is needed. On one LSP failure, record it and use `rg`.
 - Preserve user/incomplete changes; never reset/overwrite unrelated work. Make the
@@ -42,6 +42,6 @@
   changes: `prek run --files <changed files>` + related tests. Test: `npm run test`;
   build/config/release: `python3 -m compileall -q scripts`.
 - Gitleaks before commit/release; OSV-Scanner on dependency-input change; Semgrep on
-  security-sensitive source. Never skip/weaken/manipulate results; fix, preserve
+  security-sensitive source. Never skip/weaken/bypass/manipulate checks/results; fix, preserve
   unrelated work, and rerun. No variable/generated `.codex` state or report buildup.
 <!-- END CODEX PROJECT VALIDATION -->
