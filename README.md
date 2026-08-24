@@ -12,11 +12,15 @@
 scripts/serve
 ```
 
-실시간 캐릭터 응답을 사용하려면 API 키를 파일에 저장하지 말고 실행할 셸에만 설정합니다.
+실시간 캐릭터 응답을 사용하려면 API 키를 파일·명령 이력에 저장하지 말고 숨김 입력으로 현재 셸에만 설정합니다.
 
 ```bash
-OPENAI_API_KEY="your-key" scripts/serve
+read -s OPENAI_API_KEY
+export OPENAI_API_KEY
+scripts/serve
 ```
+
+서버 종료 뒤에는 `unset OPENAI_API_KEY`를 실행합니다. 실제 키를 AI 채팅, 이슈, 문서, 스크린샷에 붙여 넣지 않습니다.
 
 키체인에 프로젝트 키를 등록한 개발 환경에서는 다음 명령으로 실행할 수 있습니다.
 
@@ -27,7 +31,7 @@ scripts/serve-live
 컴퓨터가 꺼지면 로컬 서버는 중단되지만 키는 사라지지 않습니다. 실제 공개 서비스에서는 호스팅 제공자의 비밀 저장소로 옮겨야 합니다.
 
 - 기본 모델: `gpt-5.6-luna`
-- 선택 변경: `OPENAI_MODEL="model-id" OPENAI_API_KEY="your-key" scripts/serve`
+- 선택 변경: `OPENAI_MODEL="model-id" scripts/serve`
 - 키가 없거나 API가 실패하면 규칙 기반 연습 응답으로 자동 전환되어 한 판을 끝까지 진행합니다.
 - API 키는 브라우저로 전달되지 않고 로컬 서버의 `/api/chat`에서만 사용합니다.
 
@@ -46,7 +50,7 @@ scripts/serve-live
 
 공개 테스트 배포는 `render.yaml`의 상시 실행 Starter Python Web Service를 사용합니다. `OPENAI_API_KEY`는 Blueprint 생성 화면에서 비밀 환경변수로만 입력하며 Git에는 저장하지 않습니다. Starter 인스턴스는 유휴 상태에서도 중지되지 않아 무료 인스턴스의 최초 접속 지연이 없습니다.
 
-비회원 플레이는 계속 로컬에 저장됩니다. Supabase를 연결하면 Google PKCE 로그인 뒤 성장·판 기록·개인 채팅·프로필 이미지를 비공개 클라우드에 동기화할 수 있습니다. Apple 로그인은 공급자 설정이 완료될 때까지 UI에 노출하지 않습니다. 설정 절차는 [docs/SUPABASE_SETUP.md](./docs/SUPABASE_SETUP.md)를 따르며 서비스 역할 키는 서버 환경변수에만 둡니다. 계정 패널에서는 캐릭터별 채팅 삭제, 전체 JSON 내보내기, 로그아웃, 계정 삭제, 제작자 피드백 메일을 제공합니다.
+비회원 플레이는 계속 로컬에 저장됩니다. Supabase를 연결하면 Google PKCE 로그인 뒤 성장·판 기록·개인 채팅·프로필 이미지를 비공개 클라우드에 동기화할 수 있습니다. Apple 로그인은 공급자 설정이 완료될 때까지 UI에 노출하지 않습니다. 설정 절차는 [docs/SUPABASE_SETUP.md](./docs/SUPABASE_SETUP.md), 키·RLS·사고 대응은 [docs/SECURITY.md](./docs/SECURITY.md)를 따릅니다. 서비스 역할 키는 서버 환경변수에만 둡니다. 계정 패널에서는 캐릭터별 채팅 삭제, 전체 JSON 내보내기, 로그아웃, 계정 삭제, 제작자 피드백 메일을 제공합니다.
 
 테스트는 다음 명령으로 실행합니다.
 
@@ -120,4 +124,4 @@ Figma·CodePen 레퍼런스, Unicode 이모티콘, Pixabay 오디오와 프로�
 
 ## 버전 관리
 
-현재 기능 버전은 `v0.20.5`입니다. 검증된 기능 버전마다 커밋하고 같은 번호의 태그를 만들어 비공개 GitHub 저장소에 푸시합니다.
+현재 기능 버전은 `v0.20.6`입니다. 검증된 기능 버전마다 커밋하고 같은 번호의 태그를 만들어 비공개 GitHub 저장소에 푸시합니다.

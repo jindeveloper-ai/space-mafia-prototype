@@ -36,12 +36,18 @@
   widen scope.
 
 <!-- BEGIN CODEX PROJECT VALIDATION -->
-## Validation
+## Project validation
 
-- Canonical `.pre-commit-config.yaml`: use `prek`, never `pre-commit`. Executable
-  changes: `prek run --files <changed files>` + related tests. Test: `npm run test`;
-  build/config/release: `python3 -m compileall -q scripts`.
-- Gitleaks before commit/release; OSV-Scanner on dependency-input change; Semgrep on
-  security-sensitive source. Never skip/weaken/bypass/manipulate checks/results; fix, preserve
-  unrelated work, and rerun. No variable/generated `.codex` state or report buildup.
+- `.pre-commit-config.yaml` is the canonical fast-check configuration.
+  Use `prek`; do not install or invoke `pre-commit`.
+- After meaningful executable changes, run `prek run --files <changed files>`
+  and the related project-native tests before reporting completion.
+- Native test: `npm run test`
+- Native build: `python3 -m compileall -q scripts`
+- Run Gitleaks before commits and releases, OSV-Scanner when dependency inputs change,
+  and Semgrep for security-sensitive source changes.
+- Fix and rerun failures without weakening checks.
+  Do not modify unrelated pre-existing changes merely to make validation pass.
+- Do not write generated validation state under the reserved project `.codex` directory
+  or accumulate project validation reports.
 <!-- END CODEX PROJECT VALIDATION -->

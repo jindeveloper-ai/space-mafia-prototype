@@ -1,4 +1,4 @@
-import { getCopy, normalizeLocale, withJosa } from "./i18n.js?v=0.20.5";
+import { getCopy, normalizeLocale, withJosa } from "./i18n.js?v=0.20.6";
 
 export { withJosa };
 

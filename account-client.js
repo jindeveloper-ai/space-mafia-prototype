@@ -11,8 +11,8 @@ import {
   PROGRESSION_STORAGE_KEY,
   sanitizeChats,
   sanitizeMatches,
-} from "./account-core.js?v=0.20.5";
-import { createProgression } from "./progression.js?v=0.20.5";
+} from "./account-core.js?v=0.20.6";
+import { createProgression } from "./progression.js?v=0.20.6";
 
 const AUTH_SESSION_KEY = "mars-net-auth-session-v1";
 const AUTH_TRANSACTION_KEY = "mars-net-auth-transaction-v1";
@@ -717,9 +717,10 @@ class AccountController extends EventTarget {
   }
 
   async downloadAvatar() {
-    const token = await this.auth.accessToken();
-    if (!token) return;
-    const response = await fetch("/api/account/avatar", { headers: { Authorization: `Bearer ${token}` } });
+    if (!this.signedIn) return;
+    const { url } = await this.api("/api/account/avatar");
+    if (typeof url !== "string") return;
+    const response = await fetch(url, { cache: "no-store", referrerPolicy: "no-referrer" });
     if (!response.ok) return;
     const blob = await response.blob();
     const avatar = await new Promise((resolve, reject) => {

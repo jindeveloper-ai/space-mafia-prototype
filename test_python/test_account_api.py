@@ -13,12 +13,15 @@ sys.path.insert(0, str(PROJECT_ROOT / "scripts"))
 from account_api import (  # noqa: E402
     AccountError,
     CREW_IDS,
+    SIGNED_AVATAR_URL_SECONDS,
     SupabaseBackend,
+    avatar_object_path,
     merge_progression,
     merge_snapshots,
     sanitize_chat_messages,
     sanitize_match,
     sanitize_progression,
+    signed_storage_url,
 )
 
 
@@ -151,6 +154,30 @@ class AccountConfigTests(unittest.TestCase):
             backend = SupabaseBackend()
         with self.assertRaisesRegex(AccountError, "invalid_upstream_path"):
             backend._request_sync("GET", "file:///etc/passwd")
+
+
+class AccountStorageSecurityTests(unittest.TestCase):
+    def test_avatar_object_paths_are_owner_scoped_and_unpredictable(self):
+        user_id = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+        first = avatar_object_path(user_id, "image/webp")
+        second = avatar_object_path(user_id, "image/webp")
+        self.assertRegex(first, rf"^{user_id}/[A-Za-z0-9_-]{{32}}\.webp$")
+        self.assertNotEqual(first, second)
+
+    def test_signed_avatar_url_is_short_lived_and_origin_pinned(self):
+        signed_path = "/object/sign/avatars/user/random.webp?token=temporary"
+        self.assertEqual(SIGNED_AVATAR_URL_SECONDS, 60)
+        self.assertEqual(
+            signed_storage_url("https://project.supabase.co", signed_path),
+            f"https://project.supabase.co/storage/v1{signed_path}",
+        )
+        for unsafe in (
+            "https://evil.example/object/sign/avatars/user/file.webp?token=x",
+            "/object/sign/other/user/file.webp?token=x",
+            "/object/sign/avatars/user/file.webp",
+        ):
+            with self.subTest(unsafe=unsafe), self.assertRaisesRegex(ValueError, "invalid_signed_storage_url"):
+                signed_storage_url("https://project.supabase.co", unsafe)
 
 
 if __name__ == "__main__":

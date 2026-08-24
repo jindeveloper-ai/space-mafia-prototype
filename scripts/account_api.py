@@ -9,17 +9,18 @@ from datetime import datetime, timezone
 import json
 import os
 import re
+from secrets import token_urlsafe
 from typing import Any
 from urllib.error import HTTPError, URLError
-from urllib.parse import quote, urlencode, urlsplit
+from urllib.parse import parse_qs, quote, urlencode, urlsplit
 from urllib.request import Request as UrlRequest, urlopen
 from uuid import UUID
 
 try:
     from fastapi import FastAPI, Request
-    from fastapi.responses import JSONResponse, Response
+    from fastapi.responses import JSONResponse
 except ImportError:  # Data sanitizers and merge tests do not require the web framework.
-    FastAPI = Request = JSONResponse = Response = Any
+    FastAPI = Request = JSONResponse = Any
 
 try:
     import jwt
@@ -30,9 +31,11 @@ except ImportError:  # Tests and local guest mode can run before optional auth d
 
 
 ACCOUNT_BODY_BYTES = 800_000
+AVATAR_FILE_TOKEN_BYTES = 24
 CREW_IDS = ("mina", "juno", "noel")
 DATE_PATTERN = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 DATA_URL_PATTERN = re.compile(r"^data:(image/(?:png|jpeg|webp));base64,([A-Za-z0-9+/=]+)$")
+SIGNED_AVATAR_URL_SECONDS = 60
 
 
 class AccountError(Exception):
@@ -47,6 +50,32 @@ class AuthenticatedUser:
     user_id: str
     token: str
     claims: dict[str, Any]
+
+
+def avatar_object_path(user_id: str, content_type: str) -> str:
+    extension = {"image/png": "png", "image/jpeg": "jpg", "image/webp": "webp"}.get(content_type)
+    if not extension:
+        raise ValueError("invalid_avatar_content_type")
+    return f"{UUID(user_id)}/{token_urlsafe(AVATAR_FILE_TOKEN_BYTES)}.{extension}"
+
+
+def signed_storage_url(base_url: str, signed_path: object) -> str:
+    if not isinstance(signed_path, str):
+        raise ValueError("invalid_signed_storage_url")
+    parsed = urlsplit(signed_path)
+    token = parse_qs(parsed.query).get("token", [])
+    if (
+        parsed.scheme
+        or parsed.netloc
+        or parsed.fragment
+        or not parsed.path.startswith("/object/sign/avatars/")
+        or "\\" in parsed.path
+        or "/../" in parsed.path
+        or not token
+        or not token[0]
+    ):
+        raise ValueError("invalid_signed_storage_url")
+    return f"{base_url}/storage/v1{signed_path}"
 
 
 def _is_dict(value: Any) -> bool:
@@ -659,8 +688,6 @@ def register_account_routes(app: FastAPI) -> None:
     async def put_avatar(request: Request):
         try:
             user = await backend.verify(request)
-            if not backend.service_key:
-                raise AccountError("avatar_service_unavailable", 503)
             payload = await read_body(request)
             match = DATA_URL_PATTERN.fullmatch(str(payload.get("dataUrl", "")))
             if not match:
@@ -669,19 +696,26 @@ def register_account_routes(app: FastAPI) -> None:
             raw = base64.b64decode(encoded, validate=True)
             if not raw or len(raw) > 1_000_000:
                 raise AccountError("invalid_avatar", 400)
-            extension = {"image/png": "png", "image/jpeg": "jpg", "image/webp": "webp"}[content_type]
-            path = f"{user.user_id}/profile.{extension}"
+            profile_rows = await backend.rest("GET", f"profiles?user_id=eq.{quote(user.user_id)}&select=avatar_path", user)
+            previous_path = profile_rows[0].get("avatar_path") if profile_rows else None
+            path = avatar_object_path(user.user_id, content_type)
             status, _, _ = await backend.request(
                 "POST",
                 f"/storage/v1/object/avatars/{quote(path)}",
-                service=True,
+                token=user.token,
                 body=raw,
                 content_type=content_type,
-                extra_headers={"x-upsert": "true"},
+                extra_headers={"Cache-Control": f"max-age={SIGNED_AVATAR_URL_SECONDS}"},
             )
             if status >= 400:
                 raise AccountError("avatar_upload_failed", 503)
-            await backend.rest("PATCH", f"profiles?user_id=eq.{quote(user.user_id)}", user, {"avatar_path": path}, {"Prefer": "return=minimal"})
+            try:
+                await backend.rest("PATCH", f"profiles?user_id=eq.{quote(user.user_id)}", user, {"avatar_path": path}, {"Prefer": "return=minimal"})
+            except AccountError:
+                await backend.request("DELETE", "/storage/v1/object/avatars", token=user.token, body={"prefixes": [path]})
+                raise
+            if previous_path and previous_path != path:
+                await backend.request("DELETE", "/storage/v1/object/avatars", token=user.token, body={"prefixes": [previous_path]})
             return {"path": path}
         except (ValueError, AccountError) as error:
             return account_response(error if isinstance(error, AccountError) else AccountError("invalid_avatar", 400))
@@ -694,12 +728,20 @@ def register_account_routes(app: FastAPI) -> None:
             path = profile_rows[0].get("avatar_path") if profile_rows else None
             if not path:
                 raise AccountError("avatar_not_found", 404)
-            status, data, headers = await backend.request("GET", f"/storage/v1/object/authenticated/avatars/{quote(path)}", token=user.token)
-            if status >= 400 or not isinstance(data, bytes):
+            status, data, _ = await backend.request(
+                "POST",
+                f"/storage/v1/object/sign/avatars/{quote(path)}",
+                token=user.token,
+                body={"expiresIn": SIGNED_AVATAR_URL_SECONDS},
+            )
+            if status >= 400 or not isinstance(data, dict):
                 raise AccountError("avatar_not_found", 404)
-            return Response(data, media_type=headers.get("Content-Type", "image/webp"), headers={"Cache-Control": "private, max-age=300"})
-        except AccountError as error:
-            return account_response(error)
+            return {
+                "url": signed_storage_url(backend.url, data.get("signedURL")),
+                "expiresIn": SIGNED_AVATAR_URL_SECONDS,
+            }
+        except (ValueError, AccountError) as error:
+            return account_response(error if isinstance(error, AccountError) else AccountError("avatar_not_found", 404))
 
     @app.delete("/api/account")
     async def delete_account(request: Request):
