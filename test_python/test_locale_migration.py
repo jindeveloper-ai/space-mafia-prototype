@@ -6,6 +6,7 @@ import unittest
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 MIGRATION = PROJECT_ROOT / "supabase" / "migrations" / "202608250001_expand_profile_locales.sql"
+RPC_MIGRATION = PROJECT_ROOT / "supabase" / "migrations" / "202608250002_preserve_profile_locales.sql"
 
 
 class LocaleMigrationTests(unittest.TestCase):
@@ -19,6 +20,15 @@ class LocaleMigrationTests(unittest.TestCase):
         sql = MIGRATION.read_text(encoding="utf-8")
         self.assertIn("constraint_row.conkey = array[column_row.attnum]", sql)
         self.assertIn("validate constraint profiles_locale_check", sql)
+
+    def test_account_sync_preserves_every_supported_locale_and_falls_back_to_english(self):
+        sql = RPC_MIGRATION.read_text(encoding="utf-8")
+        for locale in ("ko", "en", "ja", "zh-CN", "zh-TW", "yue-Hant-HK", "es-419"):
+            with self.subTest(locale=locale):
+                self.assertIn(f"'{locale}'", sql)
+        self.assertIn("then p_profile->>'locale'", sql)
+        self.assertIn("else 'en'", sql)
+        self.assertNotIn("= 'en' then 'en' else 'ko'", sql)
 
 
 if __name__ == "__main__":
