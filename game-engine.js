@@ -1,4 +1,4 @@
-import { getCopy, normalizeLocale, withJosa } from "./i18n.js?v=0.20.6";
+import { getCopy, normalizeLocale, withJosa } from "./i18n.js?v=0.20.14";
 
 export { withJosa };
 
@@ -34,9 +34,8 @@ export function getSubquest(id, locale = "ko") {
   return getCopy(locale).subquests[id] ?? null;
 }
 
-export const CREW = getCrew();
-export const INCIDENT = getIncident();
-export const CLAIMS = getClaims();
+export const CREW = Object.freeze(CREW_BASE.map((member) => Object.freeze({ ...member })));
+export const CLAIMS = Object.freeze(CLAIM_IDS.map((id) => Object.freeze({ id })));
 
 const FACT_TYPES = {
   alibi: {

@@ -40,43 +40,75 @@ class FakeAudio {
   remove() {}
 }
 
-function createHarness({ remainingSeconds = 300 } = {}) {
+function createHarness({ remainingSeconds = 300, locale = "ko", mediaDevices = null, setTimer = null } = {}) {
   FakePeerConnection.instances = [];
   const intervals = new Map();
   let timerId = 0;
   const usage = [];
   const ended = [];
+  const fallbacks = [];
   const requests = [];
   const track = { enabled: true, stop() { this.stopped = true; } };
   const controller = createFriendCallController({
     characterId: "mina",
-    locale: "ko",
+    locale,
     remainingSeconds,
     PeerConnection: FakePeerConnection,
     AudioElement: FakeAudio,
     AudioContextClass: null,
-    mediaDevices: { async getUserMedia() { return { getAudioTracks: () => [track], getTracks: () => [track] }; } },
+    mediaDevices: mediaDevices ?? { async getUserMedia() { return { getAudioTracks: () => [track], getTracks: () => [track] }; } },
     async requestSecret(payload) {
       requests.push(payload);
       return { value: "ek_test", remainingSeconds, dateKey: "2050-04-01" };
     },
     async fetchImpl() { return { ok: true, text: async () => "answer" }; },
-    setTimer(handler) { queueMicrotask(handler); return ++timerId; },
+    setTimer: setTimer ?? ((handler) => { queueMicrotask(handler); return ++timerId; }),
     clearTimer() {},
     setRepeating(handler) { const id = ++timerId; intervals.set(id, handler); return id; },
     clearRepeating(id) { intervals.delete(id); },
     onUsage(value) { usage.push(value); },
     onEnded(value) { ended.push(value); },
+    onFallback(value) { fallbacks.push(value); },
   });
   return {
     controller,
     ended,
+    fallbacks,
     requests,
     track,
     usage,
     tick() { for (const handler of [...intervals.values()]) handler(); },
   };
 }
+
+test("마이크 권한 요청이 끝나지 않으면 텍스트 모드로 전환하고 늦게 열린 트랙도 닫는다", async () => {
+  let resolveMicrophone;
+  let timeoutHandler;
+  const lateTrack = { stop() { this.stopped = true; } };
+  const harness = createHarness({
+    mediaDevices: {
+      getUserMedia() {
+        return new Promise((resolve) => { resolveMicrophone = resolve; });
+      },
+    },
+    setTimer(handler) {
+      timeoutHandler = handler;
+      return 1;
+    },
+  });
+
+  const started = harness.controller.start();
+  await Promise.resolve();
+  timeoutHandler();
+  assert.equal(await started, false);
+  assert.equal(harness.controller.snapshot().phase, "fallback_text");
+  assert.equal(harness.controller.snapshot().error, "microphone_timeout");
+
+  resolveMicrophone({ getTracks: () => [lateTrack] });
+  await Promise.resolve();
+  await Promise.resolve();
+  assert.equal(lateTrack.stopped, true);
+});
 
 test("개인 보이스톡은 한 Realtime 세션에서 전화 인사와 연속 대화를 시작한다", async () => {
   const harness = createHarness();
@@ -110,6 +142,35 @@ test("첫 인사는 캐릭터·통화일수별 반말로 고정되고 지구 친
   assert.match(friendCallOpeningLine("noel", "ko", 9), /왜 이제 걸었냐/);
   assert.doesNotMatch(friendCallOpeningLine("mina", "ko", 9), /요[.?!]?$/);
   assert.match(friendCallOpeningLine("mina", "en", 0), /^Hello\?/);
+  assert.match(friendCallOpeningLine("mina", "ja", 0), /^もしもし/);
+  assert.match(friendCallOpeningLine("mina", "zh-CN", 0), /^喂/);
+  assert.match(friendCallOpeningLine("mina", "zh-TW", 0), /真的打來了/);
+  assert.match(friendCallOpeningLine("mina", "yue-Hant-HK", 0), /真係打咗嚟/);
+  assert.match(friendCallOpeningLine("mina", "es-419", 0), /^¿Bueno\?/);
+});
+
+test("광둥어 코드가 그대로 서버에 전달되고 Realtime 실패 시 전사 내용을 보존해 텍스트로 전환한다", async () => {
+  const harness = createHarness({ locale: "yue-Hant-HK" });
+  assert.equal(await harness.controller.start(), true);
+  assert.equal(harness.requests[0].locale, "yue-Hant-HK");
+  const peer = FakePeerConnection.instances[0];
+  peer.channel.emit("message", {
+    data: JSON.stringify({ type: "conversation.item.input_audio_transcription.delta", delta: "頭先嗰句" }),
+  });
+  peer.channel.emit("message", {
+    data: JSON.stringify({ type: "error", error: { code: "voice_response_failed" } }),
+  });
+  peer.channel.emit("message", {
+    data: JSON.stringify({ type: "error", error: { code: "duplicate_upstream_error" } }),
+  });
+  const snapshot = harness.controller.snapshot();
+  assert.equal(snapshot.phase, "fallback_text");
+  assert.equal(snapshot.playerTranscript, "頭先嗰句");
+  assert.equal(snapshot.error, "voice_response_failed");
+  assert.equal(harness.fallbacks[0].playerTranscript, "頭先嗰句");
+  assert.equal(harness.fallbacks.length, 1);
+  assert.equal(peer.closed, true);
+  assert.equal(harness.track.stopped, true);
 });
 
 test("통화 시간은 연결 뒤에만 차감되고 종료·음소거가 안전하게 정리된다", async () => {

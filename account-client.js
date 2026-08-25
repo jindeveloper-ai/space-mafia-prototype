@@ -11,8 +11,10 @@ import {
   PROGRESSION_STORAGE_KEY,
   sanitizeChats,
   sanitizeMatches,
-} from "./account-core.js?v=0.20.6";
-import { createProgression } from "./progression.js?v=0.20.6";
+} from "./account-core.js?v=0.20.14";
+import { createProgression } from "./progression.js?v=0.20.14";
+import { getActiveLocale, getCopy } from "./i18n.js?v=0.20.14";
+import { canonicalLocale, FALLBACK_LOCALE } from "./locale-core.js?v=0.20.14";
 
 const AUTH_SESSION_KEY = "mars-net-auth-session-v1";
 const AUTH_TRANSACTION_KEY = "mars-net-auth-transaction-v1";
@@ -22,137 +24,9 @@ const QUEUE_DATABASE = "mars-net-cloud-v1";
 const QUEUE_STORE = "mutations";
 const CREW_IDS = ["mina", "juno", "noel"];
 
-const COPY = {
-  ko: {
-    guest: "게스트 · 이 기기에 저장됨",
-    signedIn: "클라우드 저장 중",
-    saved: "클라우드 저장 완료",
-    syncing: "동기화 중",
-    pending: "동기화 대기",
-    saveTitle: "이 기록을 계정에 저장",
-    saveLead: "로그인하면 다른 기기에서도 성장·판 기록·개인 채팅을 이어갈 수 있어요.",
-    saveAction: "로그인하고 기록 저장",
-    accountTitle: "MARS.NET 계정",
-    loginLead: "게스트 플레이는 계속 가능합니다. 로그인하면 현재 기기 기록을 안전하게 합칩니다.",
-    google: "Google로 계속하기",
-    email: "이메일로 로그인",
-    guestAction: "게스트로 시작",
-    authEyebrow: "2050 · MARS.NET",
-    authTitle: "화성에서 기다리는 친구들",
-    authLead: "로그인해서 기록을 이어가거나, 게스트로 바로 시작하세요.",
-    authLoading: "계정 연결 상태를 확인하는 중…",
-    guestNote: "가입 없이 바로 시작할 수 있어요. 진행 기록은 이 기기에 저장됩니다.",
-    privacyPolicy: "개인정보처리방침",
-    termsOfService: "이용약관",
-    emailLoginTitle: "이메일로 로그인",
-    emailSignupTitle: "MARS.NET 계정 만들기",
-    emailResetTitle: "비밀번호 재설정",
-    recoveryTitle: "새 비밀번호 설정",
-    emailLabel: "이메일",
-    passwordLabel: "비밀번호",
-    passwordConfirmLabel: "비밀번호 확인",
-    passwordHint: "8자 이상 입력하세요.",
-    emailPlaceholder: "you@example.com",
-    loginAction: "로그인",
-    signupAction: "회원가입",
-    resetAction: "재설정 메일 보내기",
-    updatePasswordAction: "새 비밀번호 저장",
-    forgotPassword: "비밀번호를 잊었나요?",
-    createAccount: "처음이신가요? 회원가입",
-    existingAccount: "이미 계정이 있나요? 로그인",
-    back: "이전으로",
-    confirmationSent: "인증 메일을 보냈습니다. 이메일을 확인한 뒤 로그인해 주세요.",
-    resetSent: "입력한 주소가 등록되어 있다면 재설정 메일을 보냈습니다.",
-    passwordUpdated: "비밀번호를 변경했습니다.",
-    invalidEmail: "올바른 이메일 주소를 입력해 주세요.",
-    passwordMismatch: "비밀번호가 서로 다릅니다.",
-    authError: "로그인 정보를 확인하거나 잠시 뒤 다시 시도해 주세요.",
-    providerGoogle: "Google",
-    providerEmail: "이메일",
-    unavailable: "클라우드 저장 설정 전입니다. 게임은 이 기기에 계속 저장됩니다.",
-    connected: "연결된 로그인",
-    lastSync: "마지막 동기화",
-    never: "아직 없음",
-    export: "전체 기록 JSON 내보내기",
-    deleteChats: "캐릭터별 채팅 삭제",
-    deleteChat: (name) => `${name} 채팅 삭제`,
-    logout: "로그아웃",
-    deleteAccount: "계정과 클라우드 기록 삭제",
-    feedback: "제작자에게 피드백·문의 보내기",
-    close: "계정 창 닫기",
-    confirmChatDelete: "이 캐릭터와의 저장된 채팅을 모두 삭제할까요? 되돌릴 수 없습니다.",
-    confirmAccountDelete: "계정, 성장 기록, 판 기록, 개인 채팅, 프로필 이미지를 모두 삭제할까요? 되돌릴 수 없습니다.",
-    reauth: "보안을 위해 다시 로그인한 뒤 계정 삭제를 시도해 주세요.",
-    error: "클라우드 연결에 실패했습니다. 로컬 플레이는 계속할 수 있어요.",
-    characters: { mina: "미나", juno: "주노", noel: "노엘" },
-  },
-  en: {
-    guest: "Guest · saved on this device",
-    signedIn: "Saving to cloud",
-    saved: "Saved to cloud",
-    syncing: "Syncing",
-    pending: "Waiting to sync",
-    saveTitle: "Save this record to an account",
-    saveLead: "Sign in to keep progression, matches, and private chats across devices.",
-    saveAction: "Sign in and save",
-    accountTitle: "MARS.NET account",
-    loginLead: "Guest play stays available. Signing in safely merges this device's records.",
-    google: "Continue with Google",
-    email: "Continue with email",
-    guestAction: "Continue as guest",
-    authEyebrow: "2050 · MARS.NET",
-    authTitle: "Your friends are waiting on Mars",
-    authLead: "Sign in to continue your record, or jump in as a guest.",
-    authLoading: "Checking your account…",
-    guestNote: "No account needed. Your progress will stay on this device.",
-    privacyPolicy: "Privacy",
-    termsOfService: "Terms",
-    emailLoginTitle: "Sign in with email",
-    emailSignupTitle: "Create a MARS.NET account",
-    emailResetTitle: "Reset your password",
-    recoveryTitle: "Set a new password",
-    emailLabel: "Email",
-    passwordLabel: "Password",
-    passwordConfirmLabel: "Confirm password",
-    passwordHint: "Use at least 8 characters.",
-    emailPlaceholder: "you@example.com",
-    loginAction: "Sign in",
-    signupAction: "Create account",
-    resetAction: "Send reset email",
-    updatePasswordAction: "Save new password",
-    forgotPassword: "Forgot password?",
-    createAccount: "New here? Create an account",
-    existingAccount: "Already have an account? Sign in",
-    back: "Back",
-    confirmationSent: "We sent a confirmation email. Verify it, then sign in.",
-    resetSent: "If that address is registered, a reset email is on its way.",
-    passwordUpdated: "Your password has been updated.",
-    invalidEmail: "Enter a valid email address.",
-    passwordMismatch: "The passwords do not match.",
-    authError: "Check your details or try again in a moment.",
-    providerGoogle: "Google",
-    providerEmail: "Email",
-    unavailable: "Cloud saving is not configured yet. The game will keep saving on this device.",
-    connected: "Connected sign-in",
-    lastSync: "Last synced",
-    never: "Not yet",
-    export: "Export all records as JSON",
-    deleteChats: "Delete chat by character",
-    deleteChat: (name) => `Delete ${name} chat`,
-    logout: "Log out",
-    deleteAccount: "Delete account and cloud records",
-    feedback: "Send feedback or a question to the creator",
-    close: "Close account panel",
-    confirmChatDelete: "Delete every saved chat with this character? This cannot be undone.",
-    confirmAccountDelete: "Delete the account, progression, matches, private chats, and avatar? This cannot be undone.",
-    reauth: "For security, sign in again before deleting the account.",
-    error: "Cloud connection failed. Local play is still available.",
-    characters: { mina: "Mina", juno: "Juno", noel: "Noel" },
-  },
-};
-
-const locale = new URLSearchParams(window.location.search).get("lang") === "en" ? "en" : "ko";
-const text = COPY[locale];
+const locale = getActiveLocale();
+if (!locale) throw new Error("A verified language pack must be activated before account services start.");
+const text = getCopy(locale).account;
 const nowIso = () => new Date().toISOString();
 const readJson = (key, fallback) => {
   try {
@@ -577,7 +451,7 @@ class AccountController extends EventTarget {
       version: ACCOUNT_SCHEMA_VERSION,
       profile: {
         ...profile,
-        locale,
+        locale: canonicalLocale(profile.locale) ?? FALLBACK_LOCALE,
         updatedAt: Number(profile.updatedAt) || (profile.name || profile.avatar ? Date.now() : 0),
       },
       progression: createProgression(readJson(PROGRESSION_STORAGE_KEY, null)),
@@ -825,7 +699,7 @@ class AccountController extends EventTarget {
     this.modalOpener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     this.modalOpen = true;
     this.renderModal();
-    document.querySelector(".account-modal button")?.focus();
+    document.querySelector(".account-sheet header button")?.focus();
   }
 
   closeModal() {
@@ -852,7 +726,7 @@ class AccountController extends EventTarget {
     const feedbackBody = encodeURIComponent(`Language: ${locale}\nBrowser: ${navigator.userAgent}\n\nFeedback / question:\n`);
     root.innerHTML = `
       <div class="account-modal" role="dialog" aria-modal="true" aria-labelledby="account-modal-title">
-        <button class="account-modal__backdrop" type="button" data-account-action="close" aria-label="${text.close}"></button>
+        <div class="account-modal__backdrop" data-account-action="close" aria-hidden="true"></div>
         <section class="account-sheet">
           <header><div><small>2050 · MARS.NET</small><h2 id="account-modal-title">${text.accountTitle}</h2></div><button type="button" data-account-action="close" aria-label="${text.close}">×</button></header>
           ${session ? `

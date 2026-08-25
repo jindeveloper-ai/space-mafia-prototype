@@ -1,8 +1,12 @@
-import { getFriendCopy } from "./friend-i18n.js?v=0.20.6";
+import { getFriendCopy } from "./friend-i18n.js?v=0.20.14";
+import { getActiveLocale, getCopy } from "./i18n.js?v=0.20.14";
+import { SUPPORTED_LOCALES } from "./locale-core.js?v=0.20.14";
 
 const app = document.querySelector("#friend-app");
 const params = new URLSearchParams(window.location.search);
-const locale = params.get("lang") === "en" ? "en" : "ko";
+const locale = getActiveLocale();
+if (!locale) throw new Error("A verified language pack must be activated before the friend room starts.");
+const localePack = getCopy(locale);
 const copy = getFriendCopy(locale);
 const SESSION_KEY = "mars-net-friend-room-v1";
 const PROFILE_KEY = "oxygen-room-profile";
@@ -18,9 +22,9 @@ const CHARACTER_IMAGES = {
   juno: "./assets/images/juno.png",
   noel: "./assets/images/noel.png",
 };
-const CHARACTER_NAMES = locale === "ko"
-  ? { mina: "미나", juno: "주노", noel: "노엘" }
-  : { mina: "Mina", juno: "Juno", noel: "Noel" };
+const CHARACTER_NAMES = Object.fromEntries(
+  Object.entries(localePack.crew).map(([id, character]) => [id, character.name]),
+);
 
 let mode = params.get("room") ? "join" : "create";
 let session = loadSession();
@@ -40,21 +44,53 @@ document.documentElement.lang = locale;
 document.title = copy.meta.title;
 document.querySelector("[data-home-link]").href = `./?lang=${locale}`;
 document.querySelector("[data-home-link]").setAttribute("aria-label", copy.meta.back);
-document.querySelector(".language-switch").setAttribute("aria-label", copy.meta.language);
-document.querySelectorAll("[data-lang]").forEach((link) => {
-  const next = new URL(link.href);
-  if (snapshot?.code || params.get("room")) next.searchParams.set("room", snapshot?.code || params.get("room"));
-  link.href = next.toString();
-  link.setAttribute("aria-current", link.dataset.lang === locale ? "page" : "false");
+const languageSettingsOpen = document.querySelector("[data-language-settings-open]");
+const languageSettingsMenu = document.querySelector("[data-language-settings-menu]");
+const languageSettingsRoot = languageSettingsOpen.closest(".friend-language-switch");
+languageSettingsOpen.setAttribute("aria-label", copy.meta.language);
+languageSettingsMenu.setAttribute("aria-label", copy.meta.language);
+function setLanguageMenuOpen(open) {
+  const expanded = Boolean(open);
+  languageSettingsOpen.setAttribute("aria-expanded", String(expanded));
+  languageSettingsMenu.hidden = !expanded;
+}
+languageSettingsOpen.addEventListener("click", () => {
+  setLanguageMenuOpen(languageSettingsOpen.getAttribute("aria-expanded") !== "true");
 });
+document.addEventListener("click", (event) => {
+  if (!languageSettingsRoot?.contains(event.target)) setLanguageMenuOpen(false);
+});
+document.addEventListener("keydown", (event) => {
+  if (event.key !== "Escape" || languageSettingsMenu.hidden) return;
+  setLanguageMenuOpen(false);
+  languageSettingsOpen.focus();
+});
+for (const language of SUPPORTED_LOCALES) {
+  const link = document.createElement("a");
+  const next = new URL(window.location.href);
+  next.searchParams.set("lang", language.code);
+  link.href = next.toString();
+  link.lang = language.code;
+  link.textContent = language.nativeName;
+  if (language.code === locale) link.setAttribute("aria-current", "page");
+  link.addEventListener("click", (event) => {
+    if (language.code === locale) {
+      event.preventDefault();
+      setLanguageMenuOpen(false);
+      languageSettingsOpen.focus();
+      return;
+    }
+    if (snapshot && !["lobby", "result", "ended"].includes(snapshot.phase)
+      && !window.confirm(localePack.ui.languageRestartConfirm)) event.preventDefault();
+  });
+  languageSettingsMenu.append(link);
+}
 
 const themeController = window.oxygenRoomTheme;
 const themeButton = document.querySelector("[data-theme-action]");
 function renderTheme() {
   const theme = themeController?.read() ?? "system";
-  const name = locale === "ko"
-    ? { system: "자동", light: "라이트", dark: "다크" }[theme]
-    : { system: "Auto", light: "Light", dark: "Dark" }[theme];
+  const name = copy.meta.themes[theme];
   themeButton.querySelector(".theme-icon").textContent = { system: "◐", light: "○", dark: "●" }[theme];
   themeButton.querySelector(".theme-text").textContent = name;
   themeButton.setAttribute("aria-label", copy.meta.themeControl(name));
@@ -334,6 +370,18 @@ async function refreshSnapshot() {
   }
 }
 
+async function reconnectSocket() {
+  if (!shouldReconnect || !session) return;
+  await refreshSnapshot();
+  if (!session) {
+    shouldReconnect = false;
+    connectionState = "disconnected";
+    render();
+    return;
+  }
+  connectSocket();
+}
+
 function connectSocket() {
   if (!session || socket?.readyState === WebSocket.OPEN || socket?.readyState === WebSocket.CONNECTING) return;
   connectionState = reconnectAttempt ? "reconnecting" : "disconnected";
@@ -342,8 +390,6 @@ function connectSocket() {
   const activeSocket = new WebSocket(`${scheme}://${window.location.host}/ws/rooms/${encodeURIComponent(session.code)}`);
   socket = activeSocket;
   activeSocket.addEventListener("open", () => {
-    reconnectAttempt = 0;
-    connectionState = "connected";
     activeSocket.send(JSON.stringify({ type: "authenticate", token: session.token, lastSeq: snapshot?.eventSeq ?? 0 }));
   });
   activeSocket.addEventListener("message", (event) => {
@@ -359,6 +405,7 @@ function connectSocket() {
       return;
     }
     if (data.type === "snapshot") {
+      reconnectAttempt = 0;
       snapshot = data.snapshot;
       connectionState = "connected";
       errorCode = null;
@@ -375,7 +422,10 @@ function connectSocket() {
     const delay = Math.min(8000, 500 * (2 ** reconnectAttempt));
     reconnectAttempt += 1;
     clearTimeout(reconnectTimer);
-    reconnectTimer = window.setTimeout(connectSocket, delay);
+    reconnectTimer = window.setTimeout(() => {
+      reconnectTimer = null;
+      void reconnectSocket();
+    }, delay);
   });
 }
 

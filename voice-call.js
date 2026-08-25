@@ -6,8 +6,9 @@ import {
   estimateVoiceCost,
   recordSessionEnded,
   recordSessionStarted,
-} from "./voice-call-core.js?v=0.20.6";
-import { createCallAudioEffectsController } from "./call-audio-effects.js?v=0.20.6";
+} from "./voice-call-core.js?v=0.20.14";
+import { createCallAudioEffectsController } from "./call-audio-effects.js?v=0.20.14";
+import { canonicalLocale, FALLBACK_LOCALE } from "./locale-core.js?v=0.20.14";
 
 const REALTIME_CALLS_URL = "https://api.openai.com/v1/realtime/calls";
 const SPEAKER_STYLE = {
@@ -29,7 +30,9 @@ const RECOVERABLE_TRANSCRIPTION_ERRORS = new Set([
 
 function estimatePlaybackDurationMs(text, locale) {
   const characterCount = [...String(text ?? "")].length;
-  const millisecondsPerCharacter = locale === "ko" ? 150 : 68;
+  const millisecondsPerCharacter = ["ko", "ja", "zh-CN", "zh-TW", "yue-Hant-HK"].includes(locale)
+    ? 150
+    : 68;
   return Math.min(32_000, Math.max(1_800, 1_100 + (characterCount * millisecondsPerCharacter)));
 }
 
@@ -64,7 +67,7 @@ export function createVoiceCallController(options = {}) {
   const localVadCalibrationMs = options.localVadCalibrationMs ?? LOCAL_VAD_CALIBRATION_MS;
   const localVadMaxUtteranceMs = options.localVadMaxUtteranceMs ?? LOCAL_VAD_MAX_UTTERANCE_MS;
   const localVadNoiseAlpha = options.localVadNoiseAlpha ?? LOCAL_VAD_NOISE_ALPHA;
-  const locale = options.locale === "en" ? "en" : "ko";
+  const locale = canonicalLocale(options.locale) ?? FALLBACK_LOCALE;
   const metrics = createVoiceMetrics();
   const stateMachine = createVoiceStateMachine(() => options.onUpdate?.(snapshot()));
   const audioEffects = options.audioEffectsController ?? createCallAudioEffectsController({
@@ -100,6 +103,7 @@ export function createVoiceCallController(options = {}) {
   let paused = false;
   let captionsEnabled = true;
   let captionText = "";
+  let playerTranscript = "";
   let activeSpeakerId = null;
   let lastSpeakerId = "mina";
   let disposed = false;
@@ -125,6 +129,7 @@ export function createVoiceCallController(options = {}) {
       captionsEnabled,
       callEffectsEnabled: audioEffects.snapshot().enabled,
       captionText,
+      playerTranscript,
       activeSpeakerId: activeOutput?.item.speakerId ?? activeSpeakerId,
       activeSpeakerIds: speakingOutputs.map((output) => output.item.speakerId),
       activeEmotion: activeOutput?.item.emotion ?? "neutral",
@@ -568,6 +573,7 @@ export function createVoiceCallController(options = {}) {
     if (manual) {
       safeSend(transcriptionConnection.channel, { type: "input_audio_buffer.clear" });
     }
+    playerTranscript = "";
     updateCaption("");
     stateMachine.transition("player_speaking");
     return true;
@@ -742,7 +748,8 @@ export function createVoiceCallController(options = {}) {
       startTranscriptionTimeout();
     }
     if (event.type === "conversation.item.input_audio_transcription.delta") {
-      updateCaption(`${captionText}${event.delta ?? ""}`);
+      playerTranscript += event.delta ?? "";
+      updateCaption(playerTranscript);
     }
     if (event.type === "conversation.item.input_audio_transcription.completed") {
       if (transcriptionTimer) clearTimer?.(transcriptionTimer);
@@ -751,6 +758,9 @@ export function createVoiceCallController(options = {}) {
       serverTurnActive = false;
       localTurnActive = false;
       resetLocalVad();
+      if (!transcriptGate.has(event.item_id)) {
+        playerTranscript = String(event.transcript ?? playerTranscript).trim();
+      }
       const accepted = transcriptGate.accept({ id: event.item_id, text: event.transcript });
       if (!accepted && !disposed && transcriptionConnection) stateMachine.transition("listening");
     }

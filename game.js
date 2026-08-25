@@ -19,15 +19,17 @@ import {
   plantEvidence,
   resolveVote,
   startGame,
-} from "./game-engine.js?v=0.20.6";
-import { getCopy, normalizeLocale } from "./i18n.js?v=0.20.6";
+} from "./game-engine.js?v=0.20.14";
+import { getActiveLocale, getCopy } from "./i18n.js?v=0.20.14";
+import { canonicalLocale } from "./locale-core.js?v=0.20.14";
+import { initializeLanguageSettings } from "./language-settings.js?v=0.20.14";
 import {
   buildChatPayload,
   fallbackAccusation,
   fallbackResponse,
   MAX_CHAT_LENGTH,
   normalizeInterpretation,
-} from "./chat-adapter.js?v=0.20.6";
+} from "./chat-adapter.js?v=0.20.14";
 import {
   acceptPersonalQuest,
   awardCrewLevels,
@@ -44,26 +46,29 @@ import {
   setEquippedJob,
   setDifficultyMode,
   settlePersonalQuest,
-} from "./progression.js?v=0.20.6";
-import { accountController, createMutationId } from "./account-client.js?v=0.20.6";
-import { createVoiceCallController } from "./voice-call.js?v=0.20.6";
-import { createFriendCallController } from "./friend-call.js?v=0.20.6";
+} from "./progression.js?v=0.20.14";
+import { accountController, createMutationId } from "./account-client.js?v=0.20.14";
+import { createVoiceCallController } from "./voice-call.js?v=0.20.14";
+import { createFriendCallController } from "./friend-call.js?v=0.20.14";
 import {
   readCallEffectsEnabled,
   writeCallEffectsEnabled,
-} from "./call-audio-effects.js?v=0.20.6";
+} from "./call-audio-effects.js?v=0.20.14";
 import {
   beginVoiceTurnFinalization,
   createVoiceTurn,
   expireVoiceTurn,
   recordVoiceTurnCandidate,
   voiceTurnSecondsLeft,
-} from "./voice-turn.js?v=0.20.6";
+} from "./voice-turn.js?v=0.20.14";
 
 const app = document.querySelector("#app");
+const LOCALE_RETURN_PHASE_KEY = "mars-net-locale-return-phase-v1";
 const assetVersion = new URL(import.meta.url).searchParams.get("v");
 const versionLabel = assetVersion ? `v${assetVersion}` : "dev";
-const locale = normalizeLocale(new URLSearchParams(window.location.search).get("lang"));
+const locale = getActiveLocale();
+if (!locale) throw new Error("A verified language pack must be activated before the game starts.");
+const voiceIsBeta = locale === "yue-Hant-HK";
 const requestedTestDate = new URLSearchParams(window.location.search).get("testDate");
 const injectedTestDate = ["127.0.0.1", "localhost"].includes(window.location.hostname)
   && /^\d{4}-\d{2}-\d{2}$/.test(requestedTestDate ?? "")
@@ -74,6 +79,7 @@ const newRoundId = () => globalThis.crypto?.randomUUID?.()
   ?? `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 const copy = getCopy(locale);
 const ui = copy.ui;
+const motionCopy = ui.motion;
 const FRIEND_EMOJI_OPTIONS = ["😂", "🥹", "😅", "🤔", "😳", "🙄", "👍", "👏", "❤️", "🔥", "👀", "🚀"];
 const FRIEND_STICKERS = [
   { id: "mina-capture", ownerId: "mina", labelIndex: 0, src: "./assets/images/stickers/mina-capture-v1.gif" },
@@ -179,15 +185,8 @@ document.querySelector(".topbar").setAttribute("aria-label", copy.meta.gameInfo)
 document.querySelector(".brand").setAttribute("aria-label", copy.meta.home);
 document.querySelector(".brand").href = `./?lang=${locale}`;
 document.querySelector(".brand-name").textContent = copy.meta.brand;
-document.querySelector(".language-switch").setAttribute("aria-label", copy.meta.language);
 document.querySelector(".footer-copy").textContent = copy.meta.footer;
 document.querySelector(".footer-version").textContent = versionLabel;
-document.querySelectorAll("[data-lang]").forEach((link) => {
-  const nextParams = new URLSearchParams(window.location.search);
-  nextParams.set("lang", link.dataset.lang);
-  link.href = `./?${nextParams.toString()}`;
-  link.setAttribute("aria-current", link.dataset.lang === locale ? "page" : "false");
-});
 
 const themeButton = document.querySelector("[data-theme-action]");
 const themeController = window.oxygenRoomTheme;
@@ -223,6 +222,7 @@ let state = {
 };
 let authInitialView = "choice";
 let selectedTargetId = null;
+let evidencePlantingTargetId = null;
 let chatLog = [];
 let chatPending = false;
 let chatMode = "ready";
@@ -233,6 +233,9 @@ let friendConversationIndex = 0;
 let friendChatLoadingOlder = false;
 let friendCallController = null;
 let friendCallSnapshot = null;
+let friendCallTextDraft = "";
+let friendChatTextDraft = "";
+let gameChatTextDraft = "";
 let callEffectsEnabled = readCallEffectsEnabled();
 let playerProfile = loadPlayerProfile();
 let questOfferCharacterId = null;
@@ -255,11 +258,44 @@ const archiveSessionComments = Object.create(null);
 const archivePendingReplies = Object.create(null);
 const shownContextMedia = new Set();
 
-document.querySelectorAll("[data-lang]").forEach((link) => {
-  link.addEventListener("click", (event) => {
-    if (["auth", "welcome", "profile", "home", "intro"].includes(state.phase)) return;
-    if (!window.confirm(ui.languageRestartConfirm)) event.preventDefault();
-  });
+initializeLanguageSettings({ locale, labels: ui.languageSettings });
+if (new URLSearchParams(window.location.search).get("settings") === "language") {
+  window.queueMicrotask(() => document.querySelector("[data-language-settings-open]")?.click());
+}
+
+window.addEventListener("mars:locale-change-request", (event) => {
+  const nextLocale = canonicalLocale(event.detail?.locale);
+  if (!nextLocale || nextLocale === locale) {
+    event.preventDefault();
+    return;
+  }
+  if (!["auth", "welcome", "profile", "home", "intro"].includes(state.phase)
+    && !window.confirm(ui.languageRestartConfirm)) {
+    event.preventDefault();
+    return;
+  }
+
+  playerProfile = { ...playerProfile, locale: nextLocale, updatedAt: Date.now() };
+  let stored = true;
+  try {
+    window.localStorage.setItem(PROFILE_STORAGE_KEY, JSON.stringify(playerProfile));
+  } catch {
+    stored = false;
+  }
+  accountController.notifyLocalState();
+  try {
+    if (["welcome", "profile", "home", "intro"].includes(state.phase)) {
+      window.sessionStorage.setItem(LOCALE_RETURN_PHASE_KEY, state.phase);
+    } else {
+      window.sessionStorage.removeItem(LOCALE_RETURN_PHASE_KEY);
+    }
+  } catch {
+    // Reloading at the default entry screen is still safe when session storage is unavailable.
+  }
+  const nextUrl = new URL(window.location.href);
+  if (stored) nextUrl.searchParams.delete("lang");
+  else nextUrl.searchParams.set("lang", nextLocale);
+  window.location.assign(nextUrl.href);
 });
 
 const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
@@ -357,8 +393,7 @@ function createRoundVoiceController() {
       await handleVoiceDiscussionSubmit(stage, utterance.text, { utteranceId: utterance.id });
     },
     onFallback() {
-      voiceFallbackNotice = ui.voice.fallbackNotice;
-      render();
+      fallbackVoiceGameToText(voiceController);
     },
     onMetrics(metrics) {
       if (debugVoice) console.debug("[MARS.NET voice metrics]", metrics);
@@ -379,9 +414,7 @@ async function speakVoiceOpening(controller) {
     });
     if (spoken.completed) voicedOpeningKeys.add(openingKey);
   } catch {
-    controller.end({ fallback: true });
-    voiceFallbackNotice = ui.voice.fallbackNotice;
-    render();
+    fallbackVoiceGameToText(controller);
   }
 }
 
@@ -397,7 +430,8 @@ async function reconnectVoiceGame() {
   render();
 }
 
-function switchVoiceGameToText() {
+function switchVoiceGameToText(preservedText = gameChatTextDraft) {
+  gameChatTextDraft = String(preservedText ?? "").trim().slice(0, MAX_CHAT_LENGTH);
   clearVoiceTurn();
   voiceController?.end({ fallback: true });
   voiceController = null;
@@ -405,6 +439,20 @@ function switchVoiceGameToText() {
   voiceFallbackNotice = null;
   chatNotice = ui.voice.switchedToText;
   render();
+  window.requestAnimationFrame(() => app.querySelector("#player-message")?.focus());
+}
+
+function fallbackVoiceGameToText(controller = voiceController) {
+  const transcript = String(controller?.snapshot().playerTranscript ?? "").trim();
+  const lastPlayerMessage = [...chatLog].reverse().find((item) => item.speakerId === "player")?.text ?? "";
+  const preservedText = gameChatTextDraft.trim() || (transcript !== lastPlayerMessage ? transcript : "");
+  if (playMode === "voice" && voiceStageForPhase()) {
+    switchVoiceGameToText(preservedText);
+    return true;
+  }
+  voiceFallbackNotice = ui.voice.fallbackNotice;
+  render();
+  return false;
 }
 
 function endVoiceGame() {
@@ -417,6 +465,7 @@ function endVoiceGame() {
   chatLog = [];
   chatPending = false;
   chatNotice = null;
+  gameChatTextDraft = "";
   typingSpeakerId = null;
   state = { ...state, phase: "intro" };
   render();
@@ -435,6 +484,7 @@ async function beginVoiceGame() {
     return;
   }
   voiceFallbackNotice = null;
+  gameChatTextDraft = "";
   clearVoiceTurn();
   detectiveInspection = null;
   lastPersonalQuestResult = null;
@@ -463,6 +513,7 @@ async function beginFriendCall() {
     return;
   }
   const personId = selectedFriendId;
+  friendCallTextDraft = friendChatTextDraft;
   friendCallSnapshot = {
     characterId: personId,
     phase: "idle",
@@ -502,6 +553,17 @@ async function beginFriendCall() {
     onUsage({ characterId, dateKey, seconds }) {
       saveProgression(recordFriendCallUsage(progression, characterId, seconds, dateKey ?? currentDateKey()));
     },
+    onFallback(snapshot) {
+      const preservedText = friendCallTextDraft.trim() || String(snapshot.playerTranscript ?? "").trim();
+      friendCallController = null;
+      friendCallSnapshot = null;
+      friendCallTextDraft = "";
+      friendChatTextDraft = preservedText;
+      chatNotice = ui.voice.switchedToText;
+      state = { ...state, phase: "friend-chat" };
+      render();
+      window.requestAnimationFrame(() => app.querySelector("#player-message")?.focus());
+    },
     onEnded(snapshot) {
       friendCallSnapshot = snapshot;
       if (snapshot.reason !== "daily_limit" || state.phase !== "friend-call") return;
@@ -519,6 +581,7 @@ function endFriendCall(reason = "user") {
   friendCallController?.end(reason);
   friendCallController = null;
   friendCallSnapshot = null;
+  friendCallTextDraft = "";
   if (selectedFriendId) state = { ...state, phase: "friend-chat" };
   else state = { ...state, phase: "friend-select" };
   render();
@@ -529,6 +592,7 @@ function beginTextGame() {
   voiceController?.end({ fallback: true });
   voiceController = null;
   playMode = "text";
+  gameChatTextDraft = "";
   detectiveInspection = null;
   lastPersonalQuestResult = null;
   lastClueAward = null;
@@ -722,6 +786,11 @@ function voiceEmotionForReply(reply, stage = "accusation") {
 function voiceAvatar(person, emotion = "neutral") {
   const source = VOICE_EXPRESSION_STICKERS[person.id]?.[emotion] ?? CREW_AVATARS[person.id];
   return `<span class="avatar avatar--large avatar--${person.id} voice-expression is-${emotion}" aria-hidden="true"><img src="${source}" alt="" /></span>`;
+}
+
+function reactionAvatar(person, emotion = "skeptical") {
+  const source = VOICE_EXPRESSION_STICKERS[person.id]?.[emotion] ?? CREW_AVATARS[person.id];
+  return `<span class="avatar avatar--small avatar--${person.id} deduction-expression is-${emotion}" aria-hidden="true"><img src="${source}" alt="" /></span>`;
 }
 
 function characterProfileButton(person, size, origin) {
@@ -946,7 +1015,7 @@ function renderCharacterArchive() {
                     <b>${escapeHtml(comment.author)}</b><span>${escapeHtml(comment.text)}</span><small>${escapeHtml(comment.time ?? ui.characterArchive.now)}</small>
                   </p>
                 `).join("")}
-                ${archivePendingReplies[threadKey] ? `<p class="archive-comment is-author is-typing"><b>${ui.characterArchive.author}</b><span>${ui.characterArchive.replyLoading}</span><small>${ui.characterArchive.now}</small></p>` : ""}
+                ${archivePendingReplies[threadKey] ? `<p class="archive-comment is-author is-typing"><span class="archive-reply-avatar">${personAvatar(person, "small")}<i></i></span><b>${ui.characterArchive.author}</b><span>${ui.characterArchive.replyLoading}</span><small>${ui.characterArchive.now}</small></p>` : ""}
                 <form class="archive-comment-form" data-character-id="${person.id}" data-post-index="${postIndex}">
                   <label class="visually-hidden" for="archive-comment-${person.id}-${postIndex}">${ui.characterArchive.commentPlaceholder}</label>
                   <input id="archive-comment-${person.id}-${postIndex}" name="comment" maxlength="120" placeholder="${ui.characterArchive.commentPlaceholder}" ${archivePendingReplies[threadKey] ? "disabled" : ""} required />
@@ -1235,7 +1304,10 @@ function renderVoiceConsent() {
     <section class="voice-consent-screen">
       <button class="plain-back" type="button" data-action="cancel-voice" aria-label="${ui.homeBack}">‹</button>
       <div class="voice-consent-copy">
-        <span>${ui.voice.consentEyebrow}</span>
+        <span>
+          ${ui.voice.consentEyebrow}
+          ${voiceIsBeta ? `<span class="voice-beta-badge">${ui.languageSettings.voiceBeta}</span>` : ""}
+        </span>
         <h1 tabindex="-1">${ui.voice.consentTitle}</h1>
         <p>${ui.voice.consentLead}</p>
       </div>
@@ -1472,7 +1544,7 @@ function renderVoiceCall() {
         <span>${ui.voice.textInputHint}</span>
         <div class="chat-composer__row">
           <label class="visually-hidden" for="player-message">${ui.chatInputLabel}</label>
-          <textarea id="player-message" name="message" maxlength="${MAX_CHAT_LENGTH}" rows="1" placeholder="${ui.voice.textInputPlaceholder}" ${inputDisabled ? "disabled" : ""} required></textarea>
+          <textarea id="player-message" name="message" maxlength="${MAX_CHAT_LENGTH}" rows="1" placeholder="${ui.voice.textInputPlaceholder}" ${inputDisabled ? "disabled" : ""} required>${escapeHtml(gameChatTextDraft)}</textarea>
           <button class="composer-send" type="submit" aria-label="${ui.chatSend}" ${inputDisabled ? "disabled" : ""}><span aria-hidden="true">↑</span></button>
         </div>
       </form>
@@ -1532,8 +1604,10 @@ function renderFriendSelect() {
         </div>
         ${renderJournal()}
         <div class="friend-list" role="list">
-          ${crew.map((person) => `
-            <div class="friend-row" role="listitem">
+          ${crew.map((person) => {
+            const affinityTier = progression.affinity[person.id] >= 6 ? "close" : progression.affinity[person.id] >= 3 ? "warm" : "distant";
+            return `
+            <div class="friend-row" role="listitem" data-affinity="${affinityTier}">
               ${characterProfileButton(person, "normal", `friend-list-${person.id}`)}
               <button class="friend-row__chat" type="button" data-action="choose-friend" data-id="${person.id}" aria-label="${ui.friendChatWith(person.name)}">
                 <span><strong>${person.name} <small class="level-badge">${crewLevelLabel(person.id)}</small></strong><small>${person.style} · ${ui.affinity(progression.affinity[person.id])}</small></span>
@@ -1541,7 +1615,8 @@ function renderFriendSelect() {
                 <span class="friend-row__arrow" aria-hidden="true">›</span>
               </button>
             </div>
-          `).join("")}
+          `;
+          }).join("")}
         </div>
       </section>
     </div>
@@ -1552,6 +1627,7 @@ function openFriendChat(personId) {
   const person = crewMember(personId);
   const variant = (state.caseIndex + friendConversationIndex + crew.findIndex((item) => item.id === personId)) % 3;
   selectedFriendId = personId;
+  friendChatTextDraft = "";
   friendChatLoadingOlder = false;
   questOfferCharacterId = null;
   friendConversationIndex += 1;
@@ -1575,15 +1651,18 @@ function openFriendChat(personId) {
 
 function crewChoiceCard(person, selectedId, action) {
   const isSelected = selectedId === person.id;
+  const isPlanting = evidencePlantingTargetId === person.id;
   return `
     <button
-      class="crew-action ${isSelected ? "is-selected" : ""}"
+      class="crew-action ${isSelected ? "is-selected" : ""} ${isPlanting ? "is-planting" : ""}"
       data-action="${action}"
       data-id="${person.id}"
       role="radio"
       aria-checked="${isSelected}"
+      ${evidencePlantingTargetId ? "disabled" : ""}
     >
       ${personAvatar(person, "small")}
+      <i class="crew-locker" aria-hidden="true"></i>
       <span>${person.name}</span>
       <small>${isSelected ? ui.selected : ui.select}</small>
     </button>
@@ -1591,8 +1670,9 @@ function crewChoiceCard(person, selectedId, action) {
 }
 
 function renderEvidence() {
+  const target = selectedTargetId ? crewMember(selectedTargetId) : null;
   return `
-    <div class="game-room-view is-chat is-setup">
+    <div class="game-room-view is-chat is-setup evidence-planting-view ${evidencePlantingTargetId ? "is-planting" : ""}">
       ${gameRoomBar(1, ui.stages.evidence)}
       <section class="chat-room is-focus" aria-label="${ui.chatTranscriptAria}">
         <div class="chat-transcript setup-transcript">
@@ -1605,8 +1685,8 @@ function renderEvidence() {
           </article>
           ${subquestCard()}
           ${renderActivePersonalQuest("game")}
-          <article class="private-action-card">
-            <span>${ui.evidenceMark}</span>
+          <article class="private-action-card evidence-payload ${target ? "has-target" : ""}">
+            <span class="evidence-card-token"><i aria-hidden="true"></i><b>${ui.evidenceMark}</b></span>
             <div><strong>${incident.evidence}</strong><p>${ui.evidencePrompt}</p></div>
           </article>
         </div>
@@ -1615,7 +1695,7 @@ function renderEvidence() {
         <div class="crew-action-row" role="radiogroup" aria-label="${ui.evidenceGroup}">
           ${crew.map((person) => crewChoiceCard(person, selectedTargetId, "select-target")).join("")}
         </div>
-        <button class="primary-button" data-action="plant" ${selectedTargetId ? "" : "disabled"}>
+        <button class="primary-button" data-action="plant" ${selectedTargetId && !evidencePlantingTargetId ? "" : "disabled"}>
           ${selectedTargetId ? ui.plant(crewMember(selectedTargetId).name) : ui.chooseOne}
         </button>
       </div>
@@ -1738,9 +1818,11 @@ function chatMessage(item, index) {
     ? profileAvatar("small")
     : state.phase === "friend-chat"
       ? characterProfileButton(person, "small", `friend-message-${person.id}-${index}`)
-      : personAvatar(person, "small");
+      : item.emotion
+        ? reactionAvatar(person, item.emotion)
+        : personAvatar(person, "small");
   return `
-    <article class="chat-message ${item.speakerId === "player" ? "is-player" : ""}">
+    <article class="chat-message ${item.speakerId === "player" ? "is-player" : ""} ${item.emotion ? `is-reacting is-${item.emotion}` : ""}" data-speaker="${item.speakerId}">
       ${avatar}
       <div>
         <strong>${item.speakerId === "player" ? escapeHtml(playerProfile.name || ui.chatYou) : escapeHtml(person?.name ?? item.speakerId)}<small>${ui.chatNow}</small></strong>
@@ -1749,6 +1831,47 @@ function chatMessage(item, index) {
           : `<p>${escapeHtml(item.text)}</p>`}
       </div>
     </article>
+  `;
+}
+
+function renderDeductionFlow() {
+  const accused = crewMember(state.accusedId);
+  const claim = getClaimOptions(state.accusedId, locale).find((option) => option.id === state.claimId);
+  const fact = state.facts[state.accusedId];
+  const beforeByVoter = new Map(state.leanHistory.afterEvidence.map((lean) => [lean.voterId, lean.candidateId]));
+  const shifts = getCurrentLeans(state).filter((lean) => beforeByVoter.get(lean.voterId) !== lean.candidateId);
+  const connection = state.lieImpact < 0 ? "conflict" : state.lieImpact >= 12 ? "strong" : "weak";
+  const connectionLabel = motionCopy[connection];
+  const playerMessage = [...chatLog].reverse().find((item) => item.speakerId === "player")?.text ?? claim?.short;
+  const emotion = connection === "conflict" ? "heated" : connection === "strong" ? "amused" : "skeptical";
+  return `
+    <section class="deduction-flow is-${connection}" aria-label="${ui.chatDecisionLead}">
+      <article class="deduction-step is-message">
+        <small>${ui.chatYou}</small>
+        <strong>“${escapeHtml(playerMessage)}”</strong>
+      </article>
+      <i class="deduction-link" aria-hidden="true"></i>
+      <article class="deduction-step is-reaction" data-character="${accused.id}">
+        ${reactionAvatar(accused, emotion)}
+        <span><small>${accused.name} · ${motionCopy.reaction}</small><strong>${escapeHtml(claim?.short ?? state.claimId)}</strong></span>
+      </article>
+      <i class="deduction-link" aria-hidden="true"></i>
+      <article class="deduction-step is-fact">
+        <small>${motionCopy.verifiedFact}</small>
+        <strong>${escapeHtml(fact.title)}</strong>
+        <span>${connectionLabel}</span>
+      </article>
+      <i class="deduction-link" aria-hidden="true"></i>
+      <article class="deduction-step is-suspicion">
+        <small>${motionCopy.suspicion}</small>
+        <strong>${displayName(state.accusedId)}</strong>
+      </article>
+      <i class="deduction-link" aria-hidden="true"></i>
+      <article class="deduction-step is-vote">
+        <small>${motionCopy.vote}</small>
+        <strong>${shifts.length ? motionCopy.shifted(shifts.length) : motionCopy.held}</strong>
+      </article>
+    </section>
   `;
 }
 
@@ -1821,7 +1944,7 @@ function renderChat() {
         <form class="chat-composer" data-chat-stage="${stage}">
           <label class="visually-hidden" for="player-message">${ui.chatInputLabel}</label>
           <div class="chat-composer__row">
-            <textarea id="player-message" name="message" maxlength="${MAX_CHAT_LENGTH}" rows="1" placeholder="${isAccusation ? ui.chatPlaceholderAccuse : ui.chatPlaceholderReply}" ${chatPending ? "disabled" : ""} required></textarea>
+            <textarea id="player-message" name="message" maxlength="${MAX_CHAT_LENGTH}" rows="1" placeholder="${isAccusation ? ui.chatPlaceholderAccuse : ui.chatPlaceholderReply}" ${chatPending ? "disabled" : ""} required>${escapeHtml(gameChatTextDraft)}</textarea>
             <button class="composer-send" type="submit" aria-label="${ui.chatSend}" ${chatPending ? "disabled" : ""}><span aria-hidden="true">↑</span></button>
           </div>
           <small class="chat-limit">${ui.chatLength(MAX_CHAT_LENGTH)}</small>
@@ -1840,7 +1963,9 @@ function friendRoomBar(person) {
       <div class="game-room-bar__copy">
         <strong>${person.name}</strong>
         <small>${chatPending ? ui.chatTypingPerson(person.name) : friendStatusLabel()} · ${crewLevelLabel(person.id)} · ${ui.affinity(progression.affinity[person.id])}</small>
+        ${voiceIsBeta ? `<span class="voice-beta-badge">${ui.languageSettings.voiceBeta}</span>` : ""}
       </div>
+      <span class="friend-presence ${chatPending ? "is-writing" : ""}" aria-hidden="true"><i></i><i></i><i></i></span>
       <button class="friend-call-start" type="button" data-action="start-friend-call" aria-label="${ui.friendCall.startAria(person.name, remaining)}" title="${ui.friendCall.start}">
         <span aria-hidden="true">☎</span><small>${Math.floor(remaining / 60)}:${String(remaining % 60).padStart(2, "0")}</small>
       </button>
@@ -1854,8 +1979,9 @@ function friendRoomBar(person) {
 
 function renderFriendChat() {
   const person = crewMember(selectedFriendId);
+  const affinityTier = progression.affinity[person.id] >= 6 ? "close" : progression.affinity[person.id] >= 3 ? "warm" : "distant";
   return `
-    <div class="game-room-view is-chat friend-chat-view">
+    <div class="game-room-view is-chat friend-chat-view is-${affinityTier}">
       ${friendRoomBar(person)}
       <section class="chat-room is-focus" aria-label="${ui.friendTranscriptAria(person.name)}">
         <div class="chat-transcript" aria-live="polite">
@@ -1892,7 +2018,7 @@ function renderFriendChat() {
                 }).join("")}
               </div>
             </details>
-            <textarea id="player-message" name="message" maxlength="${MAX_CHAT_LENGTH}" rows="1" placeholder="${ui.friendChatPlaceholder(person.name)}" ${chatPending ? "disabled" : ""} required></textarea>
+            <textarea id="player-message" name="message" maxlength="${MAX_CHAT_LENGTH}" rows="1" placeholder="${ui.friendChatPlaceholder(person.name)}" ${chatPending ? "disabled" : ""} required>${escapeHtml(friendChatTextDraft)}</textarea>
             <button class="composer-send" type="submit" aria-label="${ui.chatSend}" ${chatPending ? "disabled" : ""}><span aria-hidden="true">↑</span></button>
           </div>
           <small class="chat-limit">${ui.friendChatPrivacy} · ${ui.chatLength(MAX_CHAT_LENGTH)}</small>
@@ -1922,7 +2048,7 @@ function renderFriendCall() {
     <div class="friend-call-view" data-call-phase="${call.phase}">
       <header class="friend-call-header">
         <button type="button" data-action="friend-call-end" aria-label="${ui.friendCall.end}">‹</button>
-        <div><strong>${ui.friendCall.title(person.name)}</strong><small>${ui.friendCall.dailyLimit}</small></div>
+        <div><strong>${ui.friendCall.title(person.name)}</strong><small>${ui.friendCall.dailyLimit}</small>${voiceIsBeta ? `<span class="voice-beta-badge">${ui.languageSettings.voiceBeta}</span>` : ""}</div>
         <span class="friend-call-clock" aria-label="${ui.friendCall.remaining(clock)}">${clock}</span>
       </header>
       <main class="friend-call-stage">
@@ -1974,13 +2100,15 @@ function renderResponse() {
 
       ${renderActivePersonalQuest("game")}
 
+      ${renderDeductionFlow()}
+
       <section class="pre-vote-sheet" aria-label="${ui.preVoteAria}">
         <strong>${ui.chatDecisionLead}</strong>
         <div class="lean-list">
           ${leans
             .map(
               (lean) => `
-                <div class="lean-card">
+                <div class="lean-card" style="--lean-index:${leans.indexOf(lean)}">
                   <span>${displayName(lean.voterId)}</span>
                   <small>${clueCountLabel(lean.clueCount)}</small>
                   <strong>${displayName(lean.candidateId)}</strong>
@@ -2077,9 +2205,21 @@ function renderResult() {
     : isWin
       ? state.voteShiftCount > 0 ? result.shiftWhy : result.safeWhy
       : result.loseWhy;
+  const verdictTarget = isDraw ? null : isWin ? crewMember(state.selectedId) : null;
+  const verdictLabel = isDraw ? motionCopy.draw : isWin ? motionCopy.eliminated : motionCopy.exposed;
   return `
     ${progress(5, ui.stages.result)}
-    <div class="result-symbol ${resultClass}" aria-hidden="true">${resultSymbol}</div>
+    <section class="result-verdict ${resultClass} ${state.resultTier === "mastermind" ? "is-mastermind" : ""}" aria-hidden="true">
+      <div class="result-verdict__profile">
+        ${isDraw
+          ? `<span class="split-token">${resultSymbol}</span>`
+          : verdictTarget
+            ? personAvatar(verdictTarget, "large")
+            : profileAvatar("large")}
+        <strong>${isDraw ? ui.result.drawTitle : verdictTarget?.name ?? playerProfile.name ?? ui.chatYou}</strong>
+      </div>
+      <span class="result-stamp">${verdictLabel}</span>
+    </section>
     <div class="section-heading result-heading">
       <span class="eyebrow">${eyebrow}</span>
       <h1 tabindex="-1">${title}</h1>
@@ -2097,8 +2237,9 @@ function renderResult() {
     <div class="vote-grid" aria-label="${ui.resultAria}">
       ${state.votes
         .map(
-          (vote) => `
-            <article class="vote-card detailed">
+          (vote, index) => `
+            <article class="vote-card detailed ${state.resultTier === "mastermind" && vote.candidateId === state.selectedId ? "is-reversed" : ""}" style="--vote-index:${index}">
+              <i class="vote-token" aria-hidden="true"></i>
               <div><span>${displayName(vote.voterId)}</span><span aria-hidden="true">→</span><strong>${displayName(vote.candidateId)}</strong></div>
               <small class="clue-count">${clueCountLabel(vote.clueCount)}</small>
               <p>${escapeHtml(vote.reason)}</p>
@@ -2189,6 +2330,11 @@ function renderDebrief() {
         <span>${ui.debriefSummary}</span>
         <strong>${ui.debriefOutcome[state.outcome]}</strong>
         <p>${debriefSummaryLine()}</p>
+        <div class="debrief-flashback" aria-hidden="true">
+          ${state.votes.map((vote, index) => `
+            <span style="--flashback-index:${index}"><b>${displayName(vote.voterId)}</b><i>→</i><strong>${displayName(vote.candidateId)}</strong></span>
+          `).join("")}
+        </div>
       </section>
       ${renderActivePersonalQuest("result")}
       ${lastClueAward ? `<p class="clue-award-banner"><strong>${ui.journal.clueAwarded}</strong><span>${progression.clues.length >= 5 ? ui.journal.unlock : ui.journal.clueTitles[progression.clues.length - 1]}</span></p>` : ""}
@@ -2213,6 +2359,7 @@ function renderDebrief() {
 
 function startChat() {
   shownContextMedia.clear();
+  gameChatTextDraft = "";
   chatLog = [
     { speakerId: "system", text: state.difficultyMode === "hard" ? ui.chatHardAccuseLead : ui.chatAccuseLead },
     ...getMeetingStatements(state).map((statement) => ({
@@ -2229,8 +2376,7 @@ function startChat() {
     const controller = voiceController ?? createRoundVoiceController();
     void controller.connect().then(async (connected) => {
       if (!connected) {
-        voiceFallbackNotice = ui.voice.fallbackNotice;
-        render();
+        if (playMode === "voice") fallbackVoiceGameToText(controller);
         return;
       }
       voiceFallbackNotice = null;
@@ -2269,7 +2415,7 @@ async function requestCharacterChat(stage, message, friendId = null, options = {
 
 async function openDebrief() {
   if (chatPending) return;
-  const dailyProgress = markDebriefViewed(progression, { date: currentDateKey() });
+  const dailyProgress = markDebriefViewed(progression, { date: currentDateKey(), gameState: state });
   saveProgression(dailyProgress.progress);
   lastClueAward = dailyProgress.clue;
   chatLog = [{ speakerId: "system", text: debriefSummaryLine() }];
@@ -2391,18 +2537,14 @@ async function revealReplies(replies, stage) {
           break;
         }
       } catch {
-        voiceController?.end({ fallback: true });
-        voiceFallbackNotice = ui.voice.fallbackNotice;
-        chatNotice = ui.voice.fallbackNotice;
-        render();
+        fallbackVoiceGameToText(voiceController);
         break;
       }
     } else {
       await wait(typingDuration(reply));
     }
     typingSpeakerId = null;
-    const { emotion, ...visibleReply } = reply;
-    chatLog.push(visibleReply);
+    chatLog.push(reply);
     render();
     await wait(140);
   }
@@ -2474,9 +2616,7 @@ async function beginNextVoiceTurn(controller) {
       emotion: voiceEmotionForReply(prompt, nextStage),
     });
   } catch {
-    controller.end({ fallback: true });
-    voiceFallbackNotice = ui.voice.fallbackNotice;
-    render();
+    fallbackVoiceGameToText(controller);
     return;
   }
   if (controller === voiceController) startVoiceDiscussionTurn(nextStage);
@@ -2554,6 +2694,7 @@ async function handleVoiceDiscussionSubmit(stage, rawMessage, options = {}) {
     }
   }
 
+  gameChatTextDraft = "";
   const activeTurnId = voiceTurn.id;
   chatLog.push({ speakerId: "player", text: message });
   appendContextMedia("game", message);
@@ -2636,6 +2777,7 @@ async function handleChatSubmit(stage, rawMessage, options = {}) {
     }
   }
 
+  gameChatTextDraft = "";
   chatLog.push({ speakerId: "player", text: message });
   appendContextMedia("game", message);
   chatPending = true;
@@ -2662,9 +2804,7 @@ async function handleChatSubmit(stage, rawMessage, options = {}) {
     try {
       await voiceController?.speak(speakerId, clarification);
     } catch {
-      voiceController?.end({ fallback: true });
-      voiceFallbackNotice = ui.voice.fallbackNotice;
-      chatNotice = ui.voice.fallbackNotice;
+      fallbackVoiceGameToText(voiceController);
     }
     typingSpeakerId = null;
     chatLog.push(reply);
@@ -2757,6 +2897,7 @@ async function handleFriendSubmit(rawMessage) {
   if (chatPending || !selectedFriendId) return;
   const message = String(rawMessage).trim().slice(0, MAX_CHAT_LENGTH);
   if (!message) return;
+  friendChatTextDraft = "";
 
   const playerMessage = {
     speakerId: "player",
@@ -2840,6 +2981,8 @@ function render() {
   soundController?.setSuppressed?.(voiceCallActive);
   app.dataset.phase = state.phase;
   app.innerHTML = `${views[state.phase]()}${renderBottomNavigation()}${renderCharacterArchive()}`;
+  const friendCallInput = app.querySelector("#friend-call-message");
+  if (friendCallInput instanceof HTMLInputElement) friendCallInput.value = friendCallTextDraft;
   const welcomeVideo = app.querySelector("[data-welcome-video]");
   if (welcomeVideo) {
     if (reducedMotion.matches) {
@@ -2862,6 +3005,7 @@ function render() {
 
 function resetGame() {
   clearVoiceTurn();
+  gameChatTextDraft = "";
   state = startGame(createGame({
     caseIndex: nextCaseIndex(state.caseIndex),
     subquestId: nextSubquestId(state.subquestId),
@@ -2871,6 +3015,7 @@ function resetGame() {
     roundId: newRoundId(),
   }));
   selectedTargetId = null;
+  evidencePlantingTargetId = null;
   chatLog = [];
   chatPending = false;
   chatMode = "ready";
@@ -3075,8 +3220,18 @@ app.addEventListener("click", (event) => {
     const lean = getCurrentLeans(state).find((item) => item.voterId === voterId);
     if (lean) detectiveInspection = { voterId, candidateId: lean.candidateId };
   }
-  if (action === "select-target") selectedTargetId = button.dataset.id;
-  if (action === "plant" && selectedTargetId) state = plantEvidence(state, selectedTargetId);
+  if (action === "select-target" && !evidencePlantingTargetId) selectedTargetId = button.dataset.id;
+  if (action === "plant" && selectedTargetId && !evidencePlantingTargetId) {
+    evidencePlantingTargetId = selectedTargetId;
+    render();
+    window.setTimeout(() => {
+      if (state.phase !== "evidence" || !evidencePlantingTargetId) return;
+      state = plantEvidence(state, evidencePlantingTargetId);
+      evidencePlantingTargetId = null;
+      render();
+    }, reducedMotion.matches ? 0 : 360);
+    return;
+  }
   if (action === "open-chat") startChat();
   if (action === "cycle-theme") {
     themeController?.next();
@@ -3093,6 +3248,7 @@ app.addEventListener("click", (event) => {
     const input = app.querySelector("#player-message");
     if (input) {
       input.value = decodeURIComponent(button.dataset.message ?? "");
+      gameChatTextDraft = input.value.slice(0, MAX_CHAT_LENGTH);
       input.focus();
     }
     return;
@@ -3182,7 +3338,10 @@ app.addEventListener("submit", (event) => {
   const activeForm = form ?? friendCallForm;
   const message = new FormData(activeForm).get("message");
   if (activeForm.dataset.chatStage === "friend-call") {
-    if (friendCallController?.sendText(message)) activeForm.reset();
+    if (friendCallController?.sendText(message)) {
+      friendCallTextDraft = "";
+      activeForm.reset();
+    }
     return;
   }
   if (form.dataset.chatStage === "friend") handleFriendSubmit(message);
@@ -3194,8 +3353,15 @@ app.addEventListener("submit", (event) => {
 });
 
 app.addEventListener("input", (event) => {
+  const callInput = event.target.closest("#friend-call-message");
+  if (callInput) {
+    friendCallTextDraft = callInput.value.slice(0, 280);
+    return;
+  }
   const input = event.target.closest("#player-message");
   if (!input) return;
+  if (state.phase === "friend-chat") friendChatTextDraft = input.value.slice(0, MAX_CHAT_LENGTH);
+  else gameChatTextDraft = input.value.slice(0, MAX_CHAT_LENGTH);
   input.style.height = "auto";
   input.style.height = `${Math.min(input.scrollHeight, 112)}px`;
 });
@@ -3230,7 +3396,13 @@ app.addEventListener("keydown", (event) => {
   input.closest("form")?.requestSubmit();
 });
 
-window.addEventListener("mars:account-hydrated", () => {
+window.addEventListener("mars:account-hydrated", (event) => {
+  const urlLocale = canonicalLocale(new URLSearchParams(window.location.search).get("lang"));
+  const accountLocale = canonicalLocale(event.detail?.profile?.locale);
+  if (!urlLocale && accountLocale && accountLocale !== locale) {
+    window.queueMicrotask(() => window.location.reload());
+    return;
+  }
   playerProfile = loadPlayerProfile();
   progression = loadProgression();
   try {
@@ -3249,7 +3421,17 @@ window.addEventListener("mars:account-hydrated", () => {
 
 window.addEventListener("mars:auth-entered", () => {
   authInitialView = "choice";
-  state = { ...state, phase: "welcome" };
+  let returnPhase = null;
+  try {
+    returnPhase = window.sessionStorage.getItem(LOCALE_RETURN_PHASE_KEY);
+    window.sessionStorage.removeItem(LOCALE_RETURN_PHASE_KEY);
+  } catch {
+    // Continue at the welcome screen when session storage is unavailable.
+  }
+  state = {
+    ...state,
+    phase: ["welcome", "profile", "home", "intro"].includes(returnPhase) ? returnPhase : "welcome",
+  };
   render();
 });
 

@@ -16,6 +16,8 @@ from urllib.parse import parse_qs, quote, urlencode, urlsplit
 from urllib.request import Request as UrlRequest, urlopen
 from uuid import UUID
 
+from locales import FALLBACK_LOCALE, normalize_locale
+
 try:
     from fastapi import FastAPI, Request
     from fastapi.responses import JSONResponse
@@ -103,7 +105,7 @@ def sanitize_profile(raw: Any) -> dict[str, Any]:
     avatar_path = source.get("avatarPath") if isinstance(source.get("avatarPath"), str) else ""
     return {
         "name": str(source.get("name", "")).strip()[:12],
-        "locale": "en" if source.get("locale") == "en" else "ko",
+        "locale": normalize_locale(source.get("locale")),
         "avatarPath": avatar_path[:220],
         "updatedAt": _bounded_int(source.get("updatedAt"), 0, 9_999_999_999_999, 0),
     }
@@ -413,7 +415,7 @@ class SupabaseBackend:
             "version": 1,
             "profile": {
                 "name": profile_row.get("display_name", ""),
-                "locale": profile_row.get("locale", "ko"),
+                "locale": normalize_locale(profile_row.get("locale", FALLBACK_LOCALE)),
                 "avatarPath": profile_row.get("avatar_path", ""),
                 "updatedAt": profile_row.get("client_updated_at", 0),
             },

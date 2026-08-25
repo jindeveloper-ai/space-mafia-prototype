@@ -136,6 +136,7 @@ function fakeResponse({ ok = true, json = null, text = "fake-answer" } = {}) {
 }
 
 function createHarness({
+  locale = "ko",
   denyMicrophone = false,
   failNegotiation = false,
   withAudioContext = false,
@@ -158,7 +159,7 @@ function createHarness({
   const fallbacks = [];
   const soundDucking = [];
   const controller = createVoiceCallController({
-    locale: "ko",
+    locale,
     PeerConnection: FakePeerConnection,
     AudioElement: FakeAudio,
     AudioContextClass: withAudioContext ? FakeAudioContext : null,
@@ -234,6 +235,16 @@ test("마이크 권한 거절과 WebRTC 실패는 텍스트 모드 폴백으로 
   assert.deepEqual(failed.soundDucking, [true, false]);
 });
 
+test("선택한 7개 언어 코드는 전사 시크릿 요청에서 KO/EN으로 축소되지 않는다", async () => {
+  for (const locale of ["ko", "en", "ja", "zh-CN", "zh-TW", "yue-Hant-HK", "es-419"]) {
+    const harness = createHarness({ locale });
+    assert.equal(await harness.controller.connect(), true);
+    const request = harness.fetchCalls.find(({ url }) => url === "/api/realtime/client-secret");
+    assert.equal(JSON.parse(request.options.body).locale, locale);
+    harness.controller.end();
+  }
+});
+
 test("마이크 권한 응답이 멈춰도 대기 화면에 갇히지 않고 늦게 열린 트랙을 닫는다", async () => {
   const harness = createPendingMicrophoneHarness();
   assert.equal(await harness.controller.prepare(), false);
@@ -256,6 +267,7 @@ test("확정 자막만 발화 ID당 한 번 판정하고 음소거는 마이크 
     delta: "미나",
   });
   assert.equal(harness.finalTranscripts.length, 0);
+  assert.equal(harness.controller.snapshot().playerTranscript, "미나");
   emitRealtime(transcriptionPeer, {
     type: "conversation.item.input_audio_transcription.completed",
     item_id: "u1",
@@ -267,6 +279,7 @@ test("확정 자막만 발화 ID당 한 번 판정하고 음소거는 마이크 
     transcript: "중복 발화",
   });
   await harness.controller.whenTranscriptsIdle();
+  assert.equal(harness.controller.snapshot().playerTranscript, "미나를 의심해");
   assert.deepEqual(harness.finalTranscripts, [{ id: "u1", text: "미나를 의심해" }]);
 
   assert.equal(harness.controller.setMuted(true), true);

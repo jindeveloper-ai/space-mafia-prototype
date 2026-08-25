@@ -23,12 +23,14 @@ try:
     from .account_api import AccountError, SupabaseBackend, register_account_routes
     from .multiplayer import AVATAR_IDS, RoomError, RoomManager
     from .multiplayer_ai import generate_ai_reply, interpret_message
+    from .locales import canonical_locale
     from .realtime import CREW_IDS as VOICE_CREW_IDS, RealtimeError, create_client_secret
     from .serve import MAX_BODY_BYTES, generate_chat, rate_limited, validate_payload
 except ImportError:  # Direct execution: python3 scripts/app.py
     from account_api import AccountError, SupabaseBackend, register_account_routes
     from multiplayer import AVATAR_IDS, RoomError, RoomManager
     from multiplayer_ai import generate_ai_reply, interpret_message
+    from locales import canonical_locale
     from realtime import CREW_IDS as VOICE_CREW_IDS, RealtimeError, create_client_secret
     from serve import MAX_BODY_BYTES, generate_chat, rate_limited, validate_payload
 
@@ -221,7 +223,7 @@ async def security_headers(request: Request, call_next):
         "img-src 'self' data: blob:; "
         "media-src 'self' blob:; "
         "object-src 'none'; "
-        "script-src 'self'; "
+        "script-src 'self' blob:; "
         "style-src 'self' 'unsafe-inline'"
     )
     if request.url.path.startswith("/api/"):
@@ -264,9 +266,9 @@ async def realtime_client_secret(request: Request):
     except RoomError:
         return JSONResponse({"error": "invalid_request"}, status_code=400)
     purpose = payload.get("purpose")
-    locale = payload.get("locale")
+    locale = canonical_locale(payload.get("locale"))
     speaker_id = payload.get("speakerId")
-    if purpose not in ("transcription", "speech", "friend-call") or locale not in ("ko", "en"):
+    if purpose not in ("transcription", "speech", "friend-call") or locale is None:
         return JSONResponse({"error": "invalid_request"}, status_code=400)
     if purpose == "transcription":
         speaker_id = None

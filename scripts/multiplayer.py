@@ -10,6 +10,11 @@ import secrets
 from threading import RLock
 import time
 
+try:
+    from .locales import canonical_locale
+except ImportError:  # Direct execution from the scripts directory.
+    from locales import canonical_locale
+
 
 AI_IDS = ("mina", "juno", "noel")
 AVATAR_IDS = ("astronaut-purple", "astronaut-green", "astronaut-gold", "initial")
@@ -35,6 +40,46 @@ PUBLIC_FACT_TEMPLATES = {
         "contradiction": "{name} gave two different times for the incident.",
         "evidence": "A broken access card was found in {name}'s locker.",
     },
+    "ja": {
+        "alibi": "{name}は火星標準時22:10に管制室のカメラに映っていました。",
+        "access": "{name}のポケットから酸素室専用工具が見つかりました。",
+        "contradiction": "{name}は事件時刻を二通りに話しました。",
+        "evidence": "{name}のロッカーから壊れた入退室カードが見つかりました。",
+    },
+    "zh-CN": {
+        "alibi": "{name}在火星标准时间22:10出现在控制室监控中。",
+        "access": "在{name}的口袋里发现了氧气室专用工具。",
+        "contradiction": "{name}对案发时间给出了两种不同说法。",
+        "evidence": "在{name}的柜子里发现了损坏的门禁卡。",
+    },
+    "zh-TW": {
+        "alibi": "{name}在火星標準時間22:10出現在管制室監控中。",
+        "access": "在{name}的口袋裡發現了氧氣室專用工具。",
+        "contradiction": "{name}對案發時間提出兩種不同說法。",
+        "evidence": "在{name}的置物櫃裡發現了損壞的通行卡。",
+    },
+    "yue-Hant-HK": {
+        "alibi": "{name}喺火星標準時間22:10俾控制室閉路電視影到。",
+        "access": "喺{name}個袋入面搵到氧氣室專用工具。",
+        "contradiction": "{name}講咗兩個唔同嘅案發時間。",
+        "evidence": "喺{name}個儲物櫃搵到一張整爛咗嘅門禁卡。",
+    },
+    "es-419": {
+        "alibi": "{name} aparece en la cámara de la sala de control a las 22:10, hora estándar de Marte.",
+        "access": "Encontraron una herramienta de la sala de oxígeno en el bolsillo de {name}.",
+        "contradiction": "{name} dio dos horas distintas para el incidente.",
+        "evidence": "Encontraron una tarjeta de acceso dañada en el casillero de {name}.",
+    },
+}
+
+AI_DISPLAY_NAMES = {
+    "ko": {"mina": "미나", "juno": "주노", "noel": "노엘"},
+    "en": {"mina": "Mina", "juno": "Juno", "noel": "Noel"},
+    "ja": {"mina": "ミナ", "juno": "ジュノ", "noel": "ノエル"},
+    "zh-CN": {"mina": "米娜", "juno": "朱诺", "noel": "诺埃尔"},
+    "zh-TW": {"mina": "米娜", "juno": "茱諾", "noel": "諾艾爾"},
+    "yue-Hant-HK": {"mina": "米娜", "juno": "朱諾", "noel": "諾爾"},
+    "es-419": {"mina": "Mina", "juno": "Juno", "noel": "Noel"},
 }
 
 
@@ -324,7 +369,9 @@ class RoomManager:
     def create_room(self, *, name: object, avatar_id: object, locale: object = "ko") -> tuple[Room, Player]:
         player_name = clean_name(name)
         avatar = validate_avatar(avatar_id)
-        normalized_locale = "en" if locale == "en" else "ko"
+        normalized_locale = canonical_locale(locale)
+        if normalized_locale is None:
+            raise RoomError("invalid_locale")
         now = self._now()
         with self._lock:
             self.cleanup()
@@ -586,7 +633,7 @@ class RoomManager:
 
     def _display_names(self, room: Room) -> dict[str, str]:
         names = {player.id: player.name for player in room.players}
-        names.update({"mina": "미나", "juno": "주노", "noel": "노엘"} if room.locale == "ko" else {"mina": "Mina", "juno": "Juno", "noel": "Noel"})
+        names.update(AI_DISPLAY_NAMES[room.locale])
         return names
 
     def snapshot(self, room: Room, viewer: Player) -> dict:

@@ -14,12 +14,20 @@ from threading import Lock
 import time
 from urllib.parse import urlsplit
 
+try:
+    from .locales import canonical_locale, chat_language_instruction
+except ImportError:  # Direct execution: python3 scripts/serve.py
+    from locales import canonical_locale, chat_language_instruction
+
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 MAX_BODY_BYTES = 32_768
 MAX_MESSAGE_LENGTH = 280
 MAX_TRANSCRIPT_ITEMS = 12
 RATE_LIMIT_PER_MINUTE = 30
+UPSTREAM_MAX_ATTEMPTS = 2
+UPSTREAM_RETRY_DELAY_SECONDS = 0.25
+UPSTREAM_RETRY_STATUSES = frozenset({408, 409, 429, 500, 502, 503, 504})
 CREW_IDS = ("mina", "juno", "noel")
 CLAIM_IDS = ("seen", "machine", "changed")
 RESPONSE_IDS = ("double-down", "return-evidence", "check-time")
@@ -109,11 +117,11 @@ def finalize_chat_text(value, locale, limit):
 def validate_payload(raw):
     if not isinstance(raw, dict):
         raise ValueError("invalid_payload")
-    locale = raw.get("locale")
+    locale = canonical_locale(raw.get("locale"))
     stage = raw.get("stage")
     message = clean_text(raw.get("message"), MAX_MESSAGE_LENGTH)
     valid_stages = ("accusation", "response", "hard-response", "hard-final", "friend", "debrief")
-    if locale not in ("ko", "en") or stage not in valid_stages or not message:
+    if locale is None or stage not in valid_stages or not message:
         raise ValueError("invalid_payload")
 
     raw_crew = raw.get("crew")
@@ -323,27 +331,38 @@ def call_structured(instructions, context, schema_name, schema, max_output_token
         },
     }
     parsed_url = urlsplit(api_base_url())
+    hostname = parsed_url.hostname
+    if not hostname:
+        raise RuntimeError("invalid_api_base")
     connection_class = HTTPSConnection if parsed_url.scheme == "https" else HTTPConnection
-    connection = connection_class(parsed_url.hostname, parsed_url.port, timeout=25)
     path = f"{parsed_url.path.rstrip('/')}/responses"
-    try:
-        connection.request(
-            "POST",
-            path,
-            body=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
-            headers={
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json",
-            },
-        )
-        response = connection.getresponse()
-        body = response.read()
-        if response.status >= 400:
-            raise RuntimeError("upstream_error")
-        parsed = json.loads(body.decode("utf-8"))
-        return json.loads(extract_output_text(parsed))
-    finally:
-        connection.close()
+    for attempt in range(UPSTREAM_MAX_ATTEMPTS):
+        connection = connection_class(hostname, parsed_url.port, timeout=25)
+        try:
+            connection.request(
+                "POST",
+                path,
+                body=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json",
+                },
+            )
+            response = connection.getresponse()
+            body = response.read()
+            if response.status >= 400:
+                if response.status not in UPSTREAM_RETRY_STATUSES:
+                    raise RuntimeError("upstream_error")
+                raise TimeoutError("retryable_upstream_error")
+            parsed = json.loads(body.decode("utf-8"))
+            return json.loads(extract_output_text(parsed))
+        except (OSError, TimeoutError, ValueError):
+            if attempt + 1 >= UPSTREAM_MAX_ATTEMPTS:
+                raise
+        finally:
+            connection.close()
+        time.sleep(UPSTREAM_RETRY_DELAY_SECONDS)
+    raise RuntimeError("upstream_error")
 
 
 def interpretation_contract(payload):
@@ -426,11 +445,7 @@ def interpret_player_message(payload):
 
 
 def group_game_turn(payload):
-    locale_instruction = (
-        "Write natural Korean internet-chat language."
-        if payload["locale"] == "ko"
-        else "Write natural English community-chat language."
-    )
+    locale_instruction = chat_language_instruction(payload["locale"])
     context = {
         "stage": payload["stage"],
         "incident": payload["incident"],
@@ -531,7 +546,7 @@ def group_game_turn(payload):
 
 
 def friend_reply(payload, member):
-    locale_instruction = "Write natural Korean internet-chat language." if payload["locale"] == "ko" else "Write natural English community-chat language."
+    locale_instruction = chat_language_instruction(payload["locale"])
     context = {
         "transcript": payload["transcript"],
         "latest_message": payload["message"],
@@ -561,7 +576,7 @@ def friend_reply(payload, member):
 
 
 def debrief_reply(payload):
-    locale_instruction = "Write natural Korean internet-chat language." if payload["locale"] == "ko" else "Write natural English community-chat language."
+    locale_instruction = chat_language_instruction(payload["locale"])
     context = {
         "incident": payload["incident"],
         "result": payload["debrief"],

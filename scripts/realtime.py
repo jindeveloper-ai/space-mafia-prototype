@@ -8,6 +8,11 @@ import json
 import os
 from urllib.parse import urlsplit
 
+try:
+    from .locales import canonical_locale, voice_language_hint, voice_language_instruction
+except ImportError:  # Direct execution from the scripts directory.
+    from locales import canonical_locale, voice_language_hint, voice_language_instruction
+
 
 CREW_IDS = ("mina", "juno", "noel")
 VOICE_BY_CHARACTER = {
@@ -51,6 +56,45 @@ TRANSCRIPTION_KEYWORDS = (
     "출입카드",
     "22:10",
 )
+TRANSCRIPTION_KEYWORDS_BY_LOCALE = {
+    "ko": TRANSCRIPTION_KEYWORDS,
+    "en": ("MARS.NET", "Mina", "Juno", "Noel", "oxygen room", "control room", "purifier", "access card", "22:10"),
+    "ja": ("MARS.NET", "ミナ", "ジュノ", "ノエル", "酸素室", "管制室", "浄化装置", "入退室カード", "22:10"),
+    "zh-CN": ("MARS.NET", "米娜", "朱诺", "诺埃尔", "氧气室", "控制室", "净化器", "门禁卡", "22:10"),
+    "zh-TW": ("MARS.NET", "米娜", "茱諾", "諾艾爾", "氧氣室", "管制室", "淨化器", "通行卡", "22:10"),
+    "yue-Hant-HK": (
+        "MARS.NET", "米娜", "朱諾", "諾爾", "粵語", "氧氣室", "控制室", "淨化器", "門禁卡", "時序", "22:10"
+    ),
+    "es-419": ("MARS.NET", "Mina", "Juno", "Noel", "sala de oxígeno", "sala de control", "purificador", "tarjeta de acceso", "22:10"),
+}
+
+FRIEND_CALL_REGISTERS = {
+    "ko": (
+        "Use natural Korean banmal in every sentence. Except for the fixed phone greeting '여보세요?', never use polite "
+        "endings such as -요, -습니다, or -세요, and never address the caller like a customer."
+    ),
+    "en": "Use relaxed, informal English between real friends, never customer-support language.",
+    "ja": "Use relaxed casual Japanese between real friends; avoid formal keigo and customer-support phrasing.",
+    "zh-CN": "Use relaxed informal Mainland Mandarin between real friends, never customer-support language.",
+    "zh-TW": (
+        "Use relaxed informal Taiwan Mandarin in Traditional Chinese between real friends; do not use Cantonese or "
+        "customer-support language."
+    ),
+    "yue-Hant-HK": (
+        "Use only everyday spoken Hong Kong Cantonese as typed in local friend chat, with Traditional Chinese and "
+        "natural particles such as 喺, 冇, 唔, 咗, 嘅, 佢, 嗰, and 啦. Prefer 聽落, 畀, 一齊, 唔清楚, and "
+        "時間對唔上; never say 時序 in audio. Never use "
+        "written-Mandarin phrasing such as 聽起來, 具體, 提供, 捋一捋, 一起, 不清楚, 的, 了, 是, 不, 這, 那, "
+        "嗎, or 給. For clear speech, do not make the main meaning depend on a single-syllable 唔, 冇, or 未; "
+        "rephrase uncertainty positively, for example 我而家只可以話有幾個位要再對. Never drift into customer-support "
+        "language. Keep each reply to one or two "
+        "short natural sentences."
+    ),
+    "es-419": (
+        "Use relaxed informal neutral Latin American Spanish between real friends; use tú, not usted or vosotros, "
+        "and never sound like customer support."
+    ),
+}
 
 
 class RealtimeError(RuntimeError):
@@ -127,31 +171,35 @@ def friend_call_relationship_style(relationship_days: int, locale: str) -> str:
             "You are close long-running friends. Use warm shorthand, spontaneous teasing, and comfortable concern without "
             "sounding therapeutic. Call back to shared details only when they appear in the supplied context."
         )
-    if locale == "ko":
-        register = (
-            "Use natural Korean banmal in every sentence. Except for the fixed phone greeting '여보세요?', never use polite "
-            "endings such as -요, -습니다, or -세요, and never address the caller like a customer."
-        )
-    else:
-        register = "Use relaxed, informal English between real friends, never customer-support language."
+    register = FRIEND_CALL_REGISTERS[locale]
     return f"RELATIONSHIP_DAYS={relationship_days}. {register} {stage}"
 
 
 def _session_config(purpose: str, locale: str, speaker_id: str | None, context: object = None) -> dict:
-    realtime_model = os.environ.get("OPENAI_REALTIME_MODEL", "gpt-realtime-2.1-mini")
+    locale = canonical_locale(locale)
+    if locale is None:
+        raise RealtimeError("invalid_request", 400)
+    if locale == "yue-Hant-HK":
+        realtime_model = os.environ.get("OPENAI_CANTONESE_REALTIME_MODEL", "gpt-realtime-2.1")
+    else:
+        realtime_model = os.environ.get("OPENAI_REALTIME_MODEL", "gpt-realtime-2.1-mini")
     # Browser microphone transcription runs over WebRTC. Keep this on the live
     # model even if a stale deployment variable names the committed-turn model.
     transcription_model = "gpt-live-transcribe"
     if purpose == "transcription":
-        language = "ko" if locale == "ko" else "en"
+        language = voice_language_hint(locale)
+        language_instruction = voice_language_instruction(locale)
         return {
             "type": "transcription",
             "audio": {
                 "input": {
                     "transcription": {
                         "model": transcription_model,
-                        "prompt": "A four-player social deduction game in the Mars settlement MARS.NET.",
-                        "keywords": list(TRANSCRIPTION_KEYWORDS),
+                        "prompt": (
+                            "A four-player social deduction game in the Mars settlement MARS.NET. "
+                            f"{language_instruction} Preserve character names, locations, and the time 22:10 exactly."
+                        ),
+                        "keywords": list(TRANSCRIPTION_KEYWORDS_BY_LOCALE[locale]),
                         "languages": [language],
                         "delay": "low",
                     },
@@ -163,21 +211,34 @@ def _session_config(purpose: str, locale: str, speaker_id: str | None, context: 
             },
         }
     if purpose == "friend-call" and speaker_id in CREW_IDS:
-        language = "Korean" if locale == "ko" else "English"
         safe_context = sanitize_friend_call_context(context, speaker_id)
         relationship_style = friend_call_relationship_style(safe_context["relationshipDays"], locale)
+        language = voice_language_hint(locale)
+        language_instruction = voice_language_instruction(locale)
         return {
             "type": "realtime",
             "model": realtime_model,
             "output_modalities": ["audio"],
             "audio": {
-                "input": {"turn_detection": {"type": "semantic_vad"}},
+                "input": {
+                    "transcription": {
+                        "model": transcription_model,
+                        "prompt": (
+                            "An informal MARS.NET friend call. "
+                            f"{language_instruction} Preserve names and Mars locations exactly."
+                        ),
+                        "keywords": list(TRANSCRIPTION_KEYWORDS_BY_LOCALE[locale]),
+                        "languages": [language],
+                        "delay": "low",
+                    },
+                    "turn_detection": {"type": "semantic_vad"},
+                },
                 "output": {"voice": VOICE_BY_CHARACTER[speaker_id]},
             },
             "instructions": (
                 f"{FRIEND_CALL_PERSONA[speaker_id]} "
                 f"{relationship_style} "
-                f"Speak only natural {language}. You are calling an ordinary friend who still lives on Earth; "
+                f"{voice_language_instruction(locale)} You are calling an ordinary friend who still lives on Earth; "
                 "never imply that the friend is on Mars. You live on Mars and are a second-generation resident, "
                 "but mention Earth/Mars differences only when they fit the topic. "
                 "This is a casual one-to-one phone call, not customer support. React directly, use short acknowledgements, "
@@ -201,7 +262,7 @@ def _session_config(purpose: str, locale: str, speaker_id: str | None, context: 
         "instructions": (
             "You render one supplied MARS.NET character line as speech. "
             "Read only the supplied line, without adding facts, commentary, or meta language. "
-            f"{VOICE_STYLE[speaker_id]}"
+            f"{voice_language_instruction(locale)} {VOICE_STYLE[speaker_id]}"
         ),
     }
 

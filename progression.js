@@ -163,7 +163,7 @@ export function recordFriendCallUsage(progress, characterId, seconds, date = loc
 export function awardCrewLevels(progress, gameState) {
   const current = createProgression(progress);
   const roundId = typeof gameState?.roundId === "string" ? gameState.roundId.slice(0, 100) : "";
-  if (gameState?.phase !== "result" || !roundId || current.leveledRoundIds.includes(roundId)) {
+  if (gameState?.phase !== "result" || gameState.outcome !== "win" || !roundId || current.leveledRoundIds.includes(roundId)) {
     return { progress: current, growth: null };
   }
   const previous = { ...current.crewLevels };
@@ -280,10 +280,15 @@ export function markDebriefViewed(progress, options = {}) {
   const current = createProgression(progress);
   const quest = current.activeQuest;
   const date = options.date ?? localDateKey();
-  if (!quest || quest.status !== "completed") return { progress: current, clue: null, unlocked: false };
+  const completedQuest = quest?.status === "completed" && quest.gameCompletedDate === date ? quest : null;
+  const gameState = options.gameState;
+  const completedRound = gameState?.phase === "result" && OUTCOMES.includes(gameState.outcome) ? gameState : null;
+  const characterId = completedQuest?.characterId
+    ?? [completedRound?.challengerId, completedRound?.accusedId, completedRound?.targetId]
+      .find((id) => CREW_IDS.includes(id));
+  if (!completedQuest && !completedRound) return { progress: current, clue: null, unlocked: false };
 
-  const qualifies = quest.acceptedDate === date && quest.gameCompletedDate === date;
-  const canAward = qualifies && !current.clueDates.includes(date) && current.clues.length < 5;
+  const canAward = !current.clueDates.includes(date) && current.clues.length < 5;
   let clue = null;
   let clues = current.clues;
   let clueDates = current.clueDates;
@@ -293,16 +298,22 @@ export function markDebriefViewed(progress, options = {}) {
     clue = {
       id: `${PRIVATE_DETECTIVE_ID}-${clueNumber}`,
       date,
-      characterId: clueNumber === 5 ? "group" : quest.characterId,
-      outcome: quest.outcome,
-      selectedId: quest.selectedId,
+      characterId: clueNumber === 5 ? "group" : characterId ?? "group",
+      outcome: completedQuest?.outcome ?? completedRound?.outcome ?? null,
+      selectedId: completedQuest?.selectedId ?? completedRound?.selectedId ?? null,
     };
     clues = [...current.clues, clue];
     clueDates = [...current.clueDates, date];
     if (clueNumber === 5) unlockedJobs = [...new Set([...current.unlockedJobs, PRIVATE_DETECTIVE_ID])];
   }
   return {
-    progress: { ...current, activeQuest: null, clues, clueDates, unlockedJobs },
+    progress: {
+      ...current,
+      activeQuest: completedQuest ? null : current.activeQuest,
+      clues,
+      clueDates,
+      unlockedJobs,
+    },
     clue,
     unlocked: Boolean(clue && clues.length === 5),
   };

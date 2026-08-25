@@ -1,3 +1,5 @@
+import "../test-support/language-packs.js";
+
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
@@ -138,6 +140,18 @@ test("친밀도는 성공 +3·실패 +1이고 한 판에 한 번만 증가한다
   assert.equal(failure.progress.affinity.juno, 1);
 });
 
+test("개인 퀘스트가 없어도 완료한 판을 회상하면 오늘의 조사 단서를 기록한다", () => {
+  const result = resultState({ challengerId: "juno" });
+  const viewed = markDebriefViewed(createProgression(), { date: DATE, gameState: result });
+
+  assert.equal(viewed.progress.clues.length, 1);
+  assert.equal(viewed.clue.characterId, "juno");
+  assert.equal(viewed.clue.outcome, "win");
+  assert.equal(viewed.clue.selectedId, "noel");
+  assert.equal(markDebriefViewed(viewed.progress, { date: DATE, gameState: result }).clue, null);
+  assert.equal(markDebriefViewed(createProgression(), { date: DATE }).clue, null);
+});
+
 test("같은 날짜에는 조건을 반복해도 직업 단서를 한 번만 지급한다", () => {
   const first = finishDay(createProgression(), "mina", DATE, "1");
   const second = finishDay(first.progress, "juno", DATE, "2");
@@ -235,12 +249,12 @@ test("잘못되거나 오래된 로컬 저장 데이터는 안전한 초기 상�
   assert.deepEqual(recovered, createProgression());
 });
 
-test("기존 저장 데이터는 초기 AI 레벨로 이관되고 레벨은 판마다 한 번만 오른다", () => {
+test("기존 저장 데이터는 초기 AI 레벨로 이관되고 승리한 판마다 한 번만 오른다", () => {
   const migrated = createProgression({ version: 1, affinity: { mina: 7, juno: 2, noel: 1 } });
   assert.deepEqual(migrated.crewLevels, INITIAL_CREW_LEVELS);
   assert.equal(migrated.affinity.mina, 7);
 
-  const gameState = { phase: "result", roundId: "round-level-1" };
+  const gameState = { phase: "result", outcome: "win", roundId: "round-level-1" };
   const first = awardCrewLevels(migrated, gameState);
   assert.deepEqual(first.progress.crewLevels, { mina: 3, juno: 5, noel: 4 });
   assert.ok(first.growth);
@@ -249,12 +263,22 @@ test("기존 저장 데이터는 초기 AI 레벨로 이관되고 레벨은 판�
   assert.equal(duplicate.growth, null);
 });
 
+test("패배와 무승부에서는 친구 레벨과 난도를 유지한다", () => {
+  const progress = createProgression();
+  for (const outcome of ["lose", "draw"]) {
+    const award = awardCrewLevels(progress, { phase: "result", outcome, roundId: `round-${outcome}` });
+    assert.deepEqual(award.progress.crewLevels, INITIAL_CREW_LEVELS);
+    assert.deepEqual(award.progress.leveledRoundIds, []);
+    assert.equal(award.growth, null);
+  }
+});
+
 test("AI 레벨은 50에서 멈추고 하드 모드 선택은 저장된다", () => {
   const capped = createProgression({
     version: 2,
     crewLevels: { mina: 50, juno: 50, noel: 50 },
   });
-  assert.equal(awardCrewLevels(capped, { phase: "result", roundId: "cap" }).growth, null);
+  assert.equal(awardCrewLevels(capped, { phase: "result", outcome: "win", roundId: "cap" }).growth, null);
   const hard = setDifficultyMode(capped, "hard");
   assert.equal(createProgression(JSON.parse(JSON.stringify(hard))).difficultyMode, "hard");
   assert.equal(setDifficultyMode(hard, "invalid").difficultyMode, "normal");

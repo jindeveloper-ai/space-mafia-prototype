@@ -1,10 +1,11 @@
+import "../test-support/language-packs.js";
+
 import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
   CLAIMS,
   CREW,
-  INCIDENT,
   PLAYER_ID,
   SUBQUEST_IDS,
   applyHardDefense,
@@ -89,9 +90,10 @@ test("매 판 같은 세 가지 사실이 다른 승무원에게 배치된다", 
 });
 
 test("사건 장소와 시각이 모든 추리의 고정 기준으로 제공된다", () => {
-  assert.equal(INCIDENT.place, "화성 거주구역 산소실");
-  assert.equal(INCIDENT.time, "22:10 화성 표준시");
-  assert.match(INCIDENT.description, /22:10.*화성 표준시.*거주구역 산소실/);
+  const incident = getIncident("ko");
+  assert.equal(incident.place, "화성 거주구역 산소실");
+  assert.equal(incident.time, "22:10 화성 표준시");
+  assert.match(incident.description, /22:10.*화성 표준시.*거주구역 산소실/);
 });
 
 test("같은 출입카드도 승무원마다 다른 강도로 믿는다", () => {

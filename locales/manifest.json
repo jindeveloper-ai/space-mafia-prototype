@@ -1,0 +1,82 @@
+{
+  "schemaVersion": 1,
+  "packs": [
+    {
+      "code": "ko",
+      "nativeName": "한국어",
+      "voice": {
+        "hint": "ko",
+        "status": "stable"
+      },
+      "version": "0.20.14",
+      "fileSize": 64464,
+      "integrity": "sha256-haiGQ40w3kUPfuF5koBRi4KyEOl+Y1+ikhlXRFzPnx4="
+    },
+    {
+      "code": "en",
+      "nativeName": "English",
+      "voice": {
+        "hint": "en",
+        "status": "stable"
+      },
+      "version": "0.20.14",
+      "fileSize": 58394,
+      "integrity": "sha256-qObc0IQWp/9vevCaNzHKfQW+0E2Dy20MkqkaSWH4hsw="
+    },
+    {
+      "code": "ja",
+      "nativeName": "日本語",
+      "voice": {
+        "hint": "ja",
+        "status": "stable"
+      },
+      "version": "0.20.14",
+      "fileSize": 60367,
+      "integrity": "sha256-ijy5hS2+K4jwXoZtNF4NdXs4+BG4i9M+xBzpYUk28mI="
+    },
+    {
+      "code": "zh-CN",
+      "nativeName": "简体中文",
+      "voice": {
+        "hint": "zh",
+        "status": "stable"
+      },
+      "version": "0.20.14",
+      "fileSize": 49114,
+      "integrity": "sha256-2FV5IJMW53GA66W7IuF28LHHifiDIuL+oEeiLEabDh0="
+    },
+    {
+      "code": "zh-TW",
+      "nativeName": "繁體中文",
+      "voice": {
+        "hint": "zh",
+        "status": "stable"
+      },
+      "version": "0.20.14",
+      "fileSize": 49304,
+      "integrity": "sha256-C61VHjLZdWme2eZ7T+8hmrB4fwdMNTfoX2xoFj2/xYs="
+    },
+    {
+      "code": "yue-Hant-HK",
+      "nativeName": "粵語（香港）",
+      "voice": {
+        "hint": "zh",
+        "status": "beta"
+      },
+      "version": "0.20.14",
+      "fileSize": 49270,
+      "integrity": "sha256-Tu8QncVBBVUBTRa69S70LCIu/69ckAYFurWPBQDW784="
+    },
+    {
+      "code": "es-419",
+      "nativeName": "Español (Latinoamérica)",
+      "voice": {
+        "hint": "es",
+        "status": "stable"
+      },
+      "version": "0.20.14",
+      "fileSize": 56806,
+      "integrity": "sha256-lZjuy0osplKKEBiZZaJ4Oo9APlBOBS1pX+23z4atg/k="
+    }
+  ]
+}

@@ -109,6 +109,50 @@ test("API 키가 없으면 비밀을 요구하지 않고 mock 전환 신호를 �
   }
 });
 
+test("일시적인 OpenAI 오류는 한 번 자동 재시도해 실시간 응답으로 복구한다", async () => {
+  let requestCount = 0;
+  const upstream = http.createServer((request, response) => {
+    request.resume();
+    request.on("end", () => {
+      requestCount += 1;
+      if (requestCount === 1) {
+        response.writeHead(503, { "Content-Type": "application/json" });
+        response.end(JSON.stringify({ error: "temporarily_unavailable" }));
+        return;
+      }
+      response.writeHead(200, { "Content-Type": "application/json" });
+      response.end(JSON.stringify({
+        output: [{ type: "message", content: [{
+          type: "output_text",
+          text: JSON.stringify({ message: "재연결됨. 지금은 실시간으로 답하는 중." }),
+        }] }],
+      }));
+    });
+  });
+  upstream.listen(0, "127.0.0.1");
+  await once(upstream, "listening");
+  const { server, baseUrl } = await startPrototype({
+    OPENAI_API_KEY: "test-only-key",
+    OPENAI_API_BASE: `http://127.0.0.1:${upstream.address().port}/v1`,
+  });
+
+  try {
+    const response = await fetch(`${baseUrl}/api/chat`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(chatPayload("friend")),
+    });
+    const result = await response.json();
+    assert.equal(response.status, 200);
+    assert.equal(result.mode, "live");
+    assert.equal(requestCount, 2);
+  } finally {
+    await stopProcess(server);
+    upstream.close();
+    await once(upstream, "close");
+  }
+});
+
 test("1:1 친구 채팅은 선택한 캐릭터 모델만 한 번 호출한다", async () => {
   const requests = [];
   const upstream = http.createServer((request, response) => {

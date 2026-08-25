@@ -5,10 +5,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta name="description" content="MARS.NET 2명 실시간 마피아 게임" />
     <title>MARS.NET · 친구 게임방</title>
-    <link rel="icon" type="image/png" href="./assets/images/mafia-astronaut-v2.png?v=0.20.6" />
-    <link rel="stylesheet" href="./styles.css?v=0.20.6" />
-    <link rel="stylesheet" href="./friend-mode.css?v=0.20.6" />
-    <script src="./theme.js?v=0.20.6"></script>
+    <link rel="icon" type="image/png" href="./assets/images/mafia-astronaut-v2.png?v=0.20.14" />
+    <link rel="stylesheet" href="./styles.css?v=0.20.14" />
+    <link rel="stylesheet" href="./friend-mode.css?v=0.20.14" />
+    <script src="./theme.js?v=0.20.14"></script>
   </head>
   <body class="friend-mode-page">
     <main class="page-shell friend-shell">
@@ -19,16 +19,16 @@
             <button class="audio-toggle" type="button" data-audio-toggle><span aria-hidden="true">♪</span></button>
             <input data-audio-volume type="range" min="0" max="60" step="1" value="30" />
           </div>
-          <nav class="language-switch">
-            <a data-lang="ko" href="./friend.html?lang=ko">KO</a>
-            <a data-lang="en" href="./friend.html?lang=en">EN</a>
-          </nav>
+          <div class="friend-language-switch">
+            <button type="button" data-language-settings-open aria-label="언어 선택" aria-expanded="false">🌐</button>
+            <nav class="friend-language-switch__menu" data-language-settings-menu aria-label="언어 목록" hidden></nav>
+          </div>
           <button class="theme-toggle" type="button" data-theme-action><span class="theme-icon">◐</span><span class="theme-text">자동</span></button>
         </div>
       </header>
       <section id="friend-app" class="friend-app" aria-live="polite"></section>
     </main>
-    <script src="./sound.js?v=0.20.6"></script>
-    <script type="module" src="./friend-mode.js?v=0.20.6"></script>
+    <script src="./sound.js?v=0.20.14"></script>
+    <script type="module" src="./friend-bootstrap.js?v=0.20.14"></script>
   </body>
 </html>

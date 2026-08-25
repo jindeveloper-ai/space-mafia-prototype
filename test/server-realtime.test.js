@@ -98,7 +98,10 @@ test("Realtime 시크릿은 동일 출처·짧은 수명·서버 전용 영구 �
     assert.equal(speechBody.model, "gpt-realtime-2.1-mini");
     assert.equal(speechBody.speakerId, "juno");
 
-    assert.equal(upstream.requests.length, 2);
+    const cantonese = await secretRequest(app.baseUrl, { purpose: "transcription", locale: "yue-Hant-HK" });
+    assert.equal(cantonese.status, 200);
+
+    assert.equal(upstream.requests.length, 3);
     assert.equal(upstream.requests[0].path, "/v1/realtime/client_secrets");
     assert.equal(upstream.requests[0].authorization, "Bearer server-only-test-key");
     assert.equal(typeof upstream.requests[0].safetyIdentifier, "string");
@@ -109,6 +112,8 @@ test("Realtime 시크릿은 동일 출처·짧은 수명·서버 전용 영구 �
     assert.equal(upstream.requests[0].body.session.audio.input.transcription.delay, "low");
     assert.equal(upstream.requests[0].body.session.audio.input.turn_detection, null);
     assert.equal(upstream.requests[1].body.session.audio.output.voice, "cedar");
+    assert.deepEqual(upstream.requests[2].body.session.audio.input.transcription.languages, ["zh"]);
+    assert.match(upstream.requests[2].body.session.audio.input.transcription.prompt, /Hong Kong Cantonese/);
 
     const blocked = await secretRequest(app.baseUrl, { purpose: "speech", locale: "ko", speakerId: "mina" }, "https://evil.example");
     assert.equal(blocked.status, 403);
@@ -117,6 +122,8 @@ test("Realtime 시크릿은 동일 출처·짧은 수명·서버 전용 영구 �
     const page = await fetch(`${app.baseUrl}/`);
     assert.match(page.headers.get("permissions-policy"), /microphone=\(self\)/);
     assert.match(page.headers.get("content-security-policy"), /connect-src 'self' https:\/\/api\.openai\.com/);
+    assert.match(page.headers.get("content-security-policy"), /script-src 'self' blob:/);
+    assert.doesNotMatch(page.headers.get("content-security-policy"), /script-src[^;]*data:/);
   } finally {
     await stopApp(app.child);
     upstream.server.close();
@@ -178,6 +185,8 @@ test("Realtime 엔드포인트는 키 없음·잘못된 화자·호출 상한을
     assert.deepEqual(await unavailable.json(), { error: "voice_unavailable" });
     const invalidSpeaker = await secretRequest(noKey.baseUrl, { purpose: "speech", locale: "ko", speakerId: "player" });
     assert.equal(invalidSpeaker.status, 400);
+    const invalidLocale = await secretRequest(noKey.baseUrl, { purpose: "transcription", locale: "fr-FR" });
+    assert.equal(invalidLocale.status, 400);
     const unauthenticatedFriendCall = await secretRequest(noKey.baseUrl, {
       purpose: "friend-call",
       locale: "ko",

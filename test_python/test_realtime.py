@@ -22,6 +22,43 @@ class RealtimeConfigTests(unittest.TestCase):
             session = _session_config("transcription", "ko", None)
         self.assertEqual(session["audio"]["input"]["transcription"]["model"], "gpt-live-transcribe")
 
+    def test_all_locale_transcription_hints_and_keywords_are_forwarded(self):
+        expected = {
+            "ko": ("ko", "산소실"),
+            "en": ("en", "oxygen room"),
+            "ja": ("ja", "酸素室"),
+            "zh-CN": ("zh", "氧气室"),
+            "zh-TW": ("zh", "氧氣室"),
+            "yue-Hant-HK": ("zh", "粵語"),
+            "es-419": ("es", "sala de oxígeno"),
+        }
+        for locale, (hint, keyword) in expected.items():
+            with self.subTest(locale=locale):
+                transcription = _session_config("transcription", locale, None)["audio"]["input"]["transcription"]
+                self.assertEqual(transcription["languages"], [hint])
+                self.assertIn(keyword, transcription["keywords"])
+
+    def test_cantonese_voice_uses_zh_hint_with_explicit_hong_kong_instruction(self):
+        transcription = _session_config("transcription", "yue-Hant-HK", None)["audio"]["input"]["transcription"]
+        friend_call = _session_config("friend-call", "yue-Hant-HK", "mina", {"relationshipDays": 3})
+        speech = _session_config("speech", "yue-Hant-HK", "juno")
+        self.assertEqual(transcription["languages"], ["zh"])
+        self.assertIn("Hong Kong Cantonese", transcription["prompt"])
+        self.assertIn("時序", transcription["keywords"])
+        self.assertEqual(friend_call["audio"]["input"]["transcription"]["languages"], ["zh"])
+        self.assertIn("Hong Kong Cantonese", friend_call["audio"]["input"]["transcription"]["prompt"])
+        self.assertIn("do not switch to Mandarin", friend_call["instructions"])
+        self.assertIn("natural particles", friend_call["instructions"])
+        self.assertIn("唔清楚", friend_call["instructions"])
+        self.assertEqual(friend_call["model"], "gpt-realtime-2.1")
+        self.assertEqual(speech["model"], "gpt-realtime-2.1")
+        self.assertIn("Hong Kong Cantonese", speech["instructions"])
+
+    def test_unsupported_locale_is_rejected_before_upstream(self):
+        with self.assertRaises(RealtimeError) as context:
+            _session_config("transcription", "fr-FR", None)
+        self.assertEqual(context.exception.status, 400)
+
     def test_each_character_has_a_fixed_distinct_output_voice(self):
         mina = _session_config("speech", "ko", "mina")
         juno = _session_config("speech", "ko", "juno")
@@ -55,6 +92,8 @@ class RealtimeConfigTests(unittest.TestCase):
         })
         self.assertEqual(session["type"], "realtime")
         self.assertEqual(session["audio"]["input"]["turn_detection"]["type"], "semantic_vad")
+        self.assertEqual(session["audio"]["input"]["transcription"]["model"], "gpt-live-transcribe")
+        self.assertEqual(session["audio"]["input"]["transcription"]["languages"], ["ko"])
         self.assertEqual(session["output_modalities"], ["audio"])
         self.assertIn("still lives on Earth", session["instructions"])
         self.assertIn("second-generation", session["instructions"])

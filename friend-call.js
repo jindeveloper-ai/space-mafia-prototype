@@ -1,4 +1,5 @@
-import { createCallAudioEffectsController } from "./call-audio-effects.js?v=0.20.6";
+import { createCallAudioEffectsController } from "./call-audio-effects.js?v=0.20.14";
+import { canonicalLocale, FALLBACK_LOCALE } from "./locale-core.js?v=0.20.14";
 
 const REALTIME_CALLS_URL = "https://api.openai.com/v1/realtime/calls";
 const ANSWER_DELAY_MS = Object.freeze({ mina: 1_800, juno: 2_700, noel: 2_200 });
@@ -43,6 +44,106 @@ const OPENING_LINES = Object.freeze({
       "Hello? Took you long enough, lol. What's today's story?",
     ]),
   }),
+  ja: Object.freeze({
+    mina: Object.freeze([
+      "もしもし？ あ…本当にかけてきた。初通話だからちょっと照れるね。",
+      "もしもし？ またかけてきたね。今何してた？",
+      "もしもし？ ちょうどいいタイミング。さっきまで何してたの？",
+      "もしもし？ やっと来た。今日は何から話す？",
+    ]),
+    juno: Object.freeze([
+      "もしもし？ あ…つながった。初通話って少し変な感じだね。",
+      "もしもし？ またかけてきたね。どこから話そうか？",
+      "もしもし？ いいタイミング。今日は何を整理する？",
+      "もしもし？ 来たね。何か話したいことがあったんでしょ？",
+    ]),
+    noel: Object.freeze([
+      "もしもし？ お…本当に電話したんだ。初めてだからなんか面白いね。",
+      "もしもし？ また来たね。何してたの？",
+      "もしもし？ ちょうど暇だった。今日何かあった？",
+      "もしもし？ 遅かったじゃん。今日のネタは何？",
+    ]),
+  }),
+  "zh-CN": Object.freeze({
+    mina: Object.freeze([
+      "喂？啊……你真打来了。第一次通话，还有点不自在。",
+      "喂？又打来了啊。刚才在忙什么？",
+      "喂？时间正好。打来之前在做什么？",
+      "喂？总算来了。今天先聊什么？",
+    ]),
+    juno: Object.freeze([
+      "喂？嗯……接通了。第一次通话，感觉有点奇怪。",
+      "喂？又打来了。想先从哪儿说起？",
+      "喂？时间不错。今天想先理清什么？",
+      "喂？来了啊。是有事想聊才打来的吧？",
+    ]),
+    noel: Object.freeze([
+      "喂？哦……你还真打来了。第一次，挺新鲜的。",
+      "喂？又来了啊。刚才在干吗？",
+      "喂？正好有点无聊。今天发生什么了？",
+      "喂？怎么现在才打来。今天有什么新鲜事？",
+    ]),
+  }),
+  "zh-TW": Object.freeze({
+    mina: Object.freeze([
+      "喂？啊……你真的打來了。第一次通話，還有點不自在。",
+      "喂？又打來了耶。剛才在忙什麼？",
+      "喂？時間剛好。打來之前在做什麼？",
+      "喂？終於來了。今天先聊什麼？",
+    ]),
+    juno: Object.freeze([
+      "喂？嗯……接通了。第一次通話，感覺有點奇怪。",
+      "喂？又打來了。想先從哪裡說起？",
+      "喂？時間不錯。今天想先釐清什麼？",
+      "喂？來了啊。是有事想聊才打來的吧？",
+    ]),
+    noel: Object.freeze([
+      "喂？喔……你真的打來了。第一次，滿新鮮的。",
+      "喂？又來了。剛才在做什麼？",
+      "喂？正好有點無聊。今天發生什麼了？",
+      "喂？怎麼現在才打來。今天有什麼新鮮事？",
+    ]),
+  }),
+  "yue-Hant-HK": Object.freeze({
+    mina: Object.freeze([
+      "喂？吓……你真係打咗嚟。第一次傾電話，有少少尷尬添。",
+      "喂？又打嚟呀。頭先做緊咩？",
+      "喂？時間啱啱好。打嚟之前做緊咩呀？",
+      "喂？終於嚟啦。今日由咩講起？",
+    ]),
+    juno: Object.freeze([
+      "喂？嗯……接通咗。第一次傾電話，感覺有少少奇怪。",
+      "喂？又打嚟喇。想由邊度講起？",
+      "喂？時間幾好。今日想先搞清楚咩？",
+      "喂？嚟咗喇。係咪有嘢想講先打嚟？",
+    ]),
+    noel: Object.freeze([
+      "喂？哦……你真係打咗嚟。第一次，幾得意喎。",
+      "喂？又嚟喇。頭先做緊咩？",
+      "喂？啱啱有啲悶。今日發生咗咩事？",
+      "喂？做咩而家先打嚟。今日有咩料？",
+    ]),
+  }),
+  "es-419": Object.freeze({
+    mina: Object.freeze([
+      "¿Bueno? Ah… sí llamaste. Es nuestra primera llamada, así que se siente un poco raro.",
+      "¿Bueno? Volviste a llamar. ¿Qué estabas haciendo?",
+      "¿Bueno? Llegaste justo a tiempo. ¿Qué hacías antes de llamar?",
+      "¿Bueno? Por fin llegaste. ¿De qué hablamos primero?",
+    ]),
+    juno: Object.freeze([
+      "¿Bueno? Ah… ya conectó. Primera llamada; se siente un poco extraño.",
+      "¿Bueno? Volviste a llamar. ¿Por dónde quieres empezar?",
+      "¿Bueno? Buen momento. ¿Qué quieres ordenar primero hoy?",
+      "¿Bueno? Ya llegaste. Llamaste porque pasó algo, ¿verdad?",
+    ]),
+    noel: Object.freeze([
+      "¿Bueno? Ah… sí llamaste. Es la primera vez; está curioso.",
+      "¿Bueno? Volviste. ¿Qué estabas haciendo?",
+      "¿Bueno? Justo me estaba aburriendo. ¿Qué pasó hoy?",
+      "¿Bueno? Ya era hora. ¿Cuál es la historia de hoy?",
+    ]),
+  }),
 });
 
 function openingTier(relationshipDays) {
@@ -53,7 +154,7 @@ function openingTier(relationshipDays) {
 }
 
 export function friendCallOpeningLine(characterId, locale = "ko", relationshipDays = 0) {
-  const safeLocale = locale === "en" ? "en" : "ko";
+  const safeLocale = canonicalLocale(locale) ?? FALLBACK_LOCALE;
   const safeCharacterId = ["mina", "juno", "noel"].includes(characterId) ? characterId : "mina";
   return OPENING_LINES[safeLocale][safeCharacterId][openingTier(Number(relationshipDays) || 0)];
 }
@@ -83,9 +184,44 @@ function waitForChannel(channel, setTimer, clearTimer, timeoutMs = 15_000) {
   });
 }
 
+/**
+ * @param {{getUserMedia: (constraints: MediaStreamConstraints) => Promise<MediaStream>}} mediaDevices
+ * @param {MediaStreamConstraints} constraints
+ * @param {(handler: () => void, timeoutMs: number) => unknown} setTimer
+ * @param {(timer: unknown) => void} clearTimer
+ * @param {number} timeoutMs
+ * @returns {Promise<MediaStream>}
+ */
+function requestMicrophone(mediaDevices, constraints, setTimer, clearTimer, timeoutMs) {
+  let settled = false;
+  let timeout = null;
+  return new Promise((resolve, reject) => {
+    const request = mediaDevices.getUserMedia(constraints);
+    Promise.resolve(request).then((stream) => {
+      if (settled) {
+        stream?.getTracks?.().forEach((track) => track.stop?.());
+        return;
+      }
+      settled = true;
+      clearTimer(timeout);
+      resolve(stream);
+    }, (error) => {
+      if (settled) return;
+      settled = true;
+      clearTimer(timeout);
+      reject(error);
+    });
+    timeout = setTimer(() => {
+      if (settled) return;
+      settled = true;
+      reject(new Error("microphone_timeout"));
+    }, timeoutMs);
+  });
+}
+
 export function createFriendCallController(options = {}) {
   const characterId = ["mina", "juno", "noel"].includes(options.characterId) ? options.characterId : "mina";
-  const locale = options.locale === "en" ? "en" : "ko";
+  const locale = canonicalLocale(options.locale) ?? FALLBACK_LOCALE;
   const mediaDevices = options.mediaDevices ?? globalThis.navigator?.mediaDevices;
   const PeerConnection = options.PeerConnection ?? globalThis.RTCPeerConnection;
   const AudioElement = options.AudioElement ?? globalThis.Audio;
@@ -96,6 +232,10 @@ export function createFriendCallController(options = {}) {
   const setRepeating = options.setRepeating ?? globalThis.setInterval.bind(globalThis);
   const clearRepeating = options.clearRepeating ?? globalThis.clearInterval.bind(globalThis);
   const now = options.now ?? Date.now;
+  const microphoneTimeoutMs = Math.max(1_000, Math.min(
+    60_000,
+    Number(/** @type {Record<string, any>} */ (options)["microphoneTimeoutMs"]) || 15_000,
+  ));
   const relationshipDays = Math.max(0, Math.min(30, Number(options.relationshipDays) || 0));
   const audioEffects = options.audioEffectsController ?? createCallAudioEffectsController({
     AudioContextClass,
@@ -216,6 +356,23 @@ export function createFriendCallController(options = {}) {
     connection = null;
   }
 
+  function fallbackToText(errorCode) {
+    if (disposed && phase === "fallback_text") return;
+    lastError = errorCode || "friend_call_realtime_error";
+    if (quotaTimer !== null) clearRepeating(quotaTimer);
+    quotaTimer = null;
+    stopRinging();
+    audioEffects.setActive(false);
+    flushUsage();
+    closeConnection();
+    micStream?.getTracks?.().forEach((track) => track.stop?.());
+    micStream = null;
+    audioEffects.dispose();
+    disposed = true;
+    setPhase("fallback_text");
+    options.onFallback?.({ reason: lastError, playerTranscript, ...snapshot() });
+  }
+
   function handleEvent(event) {
     if (!event || typeof event.type !== "string") return;
     if (event.type === "input_audio_buffer.speech_started") {
@@ -265,8 +422,7 @@ export function createFriendCallController(options = {}) {
       return;
     }
     if (event.type === "error") {
-      lastError = event.error?.code ?? "friend_call_realtime_error";
-      if (phase !== "ai_speaking" && phase !== "player_speaking") setPhase("listening");
+      fallbackToText(event.error?.code ?? "friend_call_realtime_error");
     }
   }
 
@@ -329,15 +485,18 @@ export function createFriendCallController(options = {}) {
   async function start() {
     if (disposed || phase !== "idle") return false;
     if (!mediaDevices?.getUserMedia) {
-      lastError = "friend_call_unsupported";
-      setPhase("error");
+      fallbackToText("friend_call_unsupported");
       return false;
     }
     try {
       setPhase("requesting_permission");
-      micStream = await mediaDevices.getUserMedia({
-        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
-      });
+      micStream = await requestMicrophone(
+        mediaDevices,
+        { audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } },
+        setTimer,
+        clearTimer,
+        microphoneTimeoutMs,
+      );
       setPhase("dialing");
       void startRinging();
       const minimumWait = new Promise((resolve) => setTimer(resolve, ANSWER_DELAY_MS[characterId]));
@@ -360,7 +519,7 @@ export function createFriendCallController(options = {}) {
       lastError = ["NotAllowedError", "SecurityError"].includes(error?.name)
         ? "microphone_denied"
         : error?.message ?? "friend_call_failed";
-      end("error", false);
+      fallbackToText(lastError);
       return false;
     }
   }

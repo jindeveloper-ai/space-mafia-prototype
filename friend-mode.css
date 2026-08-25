@@ -16,6 +16,57 @@
   background: var(--surface-container-low);
 }
 
+.friend-language-switch {
+  position: relative;
+}
+
+.friend-language-switch > button {
+  display: grid;
+  width: 44px;
+  min-height: 44px;
+  place-items: center;
+  border: 1px solid var(--outline-variant);
+  border-radius: 50%;
+  color: var(--on-surface-variant);
+  cursor: pointer;
+  background: transparent;
+}
+
+.friend-language-switch__menu {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 8px);
+  right: 0;
+  display: grid;
+  width: max-content;
+  min-width: 196px;
+  gap: 3px;
+  padding: 8px;
+  border: 1px solid var(--outline-variant);
+  border-radius: 16px;
+  background: var(--surface-container);
+  box-shadow: 0 14px 36px rgb(0 0 0 / 18%);
+}
+
+.friend-language-switch__menu[hidden] {
+  display: none;
+}
+
+.friend-language-switch__menu a {
+  padding: 10px 12px;
+  border-radius: 10px;
+  color: var(--on-surface);
+  font-size: 0.82rem;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.friend-language-switch__menu a:hover,
+.friend-language-switch__menu a[aria-current="page"] {
+  background: var(--surface-container-high);
+  color: var(--primary);
+}
+
 .friend-app {
   position: relative;
   min-width: 0;

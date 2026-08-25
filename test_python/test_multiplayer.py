@@ -108,6 +108,29 @@ class MultiplayerEngineTests(unittest.TestCase):
         self.assertIn("주노는", public_fact_text("ko", "contradiction", "주노"))
         self.assertIn("노엘은", public_fact_text("ko", "alibi", "노엘"))
 
+    def test_all_supported_room_locales_keep_localized_facts_names_and_fallback_replies(self):
+        expected_markers = {
+            "ko": "산소실",
+            "en": "oxygen-room",
+            "ja": "酸素室",
+            "zh-CN": "氧气室",
+            "zh-TW": "氧氣室",
+            "yue-Hant-HK": "氧氣室",
+            "es-419": "sala de oxígeno",
+        }
+        for locale, marker in expected_markers.items():
+            with self.subTest(locale=locale):
+                room, first, _ = self.create_pair(locale)
+                self.assertEqual(room.locale, locale)
+                self.assertIn(marker, public_fact_text(locale, "access", "Mina"))
+                self.assertTrue(multiplayer_ai.AI_NAMES[locale]["mina"])
+                self.assertTrue(multiplayer_ai.FALLBACK_REPLIES[locale]["mina"])
+                self.assertEqual(self.manager.snapshot(room, first)["locale"], locale)
+
+    def test_room_creation_rejects_unsupported_locale(self):
+        with self.assertRaisesRegex(RoomError, "invalid_locale"):
+            self.manager.create_room(name="Host", avatar_id="initial", locale="fr-FR")
+
     def test_only_citizen_votes_and_three_vote_outcomes(self):
         room, _, _ = self.open_chat()
         with self.assertRaisesRegex(RoomError, "forbidden_action"):

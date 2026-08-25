@@ -1,3 +1,5 @@
+import { FALLBACK_LOCALE, canonicalLocale } from "./locale-core.js";
+
 export const ACCOUNT_SCHEMA_VERSION = 1;
 export const PROFILE_STORAGE_KEY = "oxygen-room-profile";
 export const PROGRESSION_STORAGE_KEY = "mars-net-progression-v1";
@@ -24,7 +26,7 @@ export function sanitizeProfile(raw = {}) {
   const source = isObject(raw) ? raw : {};
   return {
     name: String(source.name ?? "").trim().slice(0, 12),
-    locale: source.locale === "en" ? "en" : "ko",
+    locale: canonicalLocale(source.locale) ?? FALLBACK_LOCALE,
     avatarPath: typeof source.avatarPath === "string" ? source.avatarPath.slice(0, 220) : "",
     updatedAt: Number.isFinite(source.updatedAt) ? Math.max(0, Math.floor(source.updatedAt)) : 0,
   };

@@ -1,3 +1,5 @@
+import "../test-support/language-packs.js";
+
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
@@ -11,11 +13,12 @@ async function readProjectFile(path) {
 }
 
 test("브라우저 에셋과 내부 모듈은 패키지 버전으로 캐시를 갱신한다", async () => {
-  const [indexHtml, bootstrapSource, gameSource, engineSource, voiceSource, friendCallSource, callEffectsSource, packageSource] = await Promise.all([
+  const [indexHtml, bootstrapSource, gameSource, engineSource, languageSettingsSource, voiceSource, friendCallSource, callEffectsSource, packageSource] = await Promise.all([
     readProjectFile("index.html"),
     readProjectFile("bootstrap.js"),
     readProjectFile("game.js"),
     readProjectFile("game-engine.js"),
+    readProjectFile("language-settings.js"),
     readProjectFile("voice-call.js"),
     readProjectFile("friend-call.js"),
     readProjectFile("call-audio-effects.js"),
@@ -30,6 +33,9 @@ test("브라우저 에셋과 내부 모듈은 패키지 버전으로 캐시를 �
   assert.ok(bootstrapSource.includes(`./game.js?v=${version}`));
   assert.ok(gameSource.includes(`./game-engine.js?v=${version}`));
   assert.ok(gameSource.includes(`./i18n.js?v=${version}`));
+  assert.ok(gameSource.includes(`./language-settings.js?v=${version}`));
+  assert.ok(languageSettingsSource.includes(`./language-pack-loader.js?v=${version}`));
+  assert.ok(languageSettingsSource.includes(`./locale-core.js?v=${version}`));
   assert.ok(gameSource.includes(`./chat-adapter.js?v=${version}`));
   assert.ok(gameSource.includes(`./progression.js?v=${version}`));
   assert.ok(gameSource.includes(`./voice-call.js?v=${version}`));
@@ -47,11 +53,27 @@ test("브라우저 에셋과 내부 모듈은 패키지 버전으로 캐시를 �
   assert.doesNotMatch(friendCallSource, /OPENAI_API_KEY|sk-[A-Za-z0-9_-]{20,}/);
   assert.ok(engineSource.includes(`./i18n.js?v=${version}`));
   assert.match(gameSource, /new URL\(import\.meta\.url\)\.searchParams\.get\("v"\)/);
-  assert.match(indexHtml, /data-lang="ko"[^>]+href="\.\/\?lang=ko"/);
-  assert.match(indexHtml, /data-lang="en"[^>]+href="\.\/\?lang=en"/);
+  assert.match(indexHtml, /data-language-settings-open/);
+  assert.match(indexHtml, /language-switch--floating/);
+  assert.match(indexHtml, /data-language-settings-dialog/);
+  assert.doesNotMatch(indexHtml, /data-lang="(?:ko|en)"/);
   assert.match(gameSource, /crew\.map\(\(person\) => factCard\(person\)\)/);
   assert.doesNotMatch(gameSource, /crew\.map\(factCard\)/);
   assert.doesNotMatch(`${indexHtml}\n${gameSource}\n${engineSource}`, /v0\.[34]/);
+});
+
+test("언어 변경은 안전한 화면 위치를 복원하고 계정 모달은 실제 닫기 버튼에 포커스한다", async () => {
+  const [gameSource, accountSource] = await Promise.all([
+    readProjectFile("game.js"),
+    readProjectFile("account-client.js"),
+  ]);
+
+  assert.match(gameSource, /LOCALE_RETURN_PHASE_KEY/);
+  assert.match(gameSource, /\["welcome", "profile", "home", "intro"\]\.includes\(state\.phase\)/);
+  assert.match(gameSource, /sessionStorage\.getItem\(LOCALE_RETURN_PHASE_KEY\)/);
+  assert.match(accountSource, /\.account-sheet header button/);
+  assert.match(accountSource, /account-modal__backdrop[^>]+aria-hidden="true"/);
+  assert.doesNotMatch(accountSource, /<button class="account-modal__backdrop"/);
 });
 
 test("자유 입력 채팅은 서버 프록시만 사용하고 브라우저에 비밀값을 넣지 않는다", async () => {
@@ -79,6 +101,23 @@ test("자유 입력 채팅은 서버 프록시만 사용하고 브라우저에 �
   assert.doesNotMatch(`${gameSource}\n${adapterSource}\n${indexHtml}`, /OPENAI_API_KEY|api\.openai\.com/);
 });
 
+test("친구방 재연결 횟수는 WebSocket 연결이 아니라 인증된 스냅샷 뒤에만 초기화한다", async () => {
+  const source = await readProjectFile("friend-mode.js");
+  const openHandler = source.slice(
+    source.indexOf('activeSocket.addEventListener("open"'),
+    source.indexOf('activeSocket.addEventListener("message"'),
+  );
+  const snapshotHandler = source.slice(
+    source.indexOf('if (data.type === "snapshot")'),
+    source.indexOf('activeSocket.addEventListener("close"'),
+  );
+
+  assert.doesNotMatch(openHandler, /reconnectAttempt\s*=\s*0/);
+  assert.match(snapshotHandler, /reconnectAttempt\s*=\s*0/);
+  assert.match(source, /Math\.min\(8000, 500 \* \(2 \*\* reconnectAttempt\)\)/);
+  assert.match(source, /async function reconnectSocket\(\)[\s\S]+await refreshSnapshot\(\)[\s\S]+if \(!session\)/);
+});
+
 test("보이스콜 모드는 Figma 통화 구조·접근성·안전한 임시 시크릿 흐름을 유지한다", async () => {
   const [gameSource, voiceSource, coreSource, voiceStyles, indexHtml, soundSource] = await Promise.all([
     readProjectFile("game.js"),
@@ -92,6 +131,7 @@ test("보이스콜 모드는 Figma 통화 구조·접근성·안전한 임시 �
   assert.match(gameSource, /data-action="start"[\s\S]+?\$\{ui\.voice\.playText\}/);
   assert.match(gameSource, /data-action="start-voice"[\s\S]+?\$\{ui\.voice\.playVoice\}/);
   assert.match(gameSource, /function renderVoiceConsent/);
+  assert.match(gameSource, /function renderVoiceConsent[\s\S]{0,600}voiceIsBeta[\s\S]{0,180}voice-beta-badge/);
   assert.match(gameSource, /class="voice-active-avatar/);
   assert.match(gameSource, /class="voice-secondary-avatars"/);
   assert.match(gameSource, /data-action="voice-toggle-mute"/);
@@ -100,6 +140,9 @@ test("보이스콜 모드는 Figma 통화 구조·접근성·안전한 임시 �
   assert.match(gameSource, /data-action="voice-toggle-captions"/);
   assert.match(gameSource, /data-action="voice-end"/);
   assert.match(gameSource, /data-input-mode="voice-text"/);
+  assert.match(gameSource, /friendCallInput\.value = friendCallTextDraft/);
+  assert.match(gameSource, /friendCallTextDraft = friendChatTextDraft/);
+  assert.doesNotMatch(gameSource, /value="\$\{escapeAttribute\(friendCallTextDraft\)\}"/);
   assert.match(gameSource, /VOICE_EXPRESSION_STICKERS/);
   assert.doesNotMatch(`${gameSource}\n${voiceSource}`, /speakGroup/);
   assert.match(voiceSource, /mediaDevices\.getUserMedia/);
@@ -332,10 +375,11 @@ test("계정 UI와 Supabase 설정은 서버 중개와 RLS를 유지한다", asy
   assert.doesNotMatch(accountSource, /SUPABASE_SERVICE_ROLE_KEY/);
 });
 
-test("친구 모드는 서버 권한·실시간 채팅·한영 키 대칭을 유지한다", async () => {
-  const [homeSource, page, client, server, engine, styles, packageSource] = await Promise.all([
+test("친구 모드는 서버 권한·실시간 채팅·7개 언어팩 키 대칭을 유지한다", async () => {
+  const [homeSource, page, bootstrap, client, server, engine, styles, packageSource] = await Promise.all([
     readProjectFile("game.js"),
     readProjectFile("friend.html"),
+    readProjectFile("friend-bootstrap.js"),
     readProjectFile("friend-mode.js"),
     readProjectFile("scripts/app.py"),
     readProjectFile("scripts/multiplayer.py"),
@@ -345,7 +389,8 @@ test("친구 모드는 서버 권한·실시간 채팅·한영 키 대칭을 유
   const { version } = JSON.parse(packageSource);
 
   assert.match(homeSource, /data-action="open-multiplayer"/);
-  assert.ok(page.includes(`friend-mode.js?v=${version}`));
+  assert.ok(page.includes(`friend-bootstrap.js?v=${version}`));
+  assert.ok(bootstrap.includes(`./friend-mode.js?v=${version}`));
   assert.match(client, /sessionStorage/);
   assert.match(client, /new WebSocket/);
   assert.match(client, /expectedSeq/);
@@ -354,17 +399,25 @@ test("친구 모드는 서버 권한·실시간 채팅·한영 키 대칭을 유
   assert.match(engine, /secrets\.token_urlsafe/);
   assert.match(engine, /validated_public_evidence/);
   assert.match(styles, /width: min\(100%, 390px\)/);
-  assert.deepEqual(getFriendTranslationKeys("ko"), getFriendTranslationKeys("en"));
+  const koreanKeys = getFriendTranslationKeys("ko");
+  for (const locale of ["en", "ja", "zh-CN", "zh-TW", "yue-Hant-HK", "es-419"]) {
+    assert.deepEqual(getFriendTranslationKeys(locale), koreanKeys);
+  }
   assert.doesNotMatch(`${page}\n${client}`, /OPENAI_API_KEY|api\.openai\.com/);
 });
 
-test("생성형 미디어는 상황·대화 상대와 함께 판정되고 로컬 GIF·KO/EN 구조도를 사용한다", async () => {
-  const [gameSource, adapterSource, styles, koMap, enMap, astronaut, ...stickers] = await Promise.all([
+test("생성형 미디어는 상황·대화 상대와 함께 판정되고 로컬 GIF·7개 언어 구조도를 사용한다", async () => {
+  const [gameSource, adapterSource, styles, koMap, enMap, jaMap, zhCNMap, zhTWMap, yueMap, esMap, astronaut, ...stickers] = await Promise.all([
     readProjectFile("game.js"),
     readProjectFile("chat-adapter.js"),
     readProjectFile("styles.css"),
     readFile(new URL("assets/images/game/habitat-map-ko-v1.jpg", projectRoot)),
     readFile(new URL("assets/images/game/habitat-map-en-v1.jpg", projectRoot)),
+    readFile(new URL("assets/images/game/habitat-map-ja-v1.jpg", projectRoot)),
+    readFile(new URL("assets/images/game/habitat-map-zh-CN-v1.jpg", projectRoot)),
+    readFile(new URL("assets/images/game/habitat-map-zh-TW-v1.jpg", projectRoot)),
+    readFile(new URL("assets/images/game/habitat-map-yue-Hant-HK-v1.jpg", projectRoot)),
+    readFile(new URL("assets/images/game/habitat-map-es-419-v1.jpg", projectRoot)),
     readFile(new URL("assets/images/mafia-astronaut-v2.gif", projectRoot)),
     ...[
       "mina-capture-v1.gif", "mina-deny-v1.gif", "mina-inspect-v1.gif",
@@ -383,7 +436,7 @@ test("생성형 미디어는 상황·대화 상대와 함께 판정되고 로컬
   assert.match(adapterSource, /filter\(\(\{ text \}\) => typeof text === "string"/);
   assert.match(styles, /\.chat-media-card/);
   assert.match(styles, /\.sticker-option/);
-  assert.ok(koMap.byteLength > 40_000 && enMap.byteLength > 40_000);
+  assert.ok([koMap, enMap, jaMap, zhCNMap, zhTWMap, yueMap, esMap].every((map) => map.byteLength > 40_000));
   assert.equal(astronaut.subarray(0, 3).toString(), "GIF");
   assert.ok(stickers.every((sticker) => sticker.subarray(0, 3).toString() === "GIF" && sticker.byteLength > 40_000));
   assert.doesNotMatch(gameSource, /https?:\/\/[^"']+\.(?:png|jpe?g|gif|webp)/i);
@@ -447,6 +500,27 @@ test("첫 화면 CRT는 로컬 Replicate 장면을 반복 재생하고 동작 �
   assert.match(styles, /@media \(prefers-reduced-motion: reduce\)[\s\S]+\.welcome-tv-video/);
   assert.ok(poster.byteLength > 100_000);
   assert.ok(video.byteLength > 100_000);
+});
+
+test("캐릭터 추리 모션은 증거·반응·의심·투표를 연결하고 동작 줄이기를 지킨다", async () => {
+  const [gameSource, styles] = await Promise.all([
+    readProjectFile("game.js"),
+    readProjectFile("styles.css"),
+  ]);
+
+  assert.match(gameSource, /evidencePlantingTargetId/);
+  assert.match(gameSource, /reducedMotion\.matches \? 0 : 360/);
+  assert.match(gameSource, /function renderDeductionFlow\(\)/);
+  assert.match(gameSource, /class="deduction-flow is-\$\{connection\}"/);
+  assert.match(gameSource, /class="result-verdict/);
+  assert.match(gameSource, /class="vote-token"/);
+  assert.match(gameSource, /data-affinity="\$\{affinityTier\}"/);
+  assert.match(gameSource, /class="debrief-flashback"/);
+  assert.match(gameSource, /class="archive-reply-avatar"/);
+  assert.match(styles, /@keyframes evidence-card-plant/);
+  assert.match(styles, /@keyframes vote-token-drop/);
+  assert.match(styles, /@keyframes crt-break/);
+  assert.match(styles, /@media \(prefers-reduced-motion: reduce\)[\s\S]+\.deduction-step[\s\S]+\.vote-token/);
 });
 
 function assertMatchingLocaleShape(first, second, path = "copy") {
